@@ -360,7 +360,7 @@ window.addEventListener('pointerup', () => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, textarea')) return;
+  if (e.target.matches('input, textarea, select') || e.target.closest('#remote-dialog')) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); }
   else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); run('redo'); }
