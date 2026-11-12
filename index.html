@@ -15,6 +15,8 @@
     <div class="grow"></div>
     <button class="ai" disabled title="AI features come later">Help: ask the editor</button>
     <button class="ai" disabled title="AI features come later">All AI commands</button>
+    <button id="t2v-open" class="ai" title="Generate a clip from a text prompt">Text to video</button>
+    <button id="remote-open">Remote machines</button>
     <button id="export-top" class="primary" data-action="export">Export</button>
   </header>
 
@@ -23,7 +25,8 @@
       <div class="monitor" role="img" aria-label="Program monitor">
         <span class="mon-l">Program · 1920 × 1080</span>
         <span class="mon-r" id="page-name"></span>
-        <span class="mon-c" id="preview-text"></span>
+        <video id="program-video" class="program-video" playsinline preload="auto" hidden></video>
+      <span class="mon-c" id="preview-text"></span>
       </div>
       <div class="transport">
         <button data-action="play" id="play-btn" aria-label="Play" style="width:44px">▶</button>
@@ -77,6 +80,65 @@
     </div>
   </section>
 </div>
+<div id="remote-dialog" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="rm-title">
+    <div class="modal-head">
+      <h2 id="rm-title">Remote machines</h2>
+      <button id="rm-close">Close</button>
+    </div>
+    <div id="rm-message" class="rm-msg" aria-live="polite"></div>
+    <div id="rm-body"></div>
+  </div>
+</div>
+<div id="t2v-dialog" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="t2v-title">
+    <div class="modal-head">
+      <h2 id="t2v-title">Text to video</h2>
+      <button id="t2v-close">Close</button>
+    </div>
+    <form id="t2v-form" class="t2v-form">
+      <label class="t2v-wide">Prompt
+        <textarea name="prompt" rows="4" maxlength="4000" placeholder="e.g. A red sailboat rocks gently on blue water, locked-off wide shot" required></textarea>
+      </label>
+      <label>Length (seconds)
+        <input name="seconds" type="number" min="1" max="60" step="1" value="2" required>
+      </label>
+      <label>Resolution
+        <select name="resolution">
+          <option value="320" selected>320p</option>
+          <option value="480">480p · 854 × 480</option>
+          <option value="640">640p · 1138 × 640</option>
+          <option value="720">720p · 1280 × 720</option>
+        </select>
+      </label>
+      <label>Quality
+        <select name="quality">
+          <option value="draft">Draft · fastest</option>
+          <option value="normal" selected>Normal</option>
+          <option value="ultra">Ultra · slowest, most detail</option>
+        </select>
+      </label>
+      <label>Steps
+        <input name="steps" type="number" min="1" max="100" step="1" value="4" placeholder="auto">
+      </label>
+      <label>Aspect
+        <input value="16:9 (project default)" disabled>
+      </label>
+      <label class="t2v-wide">Mannimmate folder
+        <input name="mannimmateDir" autocomplete="off">
+      </label>
+      <div class="t2v-wide t2v-actions">
+        <button type="submit" class="ai" id="t2v-generate">Generate</button>
+        <button type="button" id="t2v-cancel" disabled>Cancel render</button>
+      </div>
+    </form>
+    <div id="t2v-status" class="t2v-status" aria-live="polite"></div>
+    <div id="t2v-progress" class="t2v-progress" hidden><div id="t2v-bar"></div></div>
+    <div id="t2v-result" class="t2v-result"></div>
+  </div>
+</div>
 <script type="module" src="src/app.js"></script>
+<script type="module" src="src/ai-ui.js"></script>
+<script type="module" src="src/remote-ui.js"></script>
 </body>
 </html>

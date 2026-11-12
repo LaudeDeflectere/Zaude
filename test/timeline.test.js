@@ -135,3 +135,13 @@ test('moveClip shifts a clip and stops at neighbours and zero', () => {
   assert.equal(T.moveClip(clips, 'b', 100)[1].start, 104);
   assert.equal(T.moveClip(clips, 'a', -5)[0].start, 0);
 });
+
+test('placeRange puts a clip in a free range and replaces what it covers', () => {
+  const clips = [clip({ id: 'a', track: 'V1', start: 0, dur: 10 })];
+  const out = T.placeRange(clips, 'V1', 4, 2, { id: 'gen', name: 'Generating…' });
+  const gen = out.find((c) => c.id === 'gen');
+  assert.equal(gen.start, 4);
+  assert.equal(gen.dur, 2);
+  const v1 = out.filter((c) => c.track === 'V1').sort((p, q) => p.start - q.start);
+  assert.deepEqual(v1.map((c) => [c.start, c.dur]), [[0, 4], [4, 2], [6, 4]]);
+});
