@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zaude</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="small">Make this window at least 1100 × 740 to show the editor.</div>
+<div class="app">
+  <header class="topbar">
+    <b class="brand">Zaude</b>
+    <nav id="tabs" class="tabs" aria-label="Pages"></nav>
+    <div class="grow"></div>
+    <button class="ai" disabled title="AI features come later">Help: ask the editor</button>
+    <button class="ai" disabled title="AI features come later">All AI commands</button>
+    <button id="export-top" class="primary" data-action="export">Export</button>
+  </header>
+
+  <div class="upper">
+    <div class="monitor-wrap">
+      <div class="monitor" role="img" aria-label="Program monitor">
+        <span class="mon-l">Program · 1920 × 1080</span>
+        <span class="mon-r" id="page-name"></span>
+        <span class="mon-c" id="preview-text"></span>
+      </div>
+      <div class="transport">
+        <button data-action="play" id="play-btn" aria-label="Play" style="width:44px">▶</button>
+        <span id="timecode" class="tc"></span>
+        <div class="grow"></div>
+        <span class="lbl">Last action</span>
+        <span id="log" class="log" aria-live="polite"></span>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="controls-head">
+        <span class="lbl" id="controls-label"></span>
+        <span class="muted" id="selected-label"></span>
+      </div>
+      <div id="tools" class="tools"></div>
+      <div class="hint">Click a clip to select it. Then hold Ctrl and two-finger swipe to change its length, Shift to move it, or Alt to slip its media. Zoom with + / − or Fit.</div>
+    </div>
+  </div>
+
+  <section class="timeline" aria-label="Timeline">
+    <div class="tl-body">
+      <div class="labels">
+        <div class="tlbl">Video 2</div>
+        <div class="tlbl">Video 1</div>
+        <div class="tlbl">Audio 1</div>
+        <div class="tlbl">Audio 2</div>
+      </div>
+      <div class="scroller" id="scroller">
+        <div id="canvas" class="canvas">
+          <div id="ruler" class="ruler" aria-label="Ruler; click to move playhead"></div>
+          <div id="tracks" class="tracks"></div>
+          <div id="playhead" class="playhead" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+    <div class="tl-bar">
+      <button data-action="undo" aria-label="Undo" title="Undo">↶</button>
+      <button data-action="redo" aria-label="Redo" title="Redo">↷</button>
+      <span class="sep"></span>
+      <button data-action="split" aria-label="Split at playhead" title="Split at playhead">✂ Split</button>
+      <button data-action="trim" aria-label="Trim end to playhead" title="Trim end to playhead">Trim</button>
+      <button data-action="delete" aria-label="Delete" title="Delete">Delete</button>
+      <button data-action="duplicate" aria-label="Duplicate" title="Duplicate">Duplicate</button>
+      <button data-action="snap" id="snap-btn" aria-label="Magnetic snap" title="Magnetic snap">Snap</button>
+      <span class="sep"></span>
+      <button data-action="zoomOut" aria-label="Zoom out timeline" title="Zoom out (−)">−</button>
+      <button data-action="zoomIn" aria-label="Zoom in timeline" title="Zoom in (+)">+</button>
+      <button data-action="fit" aria-label="Fit timeline" title="Fit whole timeline">Fit</button>
+      <div class="grow"></div>
+      <span class="muted" id="tl-info"></span>
+    </div>
+  </section>
+</div>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
