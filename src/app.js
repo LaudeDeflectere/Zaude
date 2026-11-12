@@ -243,6 +243,7 @@ function tick(ts) {
   const end = T.projectEnd(state.clips);
   if (state.playhead >= end) { state.playhead = end; state.playing = false; render(); return; }
   updatePlayhead();
+  syncVideo().catch(() => {});
   requestAnimationFrame(tick);
 }
 
@@ -293,7 +294,10 @@ function renderTimeline() {
       const kind = c.name.endsWith('.wav') ? 'audio' : c.name.startsWith('Title') ? 'title' : 'video';
       const speed = c.speed !== 1 ? ` ×${c.speed}` : '';
       const sel = c.id === state.selected ? ' sel' : '';
-      return `<div class="blk ${kind}${sel}" role="button" tabindex="0" data-clip="${c.id}" aria-label="${esc(c.name)}" style="left:${c.start * state.pps}px;width:${Math.max(4, c.dur * state.pps)}px">${c.transition ? '<span class="tr" title="Cross dissolve"></span>' : ''}${esc(c.name + speed)}</div>`;
+      const gen = c.generating ? ' gen' : '';
+      const pct = Math.round((c.progress || 0) * 100);
+      const fill = c.generating ? `<span class="gen-fill${c.progress == null ? ' pulse' : ''}" style="width:${pct}%"></span>` : '';
+      return `<div class="blk ${kind}${sel}${gen}" role="button" tabindex="0" data-clip="${c.id}" aria-label="${esc(c.name)}" style="left:${c.start * state.pps}px;width:${Math.max(4, c.dur * state.pps)}px">${fill}${c.transition ? '<span class="tr" title="Cross dissolve"></span>' : ''}<span class="blk-label">${esc(c.name + speed)}</span></div>`;
     }).join('');
     return `<div class="trk" data-track="${tr.id}">${blocks}</div>`;
   }).join('');
@@ -316,6 +320,49 @@ function updatePlayhead() {
 function updatePreview() {
   const c = T.clipAt(state.clips, state.playhead);
   $('preview-text').textContent = c ? `${c.name} · ${T.timecode(state.playhead)}` : 'No clip at playhead';
+  syncVideo().catch(() => {});
+}
+
+// ---------- program monitor video ----------
+// Plays the clip under the playhead when it has a file (generated clips). Other clips show the text preview.
+const programVideo = $('program-video');
+let videoClipId = null;
+let videoLoadToken = 0;
+
+function showPreviewText(on) {
+  $('preview-text').hidden = on;
+}
+
+async function syncVideo() {
+  // Titles and other overlays have no file, so the monitor shows the topmost clip that has one.
+  const c = T.clipAt(state.clips.filter((x) => x.path), state.playhead);
+  if (!c || !c.path || !window.zaudeAI) {
+    programVideo.hidden = true;
+    showPreviewText(false);
+    if (!programVideo.paused) programVideo.pause();
+    videoClipId = null;
+    return;
+  }
+  if (videoClipId !== c.id) {
+    videoClipId = c.id;
+    const token = ++videoLoadToken;
+    const res = await window.zaudeAI.mediaUrl(c.path);
+    if (token !== videoLoadToken) return; // the playhead moved on while we waited
+    if (!res.ok) {
+      programVideo.hidden = true;
+      showPreviewText(false);
+      return;
+    }
+    programVideo.src = res.url;
+  }
+  programVideo.hidden = false;
+  showPreviewText(true);
+  const want = c.srcIn + (state.playhead - c.start) * c.speed;
+  if (!state.playing || Math.abs(programVideo.currentTime - want) > 0.15) {
+    try { programVideo.currentTime = Math.max(0, want); } catch { /* not loaded yet */ }
+  }
+  if (state.playing && programVideo.paused) programVideo.play().catch(() => {});
+  if (!state.playing && !programVideo.paused) programVideo.pause();
 }
 
 function render() {
@@ -370,5 +417,29 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '-' || e.key === '_') run('zoomOut');
   else if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selected) run('delete'); }
 });
+
+// ---------- text to video: a placeholder clip that fills as the render progresses ----------
+window.addEventListener('zaude:t2v', (e) => onGenerationEvent(e.detail));
+
+function onGenerationEvent(d) {
+  const id = 'gen-' + d.id;
+  if (d.type === 'start') {
+    const props = { id, name: 'Generating…', generating: true, progress: null, srcDur: d.seconds, srcIn: 0, speed: 1, transition: 0 };
+    state.clips = T.placeRange(state.clips, 'V1', state.playhead, d.seconds, props);
+    state.selected = id;
+    state.log = 'Generating a ' + d.seconds + ' s clip…';
+  } else if (d.type === 'progress') {
+    state.clips = state.clips.map((c) => (c.id === id ? { ...c, progress: typeof d.progress === 'number' ? d.progress : null } : c));
+    if (d.label) state.log = d.label;
+  } else if (d.type === 'done') {
+    const name = d.path.split(/[\\/]/).pop();
+    state.clips = state.clips.map((c) => (c.id === id ? { ...c, name, generating: false, progress: undefined, path: d.path } : c));
+    state.log = 'Saved ' + name;
+  } else if (d.type === 'error' || d.type === 'cancelled') {
+    state.clips = T.deleteClip(state.clips, id);
+    state.log = d.type === 'cancelled' ? 'Generation cancelled' : 'Generation failed: ' + (d.message || 'unknown error');
+  }
+  render();
+}
 
 render();

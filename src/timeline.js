@@ -211,3 +211,12 @@ export function moveClip(clips, id, deltaSec) {
   const start = Math.min(Math.max(c.start + deltaSec, prevEnd, 0), nextStart - c.dur);
   return clips.map((x) => (x.id === id ? { ...x, start } : { ...x }));
 }
+
+// Puts a clip with the given properties on a track at t, replacing whatever it overlaps.
+export function placeRange(clips, track, t, dur, props) {
+  const end = t + dur;
+  let next = splitAt(clips, t, track);
+  next = splitAt(next, end, track);
+  next = next.filter((c) => !(c.track === track && c.start >= t - EPS && clipEnd(c) <= end + EPS));
+  return [...next, { track, start: t, dur, ...props }];
+}
