@@ -10,6 +10,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #7DD3FC; out
 button.on { background: #2A2A36; color: #fff; }
 button.primary { background: #ECECF2; color: #15151B; border-color: #ECECF2; font-weight: 600; }
 button.ai { background: rgba(139,92,246,.18); border-color: var(--accent); color: #EDE6FF; }
+button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; color: #D1FAE5; font-weight: 600; }
 .grow { flex: 1; }
 .muted { color: var(--muted); }
 .lbl { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }

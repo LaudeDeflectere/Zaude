@@ -24,6 +24,17 @@ contextBridge.exposeInMainWorld('zaudeRender', {
   },
 });
 
+contextBridge.exposeInMainWorld('zaudeUpdate', {
+  status: () => ipcRenderer.invoke('update:status'),
+  check: () => ipcRenderer.invoke('update:check'),
+  install: () => ipcRenderer.invoke('update:install'),
+  onStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('zaudeAI', {
   getSettings: () => ipcRenderer.invoke('ai:settings:get'),
   setSettings: (input) => ipcRenderer.invoke('ai:settings:set', input),

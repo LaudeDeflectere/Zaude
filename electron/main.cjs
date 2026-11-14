@@ -9,6 +9,8 @@ const remote = require('./remote-analysis.cjs');
 const media = require('./media.cjs');
 const project = require('./project.cjs');
 const render = require('./render.cjs');
+const updater = require('./updater.cjs');
+const { spawn } = require('node:child_process');
 const mediaHandler = media.createMediaHandler(() => mediaRoots());
 let serverPort = 0;
 
@@ -264,12 +266,17 @@ function registerAiHandlers() {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const output = path.join(folder, `${safeName}-${stamp}.mp4`);
     const sender = event.sender;
-    return render.renderTimeline({
-      clips: input.clips,
-      resolution: input.resolution,
-      output,
-      onProgress: (p) => { if (!sender.isDestroyed()) sender.send('render:progress', p); },
-    });
+    renderRunning = true;
+    try {
+      return await render.renderTimeline({
+        clips: input.clips,
+        resolution: input.resolution,
+        output,
+        onProgress: (p) => { if (!sender.isDestroyed()) sender.send('render:progress', p); },
+      });
+    } finally {
+      renderRunning = false;
+    }
   });
 
   ipcMain.handle('ai:reveal', (_e, filePath) => {
@@ -279,7 +286,129 @@ function registerAiHandlers() {
   });
 }
 
+// ---------- updates ----------
+// Checks the newest GitHub release shortly after start and then every 6 hours. Nothing is installed
+// without the user's OK: the Update button asks first, downloads the build, then the app restarts on it.
+const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+let renderRunning = false;
+let update = { busy: false, message: '', available: false, latest: null, tag: null, assetName: null, checkedAt: null, error: null };
+
+function updateStatus() {
+  return {
+    ...update,
+    current: app.getVersion(),
+    canInstall: Boolean(updater.installTarget(process.platform, process.env)),
+  };
+}
+
+function broadcastUpdate() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.webContents.isDestroyed()) win.webContents.send('update:status', updateStatus());
+  }
+}
+
+async function checkForUpdate() {
+  if (update.busy) return updateStatus();
+  update = { ...update, busy: true, message: 'Checking GitHub…', error: null };
+  broadcastUpdate();
+  const release = await updater.fetchLatestRelease();
+  const checkedAt = new Date().toISOString();
+  if (!release.ok) {
+    update = { ...update, busy: false, message: '', available: false, error: release.error, checkedAt };
+  } else {
+    const asset = updater.pickAsset(release.assets, process.platform);
+    const newer = updater.isNewer(release.version, app.getVersion());
+    const error = newer && !asset ? 'A newer version exists but has no build for this system yet.' : null;
+    update = {
+      ...update,
+      busy: false,
+      message: '',
+      available: newer && Boolean(asset),
+      latest: release.version,
+      tag: release.tag,
+      assetName: asset ? asset.name : null,
+      error,
+      checkedAt,
+    };
+  }
+  broadcastUpdate();
+  return updateStatus();
+}
+
+async function installUpdate(event) {
+  if (update.busy) return { ok: false, error: 'Wait for the current update step to finish.' };
+  if (!update.available || !update.tag || !update.assetName) return { ok: false, error: 'No update is ready. Check for updates first.' };
+  const target = updater.installTarget(process.platform, process.env);
+  if (!target) return { ok: false, error: 'This copy runs from source, so it cannot replace itself. Use git pull instead.' };
+  if (activeJob || renderRunning) return { ok: false, error: 'A render is running. Wait for it to finish, then update.' };
+
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const choice = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['Update and restart', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Update Zaude',
+    message: `Zaude ${update.latest} is ready.`,
+    detail: 'Zaude downloads the new version, closes, replaces itself and starts again. Save your project first (Bin > Save project) if you have changes.',
+  });
+  if (choice.response !== 0) return { ok: true, cancelled: true };
+
+  update = { ...update, busy: true, message: `Downloading Zaude ${update.latest}…`, error: null };
+  broadcastUpdate();
+  try {
+    const dir = path.join(app.getPath('temp'), 'zaude-update');
+    const file = await updater.downloadBuild({
+      tag: update.tag,
+      asset: { name: update.assetName },
+      platform: process.platform,
+      dir,
+    });
+    const logFile = path.join(app.getPath('userData'), 'update.log');
+    const args = { pid: process.pid, newFile: file, target, logFile };
+    let scriptPath;
+    let child;
+    fs.mkdirSync(dir, { recursive: true });
+    if (process.platform === 'win32') {
+      scriptPath = path.join(dir, 'zaude-update.ps1');
+      fs.writeFileSync(scriptPath, updater.windowsScript(args));
+      child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      scriptPath = path.join(dir, 'zaude-update.sh');
+      fs.writeFileSync(scriptPath, updater.linuxScript(args), { mode: 0o755 });
+      child = spawn('/bin/sh', [scriptPath], { detached: true, stdio: 'ignore' });
+    }
+    await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('spawn', resolve);
+    });
+    child.unref();
+    update = { ...update, busy: false, message: 'Restarting…' };
+    setTimeout(() => app.quit(), 200);
+    return { ok: true };
+  } catch (err) {
+    update = { ...update, busy: false, message: '', error: err.message || String(err) };
+    broadcastUpdate();
+    return { ok: false, error: update.error };
+  }
+}
+
+function registerUpdateHandlers() {
+  ipcMain.handle('update:status', () => updateStatus());
+  ipcMain.handle('update:check', () => checkForUpdate());
+  ipcMain.handle('update:install', (event) => installUpdate(event));
+}
+
 registerRemoteHandlers();
 registerAiHandlers();
-app.whenReady().then(createWindow);
+registerUpdateHandlers();
+app.whenReady().then(async () => {
+  await createWindow();
+  setTimeout(() => checkForUpdate(), 15000).unref();
+  setInterval(() => checkForUpdate(), UPDATE_EVERY_MS).unref();
+});
 app.on('window-all-closed', () => app.quit());
