@@ -54,3 +54,49 @@ mtest('the media server serves allowed files, ranges, and refuses everything els
     fsm.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+import project from '../electron/project.cjs';
+
+mtest('parseProbe reads duration, video, and audio from ffprobe output', () => {
+  const info = project.parseProbe({
+    format: { duration: '12.3456' },
+    streams: [{ codec_type: 'video', width: 1920, height: 1080 }, { codec_type: 'audio' }],
+  });
+  mediaAssert.deepEqual(info, { duration: 12.346, hasVideo: true, hasAudio: true, width: 1920, height: 1080 });
+  mediaAssert.equal(project.parseProbe({ streams: [] }).duration, null);
+});
+
+mtest('scanFolder lists media files, skips other files, and uses the probe results', async () => {
+  const dir = fsm.mkdtempSync(pathm.join(osm.tmpdir(), 'zaude-proj-'));
+  fsm.mkdirSync(pathm.join(dir, 'sub'));
+  fsm.writeFileSync(pathm.join(dir, 'beach.mp4'), 'x');
+  fsm.writeFileSync(pathm.join(dir, 'sub', 'voice.wav'), 'x');
+  fsm.writeFileSync(pathm.join(dir, 'notes.txt'), 'x');
+  try {
+    const r = await project.scanFolder(dir, async (f) => ({
+      duration: 3, hasVideo: f.endsWith('.mp4'), hasAudio: true, width: 1, height: 1,
+    }));
+    mediaAssert.equal(r.ok, true);
+    mediaAssert.deepEqual(r.media.map((m) => m.name), ['beach.mp4', 'voice.wav']);
+    mediaAssert.equal(r.media[0].kind, 'video');
+    mediaAssert.equal(r.media[1].kind, 'audio');
+    mediaAssert.equal(r.media[0].duration, 3);
+    const missing = await project.scanFolder(pathm.join(dir, 'nope'));
+    mediaAssert.equal(missing.ok, false);
+  } finally {
+    fsm.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+mtest('saveProject writes only inside allowed folders and loadProject reads it back', () => {
+  const dir = fsm.mkdtempSync(pathm.join(osm.tmpdir(), 'zaude-save-'));
+  try {
+    const data = { version: 1, name: 'Test', clips: [{ id: 'a' }] };
+    mediaAssert.equal(project.saveProject(dir, data, []).ok, false);
+    mediaAssert.equal(project.saveProject(dir, data, [dir]).ok, true);
+    mediaAssert.deepEqual(project.loadProject(dir).data, data);
+    mediaAssert.equal(project.loadProject(pathm.join(dir, 'missing')).data, null);
+  } finally {
+    fsm.rmSync(dir, { recursive: true, force: true });
+  }
+});

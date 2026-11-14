@@ -1,12 +1,14 @@
 // Desktop shell for Zaude. Starts a tiny local server for the editor files and opens them in a window.
 // A local server is used because browsers refuse ES module scripts loaded from file:// URLs.
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const remote = require('./remote-analysis.cjs');
 const media = require('./media.cjs');
+const project = require('./project.cjs');
+const render = require('./render.cjs');
 const mediaHandler = media.createMediaHandler(() => mediaRoots());
 let serverPort = 0;
 
@@ -109,8 +111,9 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 1100,
-    minHeight: 740,
+    minWidth: 720,
+    minHeight: 480,
+    resizable: true,
     title: 'Zaude',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     autoHideMenuBar: true,
@@ -151,6 +154,7 @@ function loadSettings() {
     mannimmateDir: saved.mannimmateDir || defaultMannimmateDir(),
     python: saved.python || (process.platform === 'win32' ? 'python' : 'python3'),
     outDir: saved.outDir || defaultOutDir(),
+    projectFolders: Array.isArray(saved.projectFolders) ? saved.projectFolders : [],
   };
 }
 
@@ -163,7 +167,12 @@ let activeJob = null; // { id, cancel }
 
 // Folders the editor may play media from: the Zaude output folder and Mannimmate's default output.
 function mediaRoots() {
-  return [loadSettings().outDir, path.join(os.homedir(), 'Videos', 'Mannimmate')];
+  const s = loadSettings();
+  return [s.outDir, path.join(os.homedir(), 'Videos', 'Mannimmate'), ...projectFolders()];
+}
+
+function projectFolders() {
+  return loadSettings().projectFolders || [];
 }
 
 function registerAiHandlers() {
@@ -215,6 +224,52 @@ function registerAiHandlers() {
   ipcMain.handle('ai:mediaUrl', (_e, filePath) => {
     if (!media.isAllowedMedia(filePath, mediaRoots())) return { ok: false, error: 'Not a playable file in the output folders.' };
     return { ok: true, url: `http://127.0.0.1:${serverPort}/media/${media.encodeMediaPath(filePath)}` };
+  });
+
+  // ---------- project folders ----------
+  ipcMain.handle('project:pickFolder', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose a project folder' });
+    if (result.canceled || !result.filePaths.length) return null;
+    const folder = result.filePaths[0];
+    const current = loadSettings();
+    if (!current.projectFolders.includes(folder)) {
+      saveSettings({ ...current, projectFolders: [...current.projectFolders, folder] });
+    }
+    return folder;
+  });
+
+  ipcMain.handle('project:scan', async (_e, folder) => {
+    if (typeof folder !== 'string' || !folder) return { ok: false, error: 'No folder given.' };
+    return project.scanFolder(folder);
+  });
+
+  ipcMain.handle('project:load', (_e, folder) => {
+    if (typeof folder !== 'string' || !folder) return { ok: false, error: 'No folder given.' };
+    return project.loadProject(folder);
+  });
+
+  ipcMain.handle('project:save', (_e, folder, data) => {
+    if (typeof folder !== 'string' || !folder) return { ok: false, error: 'No folder given.' };
+    return project.saveProject(folder, data, projectFolders());
+  });
+
+  // ---------- render the timeline to an MP4 (NVIDIA encoder when available) ----------
+  ipcMain.handle('render:start', async (event, input) => {
+    if (!input || !Array.isArray(input.clips)) return { ok: false, error: 'No timeline to render.' };
+    const folders = projectFolders();
+    const folder = input.folder && folders.includes(input.folder) ? input.folder : loadSettings().outDir;
+    fs.mkdirSync(folder, { recursive: true });
+    const safeName = String(input.name || 'zaude').replace(/[^A-Za-z0-9 _.-]/g, '_').slice(0, 60) || 'zaude';
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const output = path.join(folder, `${safeName}-${stamp}.mp4`);
+    const sender = event.sender;
+    return render.renderTimeline({
+      clips: input.clips,
+      resolution: input.resolution,
+      output,
+      onProgress: (p) => { if (!sender.isDestroyed()) sender.send('render:progress', p); },
+    });
   });
 
   ipcMain.handle('ai:reveal', (_e, filePath) => {

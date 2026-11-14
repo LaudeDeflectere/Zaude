@@ -8,6 +8,22 @@ contextBridge.exposeInMainWorld('zaudeRemote', {
   analyze: (id) => ipcRenderer.invoke('remote:analyze', id),
 });
 
+contextBridge.exposeInMainWorld('zaudeProject', {
+  pickFolder: () => ipcRenderer.invoke('project:pickFolder'),
+  scan: (folder) => ipcRenderer.invoke('project:scan', folder),
+  load: (folder) => ipcRenderer.invoke('project:load', folder),
+  save: (folder, data) => ipcRenderer.invoke('project:save', folder, data),
+});
+
+contextBridge.exposeInMainWorld('zaudeRender', {
+  start: (input) => ipcRenderer.invoke('render:start', input),
+  onProgress: (callback) => {
+    const listener = (_event, p) => callback(p);
+    ipcRenderer.on('render:progress', listener);
+    return () => ipcRenderer.removeListener('render:progress', listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('zaudeAI', {
   getSettings: () => ipcRenderer.invoke('ai:settings:get'),
   setSettings: (input) => ipcRenderer.invoke('ai:settings:set', input),

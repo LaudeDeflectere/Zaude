@@ -8,6 +8,13 @@ const MIME = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
   '.wav': 'audio/wav',
+  '.mkv': 'video/x-matroska',
+  '.m4v': 'video/mp4',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.ogg': 'audio/ogg',
 };
 
 function encodeMediaPath(filePath) {

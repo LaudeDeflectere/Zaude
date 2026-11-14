@@ -22,7 +22,7 @@ export const INSERT_LENGTH = 6; // seconds placed on the timeline by Insert / Ov
 
 export function initialClips() {
   const c = (track, name, start, dur, srcDur, extra = {}) => ({
-    id: newId(), track, name, start, dur, srcDur, srcIn: 0, speed: 1, transition: 0, ...extra,
+    id: newId(), track, name, start, dur, srcDur, srcIn: 0, speed: 1, transition: 0, kind: kindOfName(name), volume: 1, opacity: 1, muted: false, ...extra,
   });
   return [
     c('V2', 'Title · Natural Moment', 2.5, 14, 14),
@@ -219,4 +219,68 @@ export function placeRange(clips, track, t, dur, props) {
   next = splitAt(next, end, track);
   next = next.filter((c) => !(c.track === track && c.start >= t - EPS && clipEnd(c) <= end + EPS));
   return [...next, { track, start: t, dur, ...props }];
+}
+
+// ---------- media kinds, audio, and properties ----------
+
+const VIDEO_EXT = ['.mp4', '.mov', '.webm', '.mkv', '.m4v'];
+const AUDIO_EXT = ['.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg'];
+
+// 'video', 'audio', or 'title' for a file name. Clips without a file are titles or generated placeholders.
+export function kindOfName(name) {
+  const lower = String(name || '').toLowerCase();
+  if (VIDEO_EXT.some((e) => lower.endsWith(e))) return 'video';
+  if (AUDIO_EXT.some((e) => lower.endsWith(e))) return 'audio';
+  return 'title';
+}
+
+// Clip properties with their limits, used by the Ctrl+drag and wheel controls.
+export const PROPS = {
+  volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: (v) => Math.round(v * 100) + '%' },
+  opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: (v) => Math.round(v * 100) + '%' },
+};
+
+export function propValue(clip, prop) {
+  const def = PROPS[prop];
+  const v = clip[prop];
+  return typeof v === 'number' ? v : def.default;
+}
+
+export function setProp(clips, id, prop, value) {
+  const def = PROPS[prop];
+  if (!def) return null;
+  const v = Math.min(def.max, Math.max(def.min, Math.round(value / def.step) * def.step));
+  return clips.map((c) => (c.id === id ? { ...c, [prop]: v } : { ...c }));
+}
+
+// Puts the audio of a video clip on a free audio track as its own clip, and mutes the video.
+// Returns { clips } or { error }.
+export function detachAudio(clips, id) {
+  const c = findClip(clips, id);
+  if (!c || c.kind !== 'video') return { error: 'Select a video clip to detach its audio.' };
+  if (c.hasAudio === false) return { error: 'This clip has no audio track.' };
+  if (c.muted) return { error: 'This clip’s audio is already detached.' };
+  const busy = (track) => clips.some((x) => x.track === track && x.start < clipEnd(c) - EPS && clipEnd(x) > c.start + EPS);
+  const track = ['A1', 'A2'].find((t) => !busy(t));
+  if (!track) return { error: 'No free audio track at this point. Clear space on Audio 1 or Audio 2 first.' };
+  const audio = { ...c, id: newId(), track, kind: 'audio', muted: false, volume: c.volume ?? 1, opacity: 1, transition: 0, linkedTo: c.id, name: c.name + ' (audio)' };
+  const video = { ...c, muted: true };
+  return { clips: [...clips.filter((x) => x.id !== id).map((x) => ({ ...x })), video, audio] };
+}
+
+// Inserts a media file from the bin at t on a track, moving later clips on that track to the right.
+export function insertFile(clips, track, t, file) {
+  const dur = Math.max(0.1, Number(file.duration) || 5);
+  const split = splitAt(clips, t, track);
+  const shifted = shiftFrom(split, track, t, dur);
+  return [...shifted, {
+    id: newId(), track, start: t, dur, name: file.name, path: file.path,
+    kind: file.kind || kindOfName(file.name), hasAudio: file.hasAudio, srcDur: dur,
+    srcIn: 0, speed: 1, transition: 0, volume: 1, opacity: 1, muted: false,
+  }];
+}
+
+// Sets one flag on a clip (for example muted). Returns a new clip list.
+export function setFlag(clips, id, key, value) {
+  return clips.map((c) => (c.id === id ? { ...c, [key]: value } : { ...c }));
 }
