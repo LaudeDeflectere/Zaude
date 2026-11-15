@@ -135,3 +135,58 @@ test('moveClip shifts a clip and stops at neighbours and zero', () => {
   assert.equal(T.moveClip(clips, 'b', 100)[1].start, 104);
   assert.equal(T.moveClip(clips, 'a', -5)[0].start, 0);
 });
+
+test('placeRange puts a clip in a free range and replaces what it covers', () => {
+  const clips = [clip({ id: 'a', track: 'V1', start: 0, dur: 10 })];
+  const out = T.placeRange(clips, 'V1', 4, 2, { id: 'gen', name: 'Generating…' });
+  const gen = out.find((c) => c.id === 'gen');
+  assert.equal(gen.start, 4);
+  assert.equal(gen.dur, 2);
+  const v1 = out.filter((c) => c.track === 'V1').sort((p, q) => p.start - q.start);
+  assert.deepEqual(v1.map((c) => [c.start, c.dur]), [[0, 4], [4, 2], [6, 4]]);
+});
+
+test('setProp clamps to the property limits and rounds to its step', () => {
+  const clips = [clip({ id: 'a' })];
+  assert.equal(T.setProp(clips, 'a', 'volume', 5)[0].volume, 2);
+  assert.equal(T.setProp(clips, 'a', 'opacity', -1)[0].opacity, 0);
+  assert.equal(T.setProp(clips, 'a', 'volume', 0.504)[0].volume, 0.5);
+});
+
+test('kindOfName tells video, audio and titles apart', () => {
+  assert.equal(T.kindOfName('beach.MP4'), 'video');
+  assert.equal(T.kindOfName('voice.wav'), 'audio');
+  assert.equal(T.kindOfName('Title · Natural Moment'), 'title');
+});
+
+test('detachAudio moves the audio to a free audio track and mutes the video', () => {
+  const clips = [clip({ id: 'v', track: 'V1', kind: 'video', start: 0, dur: 5, hasAudio: true })];
+  const r = T.detachAudio(clips, 'v');
+  assert.ok(r.clips);
+  const video = r.clips.find((c) => c.id === 'v');
+  const audio = r.clips.find((c) => c.kind === 'audio');
+  assert.equal(video.muted, true);
+  assert.equal(audio.track, 'A1');
+  assert.equal(audio.start, 0);
+  assert.equal(audio.dur, 5);
+});
+
+test('detachAudio refuses clips without audio and reports busy audio tracks', () => {
+  assert.ok(T.detachAudio([clip({ id: 'v', kind: 'video', hasAudio: false })], 'v').error);
+  const busy = [
+    clip({ id: 'v', track: 'V1', kind: 'video', start: 0, dur: 5, hasAudio: true }),
+    clip({ id: 'x', track: 'A1', kind: 'audio', start: 0, dur: 5 }),
+    clip({ id: 'y', track: 'A2', kind: 'audio', start: 0, dur: 5 }),
+  ];
+  assert.ok(T.detachAudio(busy, 'v').error);
+});
+
+test('insertFile places a bin file at the playhead and pushes later clips', () => {
+  const clips = [clip({ id: 'a', track: 'V1', start: 2, dur: 4 })];
+  const out = T.insertFile(clips, 'V1', 0, { name: 'beach.mp4', path: '/x/beach.mp4', duration: 3, hasAudio: true });
+  const added = out.find((c) => c.name === 'beach.mp4');
+  assert.equal(added.start, 0);
+  assert.equal(added.dur, 3);
+  assert.equal(added.kind, 'video');
+  assert.equal(out.find((c) => c.id === 'a').start, 5);
+});
