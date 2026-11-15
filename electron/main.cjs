@@ -291,7 +291,7 @@ function registerAiHandlers() {
 // without the user's OK: the Update button asks first, downloads the build, then the app restarts on it.
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 let renderRunning = false;
-let update = { busy: false, message: '', available: false, latest: null, tag: null, assetName: null, checkedAt: null, error: null };
+let update = { busy: false, message: '', available: false, latest: null, tag: null, assetName: null, assetUrl: null, checkedAt: null, error: null };
 
 function updateStatus() {
   return {
@@ -327,6 +327,7 @@ async function checkForUpdate() {
       latest: release.version,
       tag: release.tag,
       assetName: asset ? asset.name : null,
+      assetUrl: asset ? asset.url : null,
       error,
       checkedAt,
     };
@@ -337,7 +338,7 @@ async function checkForUpdate() {
 
 async function installUpdate(event) {
   if (update.busy) return { ok: false, error: 'Wait for the current update step to finish.' };
-  if (!update.available || !update.tag || !update.assetName) return { ok: false, error: 'No update is ready. Check for updates first.' };
+  if (!update.available || !update.tag || !update.assetName || !update.assetUrl) return { ok: false, error: 'No update is ready. Check for updates first.' };
   const target = updater.installTarget(process.platform, process.env);
   if (!target) return { ok: false, error: 'This copy runs from source, so it cannot replace itself. Use git pull instead.' };
   if (activeJob || renderRunning) return { ok: false, error: 'A render is running. Wait for it to finish, then update.' };
@@ -359,8 +360,7 @@ async function installUpdate(event) {
   try {
     const dir = path.join(app.getPath('temp'), 'zaude-update');
     const file = await updater.downloadBuild({
-      tag: update.tag,
-      asset: { name: update.assetName },
+      asset: { name: update.assetName, url: update.assetUrl },
       platform: process.platform,
       dir,
     });

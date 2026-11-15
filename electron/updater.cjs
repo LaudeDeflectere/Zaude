@@ -1,12 +1,14 @@
-// Update support for the desktop app. Checks the newest GitHub release through the GitHub CLI
-// (gh, already signed in on the user's machine), downloads the build for this platform, and
+// Update support for the desktop app. Checks the newest GitHub release over HTTPS,
+// downloads the build for this platform, and
 // swaps it in after the app closes. Pure helpers are exported for tests; nothing here imports electron.
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 
 const REPO = 'fanboysonyofficial-lgtm/Zaude';
 const MIN_BUILD_BYTES = 1024 * 1024;
+const USER_AGENT = 'Zaude-update-check';
 
 // "v1.2.3" or "1.2.3" -> [1, 2, 3]; anything else -> null
 function parseVersion(text) {
@@ -94,55 +96,53 @@ function windowsScript({ pid, newFile, target, logFile }) {
   return '﻿' + body;
 }
 
-// Asks gh for the newest published release. Resolves to { ok, tag, version, assets } or { ok: false, error }.
-function fetchLatestRelease(repo = REPO) {
-  return new Promise((resolve) => {
-    execFile(
-      'gh',
-      ['release', 'view', '--repo', repo, '--json', 'tagName,assets'],
-      { timeout: 60000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const detail = String(stderr || err.message || '').trim().split('\n')[0];
-          if (err.code === 'ENOENT') {
-            return resolve({ ok: false, error: 'The GitHub CLI (gh) is not installed. Updates need it.' });
-          }
-          if (/not logged|authenticat|gh auth login/i.test(detail)) {
-            return resolve({ ok: false, error: 'Sign in to GitHub with gh auth login to check for updates.' });
-          }
-          if (/release not found|no releases/i.test(detail)) {
-            return resolve({ ok: false, error: 'No release has been published yet.' });
-          }
-          return resolve({ ok: false, error: detail || 'Could not reach GitHub.' });
-        }
-        try {
-          const data = JSON.parse(stdout);
-          const version = parseVersion(data.tagName) ? data.tagName.replace(/^v/, '') : null;
-          if (!version) return resolve({ ok: false, error: `Release tag "${data.tagName}" is not a version like v1.2.3.` });
-          resolve({ ok: true, tag: data.tagName, version, assets: data.assets || [] });
-        } catch {
-          resolve({ ok: false, error: 'GitHub sent a reply Zaude could not read.' });
-        }
-      }
-    );
-  });
+// Asks GitHub for the newest published release over HTTPS. No GitHub CLI or sign-in is needed,
+// because the repository is public. Resolves to { ok, tag, version, assets } or { ok: false, error }.
+async function fetchLatestRelease(repo = REPO) {
+  let res;
+  try {
+    res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch {
+    return { ok: false, error: 'Could not reach GitHub. Check the internet connection.' };
+  }
+  if (res.status === 404) return { ok: false, error: 'No release has been published yet.' };
+  if (res.status === 403 || res.status === 429) return { ok: false, error: 'GitHub is limiting requests. Try again later.' };
+  if (!res.ok) return { ok: false, error: `GitHub answered ${res.status}.` };
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    return { ok: false, error: 'GitHub sent a reply Zaude could not read.' };
+  }
+  const version = parseVersion(data.tag_name) ? data.tag_name.replace(/^v/, '') : null;
+  if (!version) return { ok: false, error: `Release tag "${data.tag_name}" is not a version like v1.2.3.` };
+  const assets = (Array.isArray(data.assets) ? data.assets : []).map((a) => ({
+    name: a.name,
+    size: a.size,
+    url: a.browser_download_url,
+  }));
+  return { ok: true, tag: data.tag_name, version, assets };
 }
 
 // Downloads the platform build into dir and checks that it is a real program of the right size.
-async function downloadBuild({ repo = REPO, tag, asset, platform, dir }) {
+async function downloadBuild({ asset, platform, dir }) {
+  if (!asset || !asset.url) throw new Error('This release has no download link for this system.');
   await fs.promises.mkdir(dir, { recursive: true });
-  await new Promise((resolve, reject) => {
-    execFile(
-      'gh',
-      ['release', 'download', tag, '--repo', repo, '--pattern', asset.name, '--dir', dir, '--clobber'],
-      { timeout: 30 * 60 * 1000, windowsHide: true },
-      (err, _stdout, stderr) => {
-        if (err) return reject(new Error(String(stderr || err.message).trim().split('\n')[0] || 'Download failed.'));
-        resolve();
-      }
-    );
-  });
   const file = path.join(dir, asset.name);
+  let res;
+  try {
+    res = await fetch(asset.url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
+  } catch {
+    throw new Error('Could not download the update. Check the internet connection.');
+  }
+  if (!res.ok || !res.body) throw new Error(`The download failed (GitHub answered ${res.status}).`);
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file));
   const stat = await fs.promises.stat(file);
   if (stat.size < MIN_BUILD_BYTES) throw new Error('The downloaded file is too small to be Zaude.');
   const fh = await fs.promises.open(file, 'r');
