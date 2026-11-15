@@ -291,6 +291,7 @@ export function inspectorPanel({ store, actions }) {
       <div class="muted">${esc(c.track)} · start ${c.start.toFixed(2)} s · length ${c.dur.toFixed(2)} s · speed ×${c.speed || 1}</div>
       ${isMedia ? scrubField('volume') : ''}
       ${c.kind === 'video' ? scrubField('opacity') : ''}
+      ${c.kind === 'video' ? scrubField('zoom') : ''}
       ${isMedia ? `<div class="insp-row"><button data-act="mute">${c.muted ? 'Unmute' : 'Mute'}</button>
         ${c.kind === 'video' && c.hasAudio !== false && !c.muted ? '<button data-act="detach">Detach audio</button>' : ''}</div>` : ''}
       <div class="insp-row"><button data-act="delete">Delete clip</button></div>`;

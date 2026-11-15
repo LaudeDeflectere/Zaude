@@ -83,6 +83,9 @@ export function createEngine(store) {
       }
       video.hidden = false;
       video.style.opacity = String(T.propValue(vc, 'opacity'));
+      video.style.transform = `scale(${T.propValue(vc, 'zoom')})`;
+      const rate = Math.min(16, Math.max(0.1, vc.speed || 1)); // browsers refuse rates outside about 0.1 to 16
+      if (video.playbackRate !== rate) video.playbackRate = rate;
       if (!videoGain.tried) {
         videoGain.tried = true;
         try { videoGain.node = gainFor(video); } catch { videoGain.node = null; }

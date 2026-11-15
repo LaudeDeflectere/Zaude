@@ -62,7 +62,7 @@ mtest('parseProbe reads duration, video, and audio from ffprobe output', () => {
     format: { duration: '12.3456' },
     streams: [{ codec_type: 'video', width: 1920, height: 1080 }, { codec_type: 'audio' }],
   });
-  mediaAssert.deepEqual(info, { duration: 12.346, hasVideo: true, hasAudio: true, width: 1920, height: 1080 });
+  mediaAssert.deepEqual(info, { duration: 12.346, hasVideo: true, hasAudio: true, width: 1920, height: 1080, fps: null });
   mediaAssert.equal(project.parseProbe({ streams: [] }).duration, null);
 });
 

@@ -16,6 +16,14 @@ function kindOf(name) {
   return null;
 }
 
+// "30000/1001" -> 29.97. Returns null for a missing or zero rate.
+function parseRate(rate) {
+  const m = /^(\d+)(?:\/(\d+))?$/.exec(String(rate || ''));
+  if (!m) return null;
+  const v = Number(m[1]) / Number(m[2] || 1);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+}
+
 // Reads ffprobe's JSON. Returns { duration, hasVideo, hasAudio, width, height }.
 function parseProbe(json) {
   const streams = Array.isArray(json && json.streams) ? json.streams : [];
@@ -27,6 +35,7 @@ function parseProbe(json) {
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
     width: video ? Number(video.width) || null : null,
     height: video ? Number(video.height) || null : null,
+    fps: video ? parseRate(video.avg_frame_rate) || parseRate(video.r_frame_rate) : null,
   };
 }
 
@@ -85,6 +94,7 @@ async function scanFolder(folder, probe = probeFile) {
       hasAudio: info ? info.hasAudio : null,
       width: info ? info.width : null,
       height: info ? info.height : null,
+      fps: info ? info.fps : null,
     });
   }
   media.sort((a, b) => a.name.localeCompare(b.name));

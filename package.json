@@ -8,7 +8,8 @@
     "start": "python3 -m http.server 8080",
     "desktop": "electron .",
     "test": "node --test \"test/*.test.js\"",
-    "dist": "electron-builder --publish never"
+    "dist": "electron-builder --publish never",
+    "zaude": "node cli/zaude.mjs"
   },
   "devDependencies": {
     "electron": "^36.0.0",
@@ -19,6 +20,7 @@
     "productName": "Zaude",
     "files": [
       "electron/**/*",
+      "cli/**/*",
       "index.html",
       "styles.css",
       "src/**/*",
@@ -65,5 +67,8 @@
     }
   },
   "description": "Video editor interface for Zaude",
-  "author": "Laude Deflectere"
+  "author": "Laude Deflectere",
+  "bin": {
+    "zaude": "cli/zaude.mjs"
+  }
 }

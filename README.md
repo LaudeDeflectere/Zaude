@@ -53,6 +53,29 @@ The installers appear in `dist/`:
 Run the app without building: `npm run desktop`.
 Run the editor in a browser (no AI or remote features): `npm start`, then open http://localhost:8080.
 
+## Editing from the command line
+
+The editor's tools also run without the window, on the same project file (`zaude-project.json` in the footage folder). This is how a long edit can be written down as steps, repeated, and rendered.
+
+```bash
+npm run zaude -- scan "D:/Footage/Sink"            # list the files
+npm run zaude -- transcribe "D:/Footage/Sink"      # speech to text, saved in the folder's .zaude directory
+npm run zaude -- silence "D:/Footage/Sink"         # find the silent parts
+npm run zaude -- edit "D:/Footage/Sink" steps.json # run edit steps on the timeline
+npm run zaude -- render "D:/Footage/Sink"          # render to MP4
+```
+
+`npm run zaude -- help ops` lists the edit steps: add part of a file (with speed, zoom, volume), titles, split, cut a time range, ripple delete, remove silence, and the rest of the timeline tools. `zaude undo` takes back the last edit. Open the same folder in the desktop app to see and adjust the result.
+
+Speech to text needs a Whisper program on the computer. Zaude looks for `whisper-ctranslate2`, `faster-whisper`, `whisper`, or whisper.cpp's `whisper-cli`; `pip install whisper-ctranslate2` is the quickest to set up and uses an NVIDIA card when there is one.
+
+## Rendering
+
+- Each clip is read from its own position in the source, so cutting small parts out of hour-long recordings stays fast.
+- A timeline longer than 30 seconds is rendered in pieces and joined, so the length of the edit does not limit it.
+- Titles are drawn into the picture, zoom crops into the frame, and any speed from 0.1× to 100× is rendered (a time-lapse is a high speed).
+- The NVIDIA encoder is used only after a trial encode succeeds; otherwise the CPU encoder is used.
+
 ## Text to video
 
 The **Text to video** button sends a prompt to the Mannimmate command-line tool, which renders the clip on the GPU machine. You need:

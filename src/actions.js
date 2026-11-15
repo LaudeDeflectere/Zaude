@@ -271,6 +271,7 @@ export function createActions(store, engine) {
     if (!scan.ok) return log('Could not read that folder: ' + scan.error);
     const loaded = await api.load(folder);
     const data = loaded && loaded.ok ? loaded.data : null;
+    if (data && Array.isArray(data.clips)) T.reserveIds(data.clips);
     store.set({
       projectFolder: folder,
       projectName: (data && data.name) || folder.split(/[\\/]/).pop(),

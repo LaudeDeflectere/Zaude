@@ -238,6 +238,7 @@ export function kindOfName(name) {
 export const PROPS = {
   volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: (v) => Math.round(v * 100) + '%' },
   opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: (v) => Math.round(v * 100) + '%' },
+  zoom: { min: 1, max: 4, step: 0.01, default: 1, label: 'Zoom', format: (v) => Math.round(v * 100) + '%' },
 };
 
 export function propValue(clip, prop) {
@@ -283,4 +284,114 @@ export function insertFile(clips, track, t, file) {
 // Sets one flag on a clip (for example muted). Returns a new clip list.
 export function setFlag(clips, id, key, value) {
   return clips.map((c) => (c.id === id ? { ...c, [key]: value } : { ...c }));
+}
+
+// ---------- assembling an edit: free speed, range cuts, titles ----------
+
+export const SPEED_MIN = 0.1;
+export const SPEED_MAX = 100;
+export const VIDEO_TRACKS = ['V2', 'V1'];
+
+// Sets any speed between SPEED_MIN and SPEED_MAX (a time-lapse is a high speed). The clip keeps its
+// source range, changes length on the timeline, and later clips on its track move with it.
+export function setSpeed(clips, id, speed) {
+  const c = findClip(clips, id);
+  if (!c || !Number.isFinite(speed)) return null;
+  const next = Math.min(SPEED_MAX, Math.max(SPEED_MIN, speed));
+  const newDur = sourceUsed(c) / next;
+  const delta = newDur - c.dur;
+  const end = clipEnd(c);
+  return clips.map((x) => {
+    if (x.id === id) return { ...x, speed: next, dur: newDur };
+    if (x.track === c.track && x.start >= end - EPS) return { ...x, start: x.start + delta };
+    return { ...x };
+  });
+}
+
+// End of the last clip on a track, or 0 when the track is empty.
+export function trackEnd(clips, track) {
+  return clips.filter((c) => c.track === track).reduce((m, c) => Math.max(m, clipEnd(c)), 0);
+}
+
+// End of the last clip on any track (unlike projectEnd, which adds room to work in).
+export function contentEnd(clips) {
+  return clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
+}
+
+// Removes the time from..to on every track (or only on `tracks`) and closes the gap.
+export function cutRange(clips, from, to, tracks = null) {
+  if (!(to > from + EPS)) return clips.map((c) => ({ ...c }));
+  const hit = (c) => tracks === null || tracks.includes(c.track);
+  let next = clips;
+  for (const track of TRACK_IDS) {
+    if (tracks !== null && !tracks.includes(track)) continue;
+    next = splitAt(next, from, track);
+    next = splitAt(next, to, track);
+  }
+  const len = to - from;
+  return next
+    .filter((c) => !(hit(c) && c.start >= from - EPS && clipEnd(c) <= to + EPS))
+    .map((c) => (hit(c) && c.start >= to - EPS ? { ...c, start: c.start - len } : { ...c }));
+}
+
+// Removes several ranges at once. Ranges are in timeline time before any of them is cut.
+export function cutRanges(clips, ranges, tracks = null) {
+  const sorted = [...ranges].filter((r) => r.to > r.from + EPS).sort((a, b) => b.from - a.from);
+  return sorted.reduce((acc, r) => cutRange(acc, r.from, r.to, tracks), clips);
+}
+
+// Places the source range srcIn..srcOut of a file on a track. At `at` when given, otherwise after the
+// last clip on that track. Returns { clips, id }.
+export function appendSource(clips, track, file, srcIn, srcOut, props = {}, at = null) {
+  const total = Number(file.duration) || 0;
+  const from = Math.max(0, Number(srcIn) || 0);
+  const to = Math.min(total || Infinity, srcOut == null ? total : Number(srcOut));
+  if (!(to > from + EPS)) return { error: `Nothing to place from ${file.name}: the range ${from}–${to} s is empty.` };
+  const speed = Math.min(SPEED_MAX, Math.max(SPEED_MIN, Number(props.speed) || 1));
+  const id = newId();
+  const kind = file.kind || kindOfName(file.name);
+  const clip = {
+    id, track, start: at == null ? trackEnd(clips, track) : Math.max(0, at), dur: (to - from) / speed,
+    name: file.name, path: file.path, kind, hasAudio: file.hasAudio, srcDur: total || to,
+    srcIn: from, transition: 0, volume: 1, opacity: 1, zoom: 1, muted: false, ...props, speed,
+  };
+  return { clips: [...clips.map((c) => ({ ...c })), clip], id };
+}
+
+// Puts a text title on a video track. It is drawn over the picture below it. Returns { clips, id }.
+export function addTitle(clips, track, t, dur, text, style = {}) {
+  const value = String(text || '').trim();
+  if (!value) return { error: 'A title needs some text.' };
+  if (!(dur > 0)) return { error: 'A title needs a length above 0 s.' };
+  const id = newId();
+  const title = {
+    id, track, start: Math.max(0, t), dur, name: value, text: value, kind: 'title',
+    srcDur: dur, srcIn: 0, speed: 1, transition: 0, volume: 1, opacity: 1, muted: false,
+    position: style.position || 'bottom', size: style.size || 64, color: style.color || 'white',
+  };
+  return { clips: [...clips.map((c) => ({ ...c })), title], id };
+}
+
+// Makes clip ids unique after loading a saved project, so new clips never reuse an old id.
+export function reserveIds(clips) {
+  for (const c of clips) {
+    const m = /^c(\d+)$/.exec(String(c.id));
+    if (m) seq = Math.max(seq, Number(m[1]));
+  }
+}
+
+// Timeline ranges where a clip plays source time inside one of `ranges` (source seconds of `path`).
+// Used to turn silences found in a file into cuts on the timeline.
+export function sourceToTimeline(clips, path, ranges) {
+  const out = [];
+  for (const c of clips) {
+    if (c.path !== path) continue;
+    const srcEnd = c.srcIn + sourceUsed(c);
+    for (const r of ranges) {
+      const a = Math.max(r.from, c.srcIn);
+      const b = Math.min(r.to, srcEnd);
+      if (b > a + EPS) out.push({ from: c.start + (a - c.srcIn) / c.speed, to: c.start + (b - c.srcIn) / c.speed });
+    }
+  }
+  return out;
 }
