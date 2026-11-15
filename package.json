@@ -36,16 +36,32 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "Zaude-${version}-windows-x64.${ext}"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Zaude-${version}-windows-x64-setup.${ext}"
+    },
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb"
       ],
       "category": "Utility",
       "artifactName": "Zaude-${version}-linux-x86_64.${ext}"
+    },
+    "deb": {
+      "maintainer": "Laude Deflectere",
+      "artifactName": "Zaude-${version}-linux-amd64.${ext}"
     }
   },
   "description": "Video editor interface for Zaude",

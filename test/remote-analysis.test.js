@@ -84,7 +84,8 @@ test('parseAnalysis handles a machine with no GPU and no ComfyUI', () => {
   assert.ok(r.notes.some((n) => n.includes('ComfyUI was not found')));
 });
 
-test('the analysis script runs under sh and its output parses', () => {
+// Windows has no `sh` with GNU tools (no `free`), and it analyses machines with PowerShell instead.
+test('the analysis script runs under sh and its output parses', { skip: process.platform === 'win32' }, () => {
   const out = execFileSync("sh", ["-s"], { input: POSIX_SCRIPT }).toString();
   const r = parseAnalysis(out);
   assert.ok(r.cpu.cores > 0);
