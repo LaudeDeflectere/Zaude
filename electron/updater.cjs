@@ -128,7 +128,8 @@ async function fetchLatestRelease(repo = REPO) {
 }
 
 // Downloads the platform build into dir and checks that it is a real program of the right size.
-async function downloadBuild({ asset, platform, dir }) {
+// onProgress(fraction) is called as bytes arrive, when the server says how big the file is.
+async function downloadBuild({ asset, platform, dir, onProgress = () => {} }) {
   if (!asset || !asset.url) throw new Error('This release has no download link for this system.');
   await fs.promises.mkdir(dir, { recursive: true });
   const file = path.join(dir, asset.name);
@@ -142,7 +143,14 @@ async function downloadBuild({ asset, platform, dir }) {
     throw new Error('Could not download the update. Check the internet connection.');
   }
   if (!res.ok || !res.body) throw new Error(`The download failed (GitHub answered ${res.status}).`);
-  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file));
+  const total = Number(res.headers.get('content-length')) || Number(asset.size) || 0;
+  let got = 0;
+  const source = Readable.fromWeb(res.body);
+  source.on('data', (chunk) => {
+    got += chunk.length;
+    if (total) onProgress(Math.min(1, got / total));
+  });
+  await pipeline(source, fs.createWriteStream(file));
   const stat = await fs.promises.stat(file);
   if (stat.size < MIN_BUILD_BYTES) throw new Error('The downloaded file is too small to be Zaude.');
   const fh = await fs.promises.open(file, 'r');

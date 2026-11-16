@@ -1,6 +1,7 @@
 // Everything the editor can do: editing, playback, the bin, the project file, and the AI events.
 // Panels and keyboard shortcuts call these; they change the store and nothing else.
 import * as T from './timeline.js';
+import { reportTask, finishTask } from './tasks.js';
 
 const SNAP_PX = 8;
 export const PPS_MIN = 1;     // whole project visible in a few minutes
@@ -267,7 +268,21 @@ export function createActions(store, engine) {
     if (!api) return log('Importing folders needs the desktop app.');
     const folder = await api.pickFolder();
     if (!folder) return;
-    const scan = await api.scan(folder);
+    const id = 'import';
+    reportTask(id, { label: 'Reading the folder…', progress: null });
+    const off = api.onScanProgress
+      ? api.onScanProgress((p) => reportTask(id, {
+        label: `Reading media ${p.done} of ${p.total}: ${p.name}`,
+        progress: p.total ? p.done / p.total : null,
+      }))
+      : () => {};
+    let scan;
+    try {
+      scan = await api.scan(folder);
+    } finally {
+      off();
+      finishTask(id);
+    }
     if (!scan.ok) return log('Could not read that folder: ' + scan.error);
     const loaded = await api.load(folder);
     const data = loaded && loaded.ok ? loaded.data : null;
@@ -289,12 +304,21 @@ export function createActions(store, engine) {
     store.set({ binSelected: path });
   }
 
+  // Double-click: add the file at the playhead on its usual track.
   function addBinItem(path) {
+    const file = get().media.find((m) => m.path === path);
+    if (!file) return log('Select a file in the bin first.');
+    const track = file.kind === 'audio' ? 'A1' : 'V1';
+    addBinItemAt(path, track, get().playhead);
+  }
+
+  // Drag and drop: add the file on a given track at a given time (later clips on that track move right).
+  function addBinItemAt(path, track, t) {
     const s = get();
     const file = s.media.find((m) => m.path === path);
     if (!file) return log('Select a file in the bin first.');
-    const track = file.kind === 'audio' ? 'A1' : 'V1';
-    commit(T.insertFile(s.clips, track, s.playhead, file), 'Added ' + file.name + ' at ' + T.timecode(s.playhead));
+    const at = Math.max(0, t);
+    commit(T.insertFile(s.clips, track, at, file), 'Added ' + file.name + ' on ' + track + ' at ' + T.timecode(at));
   }
 
   function scheduleSave() {
@@ -359,13 +383,18 @@ export function createActions(store, engine) {
     if (rendering) return log('A render is already running.');
     const s = get();
     rendering = true;
-    const off = api.onProgress((p) => log(`Rendering ${Math.round(p * 100)}%`));
+    const off = api.onProgress((p) => {
+      log(`Rendering ${Math.round(p * 100)}%`);
+      reportTask('render', { label: 'Rendering the timeline to MP4', progress: p });
+    });
     log('Rendering…');
+    reportTask('render', { label: 'Rendering the timeline to MP4', progress: null });
     try {
       const res = await api.start({ clips: s.clips, resolution: s.resolution, folder: s.projectFolder, name: s.projectName });
       log(res.ok ? `Rendered ${res.path} (${res.encoder === 'h264_nvenc' ? 'NVIDIA NVENC' : 'CPU'})` : 'Render failed: ' + res.error);
     } finally {
       off();
+      finishTask('render');
       rendering = false;
     }
   }
@@ -421,7 +450,7 @@ export function createActions(store, engine) {
   return {
     undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, detach,
     setProp, bumpVolume, select, seekTo, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
-    setPage, importFolder, selectBin, addBinItem, saveProject, scheduleSave, generationEvent, runTool, exportProject, exportRender,
+    setPage, importFolder, selectBin, addBinItem, addBinItemAt, saveProject, scheduleSave, generationEvent, runTool, exportProject, exportRender,
     selectedClip, log, commitClips, gesture: trackpadGesture, liveClips,
   };
 }

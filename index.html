@@ -18,6 +18,12 @@
     <button id="export-top" class="primary" data-action="export">Export</button>
   </header>
   <main id="workspace" class="workspace"></main>
+  <footer id="taskbar" class="taskbar" role="status" aria-live="polite" hidden>
+    <span class="task-label"></span>
+    <span class="task-track"><span class="task-fill"></span></span>
+    <span class="task-pct"></span>
+    <span class="task-more muted"></span>
+  </footer>
 </div>
 
 <div id="remote-dialog" class="modal" hidden>
@@ -83,5 +89,6 @@
 <script type="module" src="src/remote-ui.js"></script>
 <script type="module" src="src/ai-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
+<script type="module" src="src/taskbar.js"></script>
 </body>
 </html>

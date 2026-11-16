@@ -1,7 +1,9 @@
 // The content of each window type. Every panel builds its DOM once, updates from the store,
 // and uses delegated listeners so it can be moved or rebuilt without losing state.
 import * as T from './timeline.js';
+import { previewRate } from './timeline.js';
 import { TOOLS, PAGES } from './actions.js';
+import { frameFor, ensureFrames, urlFor } from './thumbs.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const TRACKS = [
@@ -17,6 +19,8 @@ function el(html) {
 
 // ---------- Bin ----------
 
+// Each file is a small 16:9 tile with a still frame. Hovering plays the whole file sped up, so you can
+// see what is in it. Double-click adds it to the timeline at the playhead; drag it onto a track to place it.
 export function binPanel({ store, actions }) {
   const root = el(`<div class="panel bin">
     <div class="panel-bar">
@@ -25,9 +29,12 @@ export function binPanel({ store, actions }) {
     </div>
     <div class="bin-folder muted"></div>
     <ul class="bin-list" role="listbox" aria-label="Bin"></ul>
-    <div class="hint muted">Double-click a file to add it to the timeline at the playhead. Audio goes on Audio 1.</div>
+    <div class="hint muted">Drag a file onto a track, or double-click it to add it at the playhead. Hover to preview.</div>
   </div>`);
   const list = root.querySelector('.bin-list');
+  let lastKey = null;
+  let hoverTile = null;
+  let preview = null;
 
   root.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]');
@@ -44,25 +51,112 @@ export function binPanel({ store, actions }) {
     if (item) actions.addBinItem(item.dataset.bin);
   });
 
+  function stopPreview() {
+    if (preview) {
+      preview.pause();
+      preview.removeAttribute('src');
+      preview.remove();
+      preview = null;
+    }
+    if (hoverTile) hoverTile.classList.remove('previewing');
+    hoverTile = null;
+  }
+
+  async function startPreview(tile) {
+    const path = tile.dataset.bin;
+    const file = store.get().media.find((m) => m.path === path);
+    if (!file || !file.hasVideo) return;
+    hoverTile = tile;
+    tile.classList.add('previewing');
+    const url = await urlFor(path);
+    // the pointer may have moved on while the URL was fetched
+    if (!url || hoverTile !== tile) return;
+    const v = document.createElement('video');
+    v.className = 'bin-preview';
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.addEventListener('loadedmetadata', () => {
+      v.playbackRate = previewRate(file.duration);
+      v.play().catch(() => {});
+    }, { once: true });
+    v.src = url;
+    tile.querySelector('.bin-thumb').appendChild(v);
+    preview = v;
+  }
+
+  list.addEventListener('pointerover', (e) => {
+    const tile = e.target.closest('.bin-tile');
+    if (tile === hoverTile) return;
+    stopPreview();
+    if (tile) startPreview(tile);
+  });
+  list.addEventListener('pointerleave', stopPreview);
+
+  function tileHtml(m) {
+    const frame = frameFor(m.path);
+    const thumb = m.hasVideo
+      ? (frame ? `<img alt="" src="${frame}">` : '<span class="muted">▶</span>')
+      : '<span class="muted">♪</span>';
+    const dur = m.duration ? `<span class="bin-dur">${m.duration.toFixed(1)} s</span>` : '';
+    const badges = [m.hasVideo ? 'video' : '', m.hasAudio ? 'audio' : ''].filter(Boolean).join(' · ');
+    return `<li class="bin-tile" role="option" data-bin="${esc(m.path)}" title="${esc(m.name)}${badges ? ' · ' + badges : ''}">
+      <div class="bin-thumb">${thumb}${dur}</div>
+      <span class="bin-name">${esc(m.name)}</span>
+    </li>`;
+  }
+
   function update(s) {
     root.querySelector('.bin-folder').textContent = s.projectFolder
       ? `${s.projectName} · ${s.projectFolder}`
       : 'No folder open. Import a folder with your MP4s and audio.';
     if (!s.media.length) {
-      list.innerHTML = '<li class="muted">No files yet.</li>';
+      stopPreview();
+      list.innerHTML = '<li class="muted bin-empty">No files yet.</li>';
+      lastKey = '';
       return;
     }
-    list.innerHTML = s.media.map((m) => {
-      const badges = [m.hasVideo ? 'video' : '', m.hasAudio ? 'audio' : ''].filter(Boolean).join(' · ');
-      const sel = s.binSelected === m.path ? ' sel' : '';
-      return `<li class="bin-item${sel}" role="option" aria-selected="${sel ? 'true' : 'false'}" data-bin="${esc(m.path)}">
-        <span class="bin-name">${esc(m.name)}</span>
-        <span class="muted">${m.duration ? m.duration.toFixed(1) + ' s' : ''} ${esc(badges)}</span>
-      </li>`;
-    }).join('');
+    // rebuild the tiles only when the files change, so a hover preview is not interrupted
+    const key = s.media.map((m) => m.path).join('\n');
+    if (key !== lastKey) {
+      stopPreview();
+      list.innerHTML = s.media.map(tileHtml).join('');
+      lastKey = key;
+      ensureFrames(s.media);
+    }
+    for (const t of list.querySelectorAll('.bin-tile')) {
+      const on = t.dataset.bin === s.binSelected;
+      t.classList.toggle('sel', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
   }
 
-  return { el: root, update };
+  // a frame finished in the background: put it into its tile
+  const onThumb = (e) => {
+    const tile = [...list.querySelectorAll('.bin-tile')].find((t) => t.dataset.bin === e.detail.path);
+    const frame = frameFor(e.detail.path);
+    if (!tile || !frame) return;
+    const thumb = tile.querySelector('.bin-thumb');
+    thumb.querySelector('span')?.remove();
+    let img = thumb.querySelector('img');
+    if (!img) {
+      img = document.createElement('img');
+      img.alt = '';
+      thumb.prepend(img);
+    }
+    img.src = frame;
+  };
+  window.addEventListener('zaude:thumb', onThumb);
+
+  return {
+    el: root,
+    update,
+    destroy() {
+      stopPreview();
+      window.removeEventListener('zaude:thumb', onThumb);
+    },
+  };
 }
 
 // ---------- Viewer ----------

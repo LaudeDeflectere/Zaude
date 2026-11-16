@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('zaudeProject', {
   scan: (folder) => ipcRenderer.invoke('project:scan', folder),
   load: (folder) => ipcRenderer.invoke('project:load', folder),
   save: (folder, data) => ipcRenderer.invoke('project:save', folder, data),
+  onScanProgress: (callback) => {
+    const listener = (_event, p) => callback(p);
+    ipcRenderer.on('project:progress', listener);
+    return () => ipcRenderer.removeListener('project:progress', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('zaudeRender', {

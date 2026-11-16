@@ -50,8 +50,9 @@ function probeFile(file) {
 }
 
 // Lists media files in a folder (up to MAX_DEPTH levels down) and probes each one.
-// probe is injectable for tests. Returns { ok, media } or { ok: false, error }.
-async function scanFolder(folder, probe = probeFile) {
+// probe is injectable for tests. onProgress({ done, total, name }) is called after each file is read.
+// Returns { ok, media } or { ok: false, error }.
+async function scanFolder(folder, probe = probeFile, onProgress = () => {}) {
   let stat;
   try {
     stat = fs.statSync(folder);
@@ -76,8 +77,9 @@ async function scanFolder(folder, probe = probeFile) {
   walk(folder, 0);
 
   const media = [];
-  for (const f of files) {
+  for (const [i, f] of files.entries()) {
     const info = await probe(f.path);
+    onProgress({ done: i + 1, total: files.length, name: f.name });
     media.push({
       ...f,
       duration: info ? info.duration : null,

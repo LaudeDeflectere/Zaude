@@ -1,12 +1,24 @@
 // The top bar update button. Shows "Check for updates", then "Update to vX" when a newer release is on GitHub.
 // Checks also run every 6 hours in the desktop app (electron/main.cjs). Requires window.zaudeUpdate.
 
+import { reportTask, finishTask } from './tasks.js';
+
 const api = window.zaudeUpdate || null;
 const btn = document.getElementById('update-btn');
 
 let state = null;
 
+// Checks and downloads show in the progress strip too, with a bar while the download runs.
+function reportProgress(s) {
+  if (s && s.busy) {
+    reportTask('update', { label: s.message || 'Updating Zaude…', progress: typeof s.progress === 'number' ? s.progress : null });
+  } else {
+    finishTask('update');
+  }
+}
+
 function render() {
+  reportProgress(state);
   if (!btn) return;
   if (!api) {
     btn.disabled = true;

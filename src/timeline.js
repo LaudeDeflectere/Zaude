@@ -284,3 +284,29 @@ export function insertFile(clips, track, t, file) {
 export function setFlag(clips, id, key, value) {
   return clips.map((c) => (c.id === id ? { ...c, [key]: value } : { ...c }));
 }
+
+// ---------- timeline zoom and bin previews ----------
+
+// Playback rate for the hover preview in the bin: the whole file plays in about PREVIEW_SECONDS.
+// Browsers play muted video at up to 16x, so the rate is clamped to 2x–16x.
+export const PREVIEW_SECONDS = 6;
+export function previewRate(duration) {
+  const d = Number(duration);
+  if (!Number.isFinite(d) || d <= 0) return 4;
+  return Math.min(16, Math.max(2, d / PREVIEW_SECONDS));
+}
+
+// Zoom factor for one wheel or pinch step. Scrolling up (negative deltaY) zooms in.
+// Each 100 px of scroll changes the zoom by about 16 %. Large jumps are capped.
+export function zoomFactor(deltaY, deltaMode = 0) {
+  const px = Math.max(-200, Math.min(200, Number(deltaY) * (deltaMode === 1 ? 16 : 1) || 0));
+  return Math.exp(-px * 0.0015);
+}
+
+// The scroll position that keeps the time under the cursor in the same place after a zoom.
+// anchorPx is the cursor's x inside the visible scroller.
+export function zoomScrollLeft(oldPps, newPps, scrollLeft, anchorPx) {
+  if (!(oldPps > 0)) return Math.max(0, scrollLeft);
+  const timeAtAnchor = (scrollLeft + anchorPx) / oldPps;
+  return Math.max(0, timeAtAnchor * newPps - anchorPx);
+}

@@ -5,6 +5,7 @@ import { createActions, initialState } from './actions.js';
 import { createWorkspace } from './workspace.js';
 import { PANEL_BUILDERS } from './panels.js';
 import { installScrub } from './scrub.js';
+import { installBinDrag } from './dragdrop.js';
 
 const store = createStore(initialState());
 const engine = createEngine(store);
@@ -24,6 +25,7 @@ const workspace = createWorkspace(workspaceEl, {
 });
 workspace.init();
 installScrub(workspaceEl, { store, actions });
+installBinDrag(workspaceEl, { store, actions });
 
 document.getElementById('windows-open').addEventListener('click', (e) => {
   workspace.openWindowsMenu(e.currentTarget);

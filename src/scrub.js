@@ -1,6 +1,7 @@
 // Ctrl controls for values. Hold Ctrl and drag, or Ctrl and scroll, over a value to change it.
-// - Clip blocks on the timeline: Ctrl + vertical scroll changes the clip's volume. Ctrl + horizontal
-//   scroll changes the clip's length, and Shift and Alt scroll move and slip it (see gestures below).
+// - Timeline: Ctrl + vertical scroll zooms the time axis around the cursor, like FL Studio.
+//   Ctrl + horizontal scroll changes the selected clip's length. Shift and Alt scroll move and slip it.
+// - Clip blocks on the timeline: Alt + vertical scroll changes the clip's volume.
 // - Value fields (the inspector): Ctrl + any direction changes the value.
 import * as T from './timeline.js';
 
@@ -29,6 +30,15 @@ export function gestureMode(e) {
 }
 
 export function installScrub(root, { store, actions }) {
+  // Zooms the time axis by one wheel step, keeping the time under the cursor where it was.
+  function zoomTimeline(scroller, e) {
+    const before = store.get().pps;
+    actions.setZoom(before * T.zoomFactor(e.deltaY, e.deltaMode));
+    const after = store.get().pps;
+    const anchor = e.clientX - scroller.getBoundingClientRect().left;
+    scroller.scrollLeft = T.zoomScrollLeft(before, after, scroller.scrollLeft, anchor);
+  }
+
   // Ctrl + scroll over a value (inspector) or a clip block (timeline volume)
   root.addEventListener('wheel', (e) => {
     const s = store.get();
@@ -43,7 +53,15 @@ export function installScrub(root, { store, actions }) {
       actions.setProp(clip.id, prop, scrubbedValue(clip, prop, px * SENS_WHEEL));
       return;
     }
-    if (blk && e.ctrlKey) {
+    // Ctrl + vertical scroll on the timeline zooms the time axis. Ctrl + horizontal falls through to length.
+    const scroller = e.target.closest('.timeline .scroller');
+    if (scroller && e.ctrlKey && dominantScroll(e).vertical) {
+      e.preventDefault();
+      zoomTimeline(scroller, e);
+      return;
+    }
+    // Alt + vertical scroll on a clip changes its volume
+    if (blk && e.altKey) {
       const { vertical, px } = dominantScroll(e);
       if (vertical) {
         e.preventDefault();
@@ -55,7 +73,7 @@ export function installScrub(root, { store, actions }) {
       }
     }
     // length, move, and slip on the selected clip
-    const onTimeline = e.target.closest('.timeline .scroller');
+    const onTimeline = scroller;
     const mode = onTimeline ? gestureMode(e) : null;
     if (mode) {
       const { px } = { px: e.deltaX * (e.deltaMode === 1 ? 16 : 1) };

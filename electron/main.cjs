@@ -241,9 +241,12 @@ function registerAiHandlers() {
     return folder;
   });
 
-  ipcMain.handle('project:scan', async (_e, folder) => {
+  ipcMain.handle('project:scan', async (event, folder) => {
     if (typeof folder !== 'string' || !folder) return { ok: false, error: 'No folder given.' };
-    return project.scanFolder(folder);
+    const sender = event.sender;
+    return project.scanFolder(folder, undefined, (p) => {
+      if (!sender.isDestroyed()) sender.send('project:progress', p);
+    });
   });
 
   ipcMain.handle('project:load', (_e, folder) => {
@@ -291,7 +294,8 @@ function registerAiHandlers() {
 // without the user's OK: the Update button asks first, downloads the build, then the app restarts on it.
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 let renderRunning = false;
-let update = { busy: false, message: '', available: false, latest: null, tag: null, assetName: null, assetUrl: null, checkedAt: null, error: null };
+let update = { busy: false, message: '', progress: null, available: false, latest: null, tag: null, assetName: null, assetUrl: null, checkedAt: null, error: null };
+let lastProgressSent = 0;
 
 function updateStatus() {
   return {
@@ -355,7 +359,7 @@ async function installUpdate(event) {
   });
   if (choice.response !== 0) return { ok: true, cancelled: true };
 
-  update = { ...update, busy: true, message: `Downloading Zaude ${update.latest}…`, error: null };
+  update = { ...update, busy: true, message: `Downloading Zaude ${update.latest}…`, progress: 0, error: null };
   broadcastUpdate();
   try {
     const dir = path.join(app.getPath('temp'), 'zaude-update');
@@ -363,6 +367,14 @@ async function installUpdate(event) {
       asset: { name: update.assetName, url: update.assetUrl },
       platform: process.platform,
       dir,
+      onProgress: (fraction) => {
+        // send at most about six updates a second, plus the final one
+        const now = Date.now();
+        if (fraction < 1 && now - lastProgressSent < 160) return;
+        lastProgressSent = now;
+        update = { ...update, progress: fraction };
+        broadcastUpdate();
+      },
     });
     const logFile = path.join(app.getPath('userData'), 'update.log');
     const args = { pid: process.pid, newFile: file, target, logFile };
@@ -387,11 +399,11 @@ async function installUpdate(event) {
       child.once('spawn', resolve);
     });
     child.unref();
-    update = { ...update, busy: false, message: 'Restarting…' };
+    update = { ...update, busy: false, message: 'Restarting…', progress: null };
     setTimeout(() => app.quit(), 200);
     return { ok: true };
   } catch (err) {
-    update = { ...update, busy: false, message: '', error: err.message || String(err) };
+    update = { ...update, busy: false, message: '', progress: null, error: err.message || String(err) };
     broadcastUpdate();
     return { ok: false, error: update.error };
   }
