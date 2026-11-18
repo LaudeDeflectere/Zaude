@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "MVP: orbit and raised arm",
+  "fps": 24,
+  "duration": 5.0,
+  "coordinate_system": "z_up_right_handed_metres",
+  "render": {"width": 640, "height": 360},
+  "characters": [
+    {"id": "hero", "type": "humanoid", "position": [0, 0, 0], "yaw_deg": 0,
+     "animations": [{"clip": "raise_right_arm", "start": 2.0, "end": 4.0}]}
+  ],
+  "cameras": [
+    {"id": "main",
+     "start": {"position": [0, -3.0, 1.6], "target": [0, 0, 1.2], "focal_mm": 35},
+     "motions": [{"kind": "orbit", "start": 0.0, "end": 5.0, "degrees": 90, "ease": "linear"}]}
+  ]
+}

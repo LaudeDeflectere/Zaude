@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "Camera tracks sideways with a character at the origin",
+  "fps": 24,
+  "duration": 4.0,
+  "coordinate_system": "z_up_right_handed_metres",
+  "characters": [
+    {"id": "walker", "type": "humanoid", "position": [0, 2, 0], "yaw_deg": 180,
+     "animations": [{"clip": "idle", "start": 0, "end": 4}]}
+  ],
+  "cameras": [
+    {"id": "side",
+     "start": {"position": [-2.0, -4.0, 1.6], "target": [0, 2, 1.2]},
+     "motions": [{"kind": "track", "start": 0.0, "end": 4.0, "metres": 4.0, "ease": "smooth"}]}
+  ]
+}
