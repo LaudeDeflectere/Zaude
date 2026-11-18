@@ -1,0 +1,688 @@
+{
+  "project": "Zaude scene engine",
+  "version": 1,
+  "statuses": [
+    "NOT_STARTED",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "TESTING",
+    "COMPLETED",
+    "FAILED"
+  ],
+  "tasks": [
+    {
+      "id": "1.1",
+      "level": "1",
+      "name": "Project structure",
+      "description": "Modular package layout for the engine.",
+      "difficulty": 1,
+      "estimated_hours": 0.5,
+      "dependencies": [],
+      "required_technologies": [
+        "python3"
+      ],
+      "expected_output": "engine/zaude_engine, engine/tests, engine/examples, engine/schemas",
+      "acceptance_criteria": "Package imports; tests discoverable",
+      "automated_test": "python3 -m unittest discover -s tests -p 'test_*.py'",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "1.2",
+      "level": "1",
+      "name": "Scene data format",
+      "description": "JSON Schema for scenes, characters, cameras, animations, environment and render settings.",
+      "difficulty": 1,
+      "estimated_hours": 2,
+      "dependencies": [
+        "1.1"
+      ],
+      "required_technologies": [
+        "JSON Schema 2020-12",
+        "jsonschema (optional)"
+      ],
+      "expected_output": "engine/schemas/scene.schema.json, engine/examples/*.json",
+      "acceptance_criteria": "Schema describes the structure; examples follow it",
+      "automated_test": "tests/test_scene.py; jsonschema check if installed",
+      "status": "COMPLETED",
+      "notes": "Rules JSON Schema cannot express (overlaps, clip names, unique ids, times inside the duration) are in scene.py"
+    },
+    {
+      "id": "1.3",
+      "level": "1",
+      "name": "Scene validator",
+      "description": "Validate scenes and report every error with its path.",
+      "difficulty": 1,
+      "estimated_hours": 2,
+      "dependencies": [
+        "1.2"
+      ],
+      "required_technologies": [
+        "python3 stdlib"
+      ],
+      "expected_output": "engine/zaude_engine/scene.py validate_scene, CLI validate",
+      "acceptance_criteria": "Reports all problems; rejects overlaps, bad ids, out-of-range times",
+      "automated_test": "tests/test_scene.py (10 cases)",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "1.4",
+      "level": "1",
+      "name": "Timeline system",
+      "description": "Duration, fps, frame times, keyframe tracks with linear, smooth and hold interpolation.",
+      "difficulty": 1,
+      "estimated_hours": 2,
+      "dependencies": [
+        "1.1"
+      ],
+      "required_technologies": [
+        "python3 stdlib"
+      ],
+      "expected_output": "engine/zaude_engine/timeline.py",
+      "acceptance_criteria": "5 s at 24 fps gives 120 frames; interpolation endpoints correct",
+      "automated_test": "tests/test_timeline.py",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "1.5",
+      "level": "1",
+      "name": "Coordinate system",
+      "description": "Z-up right-handed metres; yaw and pitch; look-at; Z-up to Y-up conversion.",
+      "difficulty": 1,
+      "estimated_hours": 1.5,
+      "dependencies": [
+        "1.1"
+      ],
+      "required_technologies": [
+        "python3 stdlib"
+      ],
+      "expected_output": "engine/zaude_engine/coords.py",
+      "acceptance_criteria": "Orthonormal basis; round trips exact; forward maps to -Z in Y-up",
+      "automated_test": "tests/test_coords.py",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "1.6",
+      "level": "1",
+      "name": "Camera mathematics",
+      "description": "Orbit, pan, tilt, dolly, track, zoom and hold, chained in a CameraPath.",
+      "difficulty": 1,
+      "estimated_hours": 3,
+      "dependencies": [
+        "1.4",
+        "1.5"
+      ],
+      "required_technologies": [
+        "python3 stdlib"
+      ],
+      "expected_output": "engine/zaude_engine/camera.py",
+      "acceptance_criteria": "Orbit keeps radius and height; motions compose; overlaps rejected",
+      "automated_test": "tests/test_camera.py (12 cases)",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "1.7",
+      "level": "1",
+      "name": "Example scenes",
+      "description": "MVP orbit with raised arm, dolly/pan/tilt/zoom, sideways track.",
+      "difficulty": 1,
+      "estimated_hours": 1,
+      "dependencies": [
+        "1.2",
+        "1.6"
+      ],
+      "required_technologies": [
+        "JSON"
+      ],
+      "expected_output": "engine/examples/*.json",
+      "acceptance_criteria": "All examples validate; MVP camera starts 3 m away and orbits 90 degrees",
+      "automated_test": "tests/test_scene.py SceneExamplesTest",
+      "status": "COMPLETED",
+      "notes": ""
+    },
+    {
+      "id": "2.1",
+      "level": "2",
+      "name": "Blender integration",
+      "description": "Translate a scene file into Blender objects.",
+      "difficulty": 2,
+      "estimated_hours": 6,
+      "dependencies": [
+        "1.7"
+      ],
+      "required_technologies": [
+        "Blender 4.x Python API"
+      ],
+      "expected_output": "engine/blender/build_scene.py",
+      "acceptance_criteria": "Blender scene created headless from the MVP scene",
+      "automated_test": "blender -b --python build_scene.py, then count objects",
+      "status": "BLOCKED",
+      "notes": "Blender is not installed in the container. Ubuntu 24.04 apt package 'blender' is the candidate; needs approval"
+    },
+    {
+      "id": "2.2",
+      "level": "2",
+      "name": "Camera animation in Blender",
+      "description": "Keyframe a Blender camera from CameraPath samples.",
+      "difficulty": 2,
+      "estimated_hours": 4,
+      "dependencies": [
+        "2.1"
+      ],
+      "required_technologies": [
+        "Blender"
+      ],
+      "expected_output": "Animated camera object",
+      "acceptance_criteria": "Per-frame Blender camera matches sample_cameras within 1e-4 m",
+      "automated_test": "Read back camera matrices and compare",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "2.3",
+      "level": "2",
+      "name": "Basic humanoid",
+      "description": "Simple placeholder humanoid rig.",
+      "difficulty": 2,
+      "estimated_hours": 6,
+      "dependencies": [
+        "2.1"
+      ],
+      "required_technologies": [
+        "Blender armature"
+      ],
+      "expected_output": "Rig with named bones",
+      "acceptance_criteria": "Rig has the bones needed for raise_right_arm",
+      "automated_test": "Blender script lists bones",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "2.4",
+      "level": "2",
+      "name": "Character positioning",
+      "description": "Set character location and yaw from scene files.",
+      "difficulty": 2,
+      "estimated_hours": 2,
+      "dependencies": [
+        "2.3"
+      ],
+      "required_technologies": [
+        "Blender"
+      ],
+      "expected_output": "Placed character",
+      "acceptance_criteria": "World position and yaw match the scene",
+      "automated_test": "Blender readback vs scene",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "2.5",
+      "level": "2",
+      "name": "Animation timeline",
+      "description": "Apply clips such as raise_right_arm at given times.",
+      "difficulty": 2,
+      "estimated_hours": 5,
+      "dependencies": [
+        "2.4"
+      ],
+      "required_technologies": [
+        "Blender Action API"
+      ],
+      "expected_output": "Keyed bone rotations",
+      "acceptance_criteria": "Right arm is at rest at 2 s and raised at 4 s",
+      "automated_test": "Sample bone angles at frames",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "2.6",
+      "level": "2",
+      "name": "Preview rendering",
+      "description": "Low-resolution Blender preview without AI.",
+      "difficulty": 2,
+      "estimated_hours": 2,
+      "dependencies": [
+        "2.2",
+        "2.5"
+      ],
+      "required_technologies": [
+        "Blender EEVEE or Cycles CPU",
+        "ffmpeg"
+      ],
+      "expected_output": "preview.mp4",
+      "acceptance_criteria": "Video length equals scene duration; frame count equals timeline",
+      "automated_test": "ffprobe duration and frame count",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "2.7",
+      "level": "2",
+      "name": "Control passes",
+      "description": "Export depth, normal, segmentation and pose where supported.",
+      "difficulty": 2,
+      "estimated_hours": 4,
+      "dependencies": [
+        "2.6"
+      ],
+      "required_technologies": [
+        "Blender compositor"
+      ],
+      "expected_output": "Per-frame PNG passes",
+      "acceptance_criteria": "Depth matches scene distance on a test plane within tolerance",
+      "automated_test": "Render a known plane and compare depth",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.1",
+      "level": "3",
+      "name": "Natural-language parser",
+      "description": "Map instructions to scene data.",
+      "difficulty": 3,
+      "estimated_hours": 8,
+      "dependencies": [
+        "1.3"
+      ],
+      "required_technologies": [
+        "rules first, language model later"
+      ],
+      "expected_output": "engine/zaude_engine/nl.py",
+      "acceptance_criteria": "Rule parser turns the MVP sentence into the MVP scene",
+      "automated_test": "Golden tests on fixed sentences",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.2",
+      "level": "3",
+      "name": "Instruction classification",
+      "description": "Split instructions into camera, character, motion, environment, lighting, style, timing.",
+      "difficulty": 3,
+      "estimated_hours": 4,
+      "dependencies": [
+        "3.1"
+      ],
+      "required_technologies": [
+        "python3"
+      ],
+      "expected_output": "Classifier output per sentence",
+      "acceptance_criteria": "Each MVP clause gets the right category",
+      "automated_test": "Golden tests",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.3",
+      "level": "3",
+      "name": "Animation library",
+      "description": "Reusable movements (idle, walk, raise arm) with timing.",
+      "difficulty": 3,
+      "estimated_hours": 6,
+      "dependencies": [
+        "2.5"
+      ],
+      "required_technologies": [
+        "Blender actions or motion files"
+      ],
+      "expected_output": "engine/animations/",
+      "acceptance_criteria": "Each clip loads and validates",
+      "automated_test": "Load every clip; check duration and joint ranges",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.4",
+      "level": "3",
+      "name": "Pose sequences",
+      "description": "Convert skeletal animation to per-frame pose conditioning (OpenPose or DWPose format).",
+      "difficulty": 3,
+      "estimated_hours": 6,
+      "dependencies": [
+        "3.3",
+        "2.7"
+      ],
+      "required_technologies": [
+        "DWPose (IDEA-Research), OpenPose keypoint format"
+      ],
+      "expected_output": "Per-frame keypoint JSON",
+      "acceptance_criteria": "Wrist height rises in the expected frames",
+      "automated_test": "Compare wrist height vs frame time",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.5",
+      "level": "3",
+      "name": "Video-model interface",
+      "description": "Pluggable backend interface.",
+      "difficulty": 3,
+      "estimated_hours": 4,
+      "dependencies": [
+        "1.7"
+      ],
+      "required_technologies": [
+        "python3"
+      ],
+      "expected_output": "engine/zaude_engine/backends/base.py and a dry-run backend",
+      "acceptance_criteria": "Dry run writes a manifest without calling a model",
+      "automated_test": "Unit test with the dry-run backend",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "3.6",
+      "level": "3",
+      "name": "First controlled generation",
+      "description": "One video from a scene with one control method.",
+      "difficulty": 3,
+      "estimated_hours": 16,
+      "dependencies": [
+        "3.4",
+        "3.5"
+      ],
+      "required_technologies": [
+        "Wan2.1 or VACE on the GPU host (tranklena over ssh)"
+      ],
+      "expected_output": "Generated clip with conditioning",
+      "acceptance_criteria": "Clip runs end to end on the GPU host and has the right frame count",
+      "automated_test": "Run on the GPU host; measure pose error on generated frames",
+      "status": "BLOCKED",
+      "notes": "Needs the GPU host and model weights. This container has no GPU and no ComfyUI"
+    },
+    {
+      "id": "3.7",
+      "level": "3",
+      "name": "Reproducibility record",
+      "description": "Seed, model version, config, inputs and software versions saved with each run.",
+      "difficulty": 3,
+      "estimated_hours": 3,
+      "dependencies": [
+        "3.6"
+      ],
+      "required_technologies": [
+        "JSON"
+      ],
+      "expected_output": "run.json per generation",
+      "acceptance_criteria": "Re-running with the same record reproduces the same inputs and seed",
+      "automated_test": "Hash the inputs and compare",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.1",
+      "level": "4",
+      "name": "Multiple conditioning methods",
+      "description": "Combine pose, depth and segmentation.",
+      "difficulty": 4,
+      "estimated_hours": 12,
+      "dependencies": [
+        "3.7"
+      ],
+      "required_technologies": [
+        "ControlNet-style adapters or VACE inputs"
+      ],
+      "expected_output": "Combined conditioning",
+      "acceptance_criteria": "Each signal changes the output in the expected direction",
+      "automated_test": "Ablation runs",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.2",
+      "level": "4",
+      "name": "Camera and character sync",
+      "description": "Poses and camera refer to one 3D scene.",
+      "difficulty": 4,
+      "estimated_hours": 8,
+      "dependencies": [
+        "2.7",
+        "3.4"
+      ],
+      "required_technologies": [
+        "Blender"
+      ],
+      "expected_output": "Shared world-frame check",
+      "acceptance_criteria": "Projected keypoints match the rendered character in the camera view",
+      "automated_test": "Reprojection error in pixels",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.3",
+      "level": "4",
+      "name": "Identity preservation",
+      "description": "Reference-image conditioning for the same character.",
+      "difficulty": 4,
+      "estimated_hours": 16,
+      "dependencies": [
+        "3.6"
+      ],
+      "required_technologies": [
+        "reference adapters (to evaluate)"
+      ],
+      "expected_output": "Identity-conditioned runs",
+      "acceptance_criteria": "Face embedding similarity stays above a set threshold",
+      "automated_test": "Face embedding distance over repeated seeds",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.4",
+      "level": "4",
+      "name": "Multiple characters",
+      "description": "Two or more independently animated characters.",
+      "difficulty": 4,
+      "estimated_hours": 10,
+      "dependencies": [
+        "2.5",
+        "4.2"
+      ],
+      "required_technologies": [
+        "Blender"
+      ],
+      "expected_output": "Two-character scene",
+      "acceptance_criteria": "Each character follows its own keyframes",
+      "automated_test": "Readback of both rigs",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.5",
+      "level": "4",
+      "name": "Object interactions",
+      "description": "Pick up, open, sit, hand over objects.",
+      "difficulty": 4,
+      "estimated_hours": 16,
+      "dependencies": [
+        "4.4"
+      ],
+      "required_technologies": [
+        "Blender physics or scripted attachment"
+      ],
+      "expected_output": "Interaction clips",
+      "acceptance_criteria": "Object stays with the hand within a few mm",
+      "automated_test": "Readback of object and hand positions",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.6",
+      "level": "4",
+      "name": "Automated evaluation",
+      "description": "Measure adherence to the requested scene.",
+      "difficulty": 4,
+      "estimated_hours": 10,
+      "dependencies": [
+        "3.7"
+      ],
+      "required_technologies": [
+        "pose estimator, depth estimator, face embedding"
+      ],
+      "expected_output": "engine/evaluate/",
+      "acceptance_criteria": "Known-good clips rank above known-bad clips",
+      "automated_test": "Known pairs must rank correctly",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "4.7",
+      "level": "4",
+      "name": "Benchmarking",
+      "description": "Compare text-only with each conditioning method across seeds.",
+      "difficulty": 4,
+      "estimated_hours": 12,
+      "dependencies": [
+        "4.6"
+      ],
+      "required_technologies": [
+        "benchmark runner"
+      ],
+      "expected_output": "docs/benchmark_results.md rows",
+      "acceptance_criteria": "Results include seeds, counts and failures",
+      "automated_test": "Re-run the benchmark and check the table",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.1",
+      "level": "5",
+      "name": "Error detection",
+      "description": "Find wrong poses, camera angles, identity changes, timing and spatial errors.",
+      "difficulty": 5,
+      "estimated_hours": 16,
+      "dependencies": [
+        "4.6"
+      ],
+      "required_technologies": [
+        "metrics from 4.6"
+      ],
+      "expected_output": "Detector per error type",
+      "acceptance_criteria": "Detector flags a planted error of each type",
+      "automated_test": "Planted-error tests",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.2",
+      "level": "5",
+      "name": "Automatic correction",
+      "description": "Map each error to a parameter change.",
+      "difficulty": 5,
+      "estimated_hours": 12,
+      "dependencies": [
+        "5.1"
+      ],
+      "required_technologies": [
+        "rules"
+      ],
+      "expected_output": "Correction table",
+      "acceptance_criteria": "Each correction moves its metric in the intended direction",
+      "automated_test": "Before and after metrics",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.3",
+      "level": "5",
+      "name": "Iterative regeneration",
+      "description": "Regenerate failed segments automatically.",
+      "difficulty": 5,
+      "estimated_hours": 12,
+      "dependencies": [
+        "5.2"
+      ],
+      "required_technologies": [
+        "backend from 3.5"
+      ],
+      "expected_output": "Retry loop with limits",
+      "acceptance_criteria": "Retries stop at the limit and keep the best result",
+      "automated_test": "Simulated failures",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.4",
+      "level": "5",
+      "name": "Multi-shot continuity",
+      "description": "Keep characters and environment consistent across shots.",
+      "difficulty": 5,
+      "estimated_hours": 20,
+      "dependencies": [
+        "4.3",
+        "4.4"
+      ],
+      "required_technologies": [
+        "identity and layout checks"
+      ],
+      "expected_output": "Continuity checks",
+      "acceptance_criteria": "Continuity score reported per shot pair",
+      "automated_test": "Benchmark set",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.5",
+      "level": "5",
+      "name": "Adaptive control selection",
+      "description": "Pick the most reliable method per instruction, from benchmark results.",
+      "difficulty": 5,
+      "estimated_hours": 12,
+      "dependencies": [
+        "4.7"
+      ],
+      "required_technologies": [
+        "benchmark data"
+      ],
+      "expected_output": "Selection table",
+      "acceptance_criteria": "Selection beats a fixed method on a held-out set",
+      "automated_test": "Held-out benchmark",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.6",
+      "level": "5",
+      "name": "Performance optimisation",
+      "description": "Speed, VRAM, caching and scheduling.",
+      "difficulty": 5,
+      "estimated_hours": 16,
+      "dependencies": [
+        "3.6"
+      ],
+      "required_technologies": [
+        "profilers"
+      ],
+      "expected_output": "Measured speedups",
+      "acceptance_criteria": "Each change shows a measured gain and no quality loss",
+      "automated_test": "Timed runs before and after",
+      "status": "NOT_STARTED",
+      "notes": ""
+    },
+    {
+      "id": "5.7",
+      "level": "5",
+      "name": "Filmmaking interface",
+      "description": "Build, preview, generate and edit scenes from a UI.",
+      "difficulty": 5,
+      "estimated_hours": 40,
+      "dependencies": [
+        "2.6",
+        "3.7"
+      ],
+      "required_technologies": [
+        "Zaude desktop app"
+      ],
+      "expected_output": "UI in Zaude",
+      "acceptance_criteria": "User can create the MVP scene and preview it",
+      "automated_test": "Electron UI test",
+      "status": "NOT_STARTED",
+      "notes": ""
+    }
+  ]
+}

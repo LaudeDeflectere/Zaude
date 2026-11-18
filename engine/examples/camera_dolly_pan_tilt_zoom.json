@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Camera moves: dolly, pan, tilt, zoom",
+  "fps": 24,
+  "duration": 8.0,
+  "coordinate_system": "z_up_right_handed_metres",
+  "characters": [],
+  "cameras": [
+    {"id": "cam",
+     "start": {"position": [0, -6.0, 1.5], "target": [0, 0, 1.5], "focal_mm": 35},
+     "motions": [
+       {"kind": "dolly", "start": 0.0, "end": 2.0, "metres": 2.0},
+       {"kind": "pan", "start": 2.0, "end": 4.0, "degrees": 30},
+       {"kind": "tilt", "start": 4.0, "end": 5.0, "degrees": 15},
+       {"kind": "zoom", "start": 5.0, "end": 7.0, "to_mm": 70},
+       {"kind": "hold", "start": 7.0, "end": 8.0}
+     ]}
+  ]
+}
