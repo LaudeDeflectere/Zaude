@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('zaudeProject', {
   scan: (folder) => ipcRenderer.invoke('project:scan', folder),
   load: (folder) => ipcRenderer.invoke('project:load', folder),
   save: (folder, data) => ipcRenderer.invoke('project:save', folder, data),
+  waveform: (filePath) => ipcRenderer.invoke('project:waveform', filePath),
+  saveZd: (input) => ipcRenderer.invoke('project:saveZd', input),
+  openZd: (filePath) => ipcRenderer.invoke('project:openZd', filePath),
 });
 
 contextBridge.exposeInMainWorld('zaudeRender', {

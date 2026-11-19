@@ -69,9 +69,46 @@ function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda 
     const idx = addInput(c);
     const used = r3(c.dur * (c.speed || 1));
     const opacity = typeof c.opacity === 'number' ? c.opacity : 1;
+    const fx = [];
+    if (c.flipH) fx.push('hflip');
+    if (c.flipV) fx.push('vflip');
+
+    const brightInt = typeof c.brightness === 'number' ? c.brightness : 50;
+    const contrastInt = typeof c.contrast === 'number' ? c.contrast : 50;
+    const satInt = typeof c.saturation === 'number' ? c.saturation : 50;
+    const brightness = (brightInt / 50) + ((Number(c.exposure) || 0) / 100) * 0.5 - 1;
+    const contrast = (contrastInt / 50) + ((Number(c.dynamics) || 0) / 100) * 0.35;
+    const saturation = (satInt / 50) + ((Number(c.dynamics) || 0) / 100) * 0.25;
+    if (Math.abs(brightness) > 0.01 || Math.abs(contrast - 1) > 0.01 || Math.abs(saturation - 1) > 0.01) {
+      fx.push(`eq=brightness=${r3(Math.max(-1, Math.min(1, brightness)))}:contrast=${r3(Math.max(0.1, Math.min(3, contrast)))}:saturation=${r3(Math.max(0, Math.min(3, saturation)))}`);
+    }
+    const hueDeg = (Number(c.hue) || 0) + ((Number(c.tint) || 0) / 100) * 45 - ((Number(c.temperature) || 0) / 100) * 12;
+    if (Math.abs(hueDeg) > 0.5) fx.push(`hue=h=${r3(hueDeg)}`);
+    if (Number(c.denoise) > 0) {
+      const d = r3((Number(c.denoise) / 100) * 6);
+      fx.push(`hqdn3d=${d}:${d}:${d}:${d}`);
+    }
+    if (Number(c.sharpen) > 0) {
+      fx.push(`unsharp=5:5:${r3((Number(c.sharpen) / 100) * 1.5)}:5:5:0`);
+    }
+    if (Number(c.blur) > 0) {
+      fx.push(`gblur=sigma=${r3((Number(c.blur) / 100) * 20)}`);
+    }
+    if (Number(c.vignette) > 0) {
+      fx.push(`vignette=angle=${r3(0.2 + (Number(c.vignette) / 100) * 1.1)}`);
+    }
+    const trDur = Number(c.transition) || 0;
+    const trType = c.transitionType || (trDur > 0 ? 'dissolve' : 'none');
+    if (trDur > 0 && (trType === 'fade-black' || trType === 'fade-white')) {
+      const col = trType === 'fade-white' ? 'white' : 'black';
+      fx.push(`fade=t=in:st=${r3(c.start)}:d=${r3(trDur)}:color=${col}`);
+      fx.push(`fade=t=out:st=${r3(Math.max(c.start, c.start + c.dur - trDur))}:d=${r3(trDur)}:color=${col}`);
+    }
+
+    const fxChain = fx.length ? ',' + fx.join(',') : '';
     graph.push(
       `[${idx}:v]trim=start=${r3(c.srcIn || 0)}:duration=${used},setpts=(PTS-STARTPTS)/${c.speed || 1}+${r3(c.start)}/TB,` +
-      `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black,` +
+      `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black${fxChain},` +
       `format=yuva420p,colorchannelmixer=aa=${r3(opacity)}[v${k}]`);
     graph.push(`[${last}][v${k}]overlay=eof_action=pass:shortest=0[base${k + 1}]`);
     last = `base${k + 1}`;

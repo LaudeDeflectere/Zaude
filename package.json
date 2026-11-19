@@ -17,6 +17,14 @@
   "build": {
     "appId": "com.zaude.app",
     "productName": "Zaude",
+    "fileAssociations": [
+      {
+        "ext": "zd",
+        "name": "Zaude Project",
+        "description": "Self-contained Zaude video editor project",
+        "mimeType": "application/x-zaude-project"
+      }
+    ],
     "files": [
       "electron/**/*",
       "index.html",

@@ -19,7 +19,7 @@ function setRunning(on) {
   $('t2v-generate').disabled = on;
   $('t2v-cancel').disabled = !on;
   $('t2v-form').querySelectorAll('input, select, textarea').forEach((el) => {
-    if (el.name !== 'mannimmateDir') el.disabled = on;
+    if (el.name && el.name !== 'mannimmateDir') el.disabled = on;
   });
   if (!on) $('t2v-progress').hidden = true;
 }
@@ -74,6 +74,7 @@ async function onSubmit(form) {
     seconds: data.get('seconds'),
     resolution: data.get('resolution'),
     quality: data.get('quality'),
+    steps: data.get('steps'),
   });
   if (!result.ok) {
     setStatus(result.error, true);

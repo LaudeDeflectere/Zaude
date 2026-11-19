@@ -1,4 +1,5 @@
 // Pure timeline model for Zaude. No DOM, so it can be tested with `node --test`.
+import { getHslBands, makeHslBand, normalizeHex, MAX_HSL_BANDS } from './color.js';
 
 export const FPS = 24;
 export const SPEEDS = [0.5, 1, 2, 4];
@@ -27,10 +28,10 @@ export function initialClips() {
   return [
     c('V2', 'Title · Natural Moment', 2.5, 14, 14),
     c('V1', 'forest_pan.mov', 0, 9, 20),
-    c('A1', 'beach_drone.mp4', 0, 13, 30),
-    c('A1', 'market_walk.mp4', 15, 14, 40, { srcIn: 4 }),
-    c('A1', 'interview_a.mp4', 40, 17, 30),
-    c('A2', 'voiceover_01.wav', 0, 38, 60),
+    c('V1', 'beach_drone.mp4', 9, 13, 30),
+    c('V1', 'market_walk.mp4', 24, 14, 40, { srcIn: 4 }),
+    c('V1', 'interview_a.mp4', 40, 17, 30),
+    c('A1', 'voiceover_01.wav', 0, 38, 60),
   ];
 }
 
@@ -92,6 +93,11 @@ export function deleteClip(clips, id) {
   return clips.filter((c) => c.id !== id).map((c) => ({ ...c }));
 }
 
+export function deleteClips(clips, ids) {
+  const set = new Set(ids);
+  return clips.filter((c) => !set.has(c.id)).map((c) => ({ ...c }));
+}
+
 export function rippleDelete(clips, id) {
   const c = findClip(clips, id);
   if (!c) return null;
@@ -142,7 +148,22 @@ export function toggleTransition(clips, id) {
 }
 
 function makeClip(track, media, start, dur) {
-  return { id: newId(), track, name: media.name, start, dur, srcDur: media.srcDur, srcIn: 0, speed: 1, transition: 0 };
+  return {
+    id: newId(),
+    track,
+    name: media.name,
+    start,
+    dur,
+    srcDur: media.srcDur,
+    srcIn: 0,
+    speed: 1,
+    transition: 0,
+    kind: media.kind || kindOfName(media.name),
+    hasAudio: media.hasAudio,
+    volume: 1,
+    opacity: 1,
+    muted: false,
+  };
 }
 
 export function insertMedia(clips, track, t, media) {
@@ -212,6 +233,44 @@ export function moveClip(clips, id, deltaSec) {
   return clips.map((x) => (x.id === id ? { ...x, start } : { ...x }));
 }
 
+// Move a group of clips rigidly by deltaSec, stopping if any clip in the group hits 0 or an unselected neighbour.
+export function moveClips(clips, ids, deltaSec) {
+  const set = new Set(ids);
+  const moving = clips.filter((c) => set.has(c.id));
+  if (!moving.length) return null;
+
+  let minDelta = -Infinity;
+  let maxDelta = Infinity;
+  for (const c of moving) {
+    minDelta = Math.max(minDelta, -c.start);
+    for (const o of clips) {
+      if (o.track !== c.track || set.has(o.id)) continue;
+      if (clipEnd(o) <= c.start + EPS) {
+        minDelta = Math.max(minDelta, clipEnd(o) - c.start);
+      } else if (o.start >= clipEnd(c) - EPS) {
+        maxDelta = Math.min(maxDelta, o.start - clipEnd(c));
+      }
+    }
+  }
+  const applied = Math.min(maxDelta, Math.max(minDelta, deltaSec));
+  return clips.map((c) => (set.has(c.id) ? { ...c, start: c.start + applied } : { ...c }));
+}
+
+// AutoCAD-style marquee selection:
+// - mode 'window' (left-to-right, blue): entire rect must be inside box
+// - mode 'crossing' (right-to-left, green): any intersection with box selects the item
+export function selectByBox(rects, box, mode) {
+  const left = Math.min(box.left, box.right);
+  const right = Math.max(box.left, box.right);
+  const top = Math.min(box.top, box.bottom);
+  const bottom = Math.max(box.top, box.bottom);
+  return rects
+    .filter((r) => (mode === 'window'
+      ? r.left >= left && r.right <= right && r.top >= top && r.bottom <= bottom
+      : r.left <= right && r.right >= left && r.top <= bottom && r.bottom >= top))
+    .map((r) => r.id);
+}
+
 // Puts a clip with the given properties on a track at t, replacing whatever it overlaps.
 export function placeRange(clips, track, t, dur, props) {
   const end = t + dur;
@@ -234,10 +293,47 @@ export function kindOfName(name) {
   return 'title';
 }
 
-// Clip properties with their limits, used by the Ctrl+drag and wheel controls.
+export const TRANSITION_TYPES = [
+  { id: 'none', label: 'None' },
+  { id: 'dissolve', label: 'Cross Dissolve' },
+  { id: 'fade-black', label: 'Fade to Black' },
+  { id: 'fade-white', label: 'Fade to White' },
+  { id: 'slide-left', label: 'Slide Left' },
+];
+
+export const FILTER_PROPS = [
+  'exposure', 'brightness', 'contrast', 'saturation', 'dynamics',
+  'temperature', 'hue', 'tint', 'vignette', 'sharpen', 'denoise',
+];
+
+export const HSL_PROPS = ['hslHue', 'hslSat', 'hslLight', 'hslRange'];
+
+const pctFmt = (v) => Math.round(v * 100) + '%';
+const intFmt = (v) => String(Math.round(v));
+const signedIntFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n; };
+const degFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n + '°'; };
+
+// Clip properties with predetermined integer steps for filters/HSL (less compute, zero float churn).
 export const PROPS = {
-  volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: (v) => Math.round(v * 100) + '%' },
-  opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: (v) => Math.round(v * 100) + '%' },
+  volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: pctFmt },
+  opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: pctFmt },
+  blur: { min: 0, max: 100, step: 1, default: 0, label: 'Blur', format: intFmt },
+  exposure: { min: -100, max: 100, step: 1, default: 0, label: 'Lighting', format: signedIntFmt },
+  brightness: { min: 0, max: 100, step: 1, default: 50, label: 'Brightness', format: intFmt },
+  contrast: { min: 0, max: 100, step: 1, default: 50, label: 'Contrast', format: intFmt },
+  saturation: { min: 0, max: 100, step: 1, default: 50, label: 'Saturation', format: intFmt },
+  dynamics: { min: -100, max: 100, step: 1, default: 0, label: 'Dynamics', format: signedIntFmt },
+  temperature: { min: -100, max: 100, step: 1, default: 0, label: 'Temperature', format: signedIntFmt },
+  hue: { min: -180, max: 180, step: 1, default: 0, label: 'Global Hue', format: degFmt },
+  tint: { min: -100, max: 100, step: 1, default: 0, label: 'Color Tint', format: signedIntFmt },
+  vignette: { min: 0, max: 100, step: 1, default: 0, label: 'Vignette', format: intFmt },
+  sharpen: { min: 0, max: 100, step: 1, default: 0, label: 'Sharpen', format: intFmt },
+  denoise: { min: 0, max: 100, step: 1, default: 0, label: 'Remove Noise', format: intFmt },
+  hslHue: { min: -180, max: 180, step: 1, default: 0, label: 'Color Hue', format: degFmt },
+  hslSat: { min: -100, max: 100, step: 1, default: 0, label: 'Color Sat', format: signedIntFmt },
+  hslLight: { min: -100, max: 100, step: 1, default: 0, label: 'Color Light', format: signedIntFmt },
+  hslRange: { min: 1, max: 100, step: 1, default: 35, label: 'Color Range', format: intFmt },
+  transition: { min: 0.1, max: 3, step: 0.1, default: 0.5, label: 'Duration', format: (v) => v.toFixed(1) + ' s' },
 };
 
 export function propValue(clip, prop) {
@@ -249,8 +345,151 @@ export function propValue(clip, prop) {
 export function setProp(clips, id, prop, value) {
   const def = PROPS[prop];
   if (!def) return null;
-  const v = Math.min(def.max, Math.max(def.min, Math.round(value / def.step) * def.step));
+  const snapped = def.step === 1
+    ? Math.round(value)
+    : Number((Math.round(value / def.step) * def.step).toFixed(4));
+  const v = Math.min(def.max, Math.max(def.min, snapped));
   return clips.map((c) => (c.id === id ? { ...c, [prop]: v } : { ...c }));
+}
+
+export function resetFilters(clips, id) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const next = { ...c };
+    for (const key of FILTER_PROPS) next[key] = PROPS[key].default;
+    for (const key of HSL_PROPS) next[key] = PROPS[key].default;
+    next.hslBands = [makeHslBand('#ef4444', 'hb0')];
+    next.hslActiveBand = 'hb0';
+    next.blur = 0;
+    return next;
+  });
+}
+
+export function resetHsl(clips, id) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const next = { ...c };
+    for (const key of HSL_PROPS) next[key] = PROPS[key].default;
+    next.hslBands = [makeHslBand('#ef4444', 'hb0')];
+    next.hslActiveBand = 'hb0';
+    return next;
+  });
+}
+
+const BAND_PROP_MAP = { hue: 'hslHue', sat: 'hslSat', light: 'hslLight', range: 'hslRange' };
+
+export function addHslBand(clips, id, hex = '#3b82f6') {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const bands = getHslBands(c).map((b) => ({ ...b }));
+    if (bands.length >= MAX_HSL_BANDS) return { ...c, hslBands: bands };
+    const band = makeHslBand(hex);
+    bands.push(band);
+    return { ...c, hslBands: bands, hslActiveBand: band.id };
+  });
+}
+
+export function removeHslBand(clips, id, bandId) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const bands = getHslBands(c).filter((b) => b.id !== bandId).map((b) => ({ ...b }));
+    const nextBands = bands.length ? bands : [makeHslBand('#ef4444', 'hb0')];
+    const active = nextBands.some((b) => b.id === c.hslActiveBand) ? c.hslActiveBand : nextBands[0].id;
+    return { ...c, hslBands: nextBands, hslActiveBand: active };
+  });
+}
+
+export function updateHslBand(clips, id, bandId, patch) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const bands = getHslBands(c).map((b) => {
+      if (b.id !== bandId) return { ...b };
+      const next = { ...b };
+      if (patch.hex !== undefined) next.hex = normalizeHex(patch.hex, b.hex);
+      for (const [k, propKey] of Object.entries(BAND_PROP_MAP)) {
+        if (patch[k] !== undefined) {
+          const def = PROPS[propKey];
+          const v = Math.min(def.max, Math.max(def.min, Math.round(Number(patch[k]) / def.step) * def.step));
+          next[k] = Number(v.toFixed(4));
+        }
+      }
+      return next;
+    });
+    return { ...c, hslBands: bands, hslActiveBand: bandId };
+  });
+}
+
+export function setTransition(clips, id, type, duration) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    if (!type || type === 'none') return { ...c, transitionType: 'none', transition: 0 };
+    const maxDur = Math.max(0.1, c.dur / 2);
+    const dur = Math.min(maxDur, Math.max(0.1, Number(duration) || (c.transition > 0 ? c.transition : 0.5)));
+    return { ...c, transitionType: type, transition: Number(dur.toFixed(2)) };
+  });
+}
+
+// Returns true when any integer filter prop (other than blur) is modified from its default.
+export function hasColorFilters(clip) {
+  if (!clip) return false;
+  return FILTER_PROPS.some((p) => propValue(clip, p) !== PROPS[p].default);
+}
+
+// Builds a CSS filter string (used as fallback or for blur; color grading runs on GPU WebGL).
+export function buildCssFilter(clip) {
+  if (!clip) return 'none';
+  const parts = [];
+  const brightness = Math.max(0.05, (propValue(clip, 'brightness') / 50) + (propValue(clip, 'exposure') / 100) * 0.5);
+  const contrast = Math.max(0.1, (propValue(clip, 'contrast') / 50) + (propValue(clip, 'dynamics') / 100) * 0.35 + (propValue(clip, 'sharpen') / 100) * 0.18);
+  const sat = Math.max(0, (propValue(clip, 'saturation') / 50) + (propValue(clip, 'dynamics') / 100) * 0.25);
+  const temp = propValue(clip, 'temperature') / 100;
+  const tint = propValue(clip, 'tint') / 100;
+  const hue = propValue(clip, 'hue') + tint * 45 - temp * 12;
+  const blur = (propValue(clip, 'blur') / 100) * 20 + (propValue(clip, 'denoise') / 100) * 0.8;
+
+  if (Math.abs(brightness - 1) > 0.005) parts.push(`brightness(${brightness.toFixed(3)})`);
+  if (Math.abs(contrast - 1) > 0.005) parts.push(`contrast(${contrast.toFixed(3)})`);
+  if (Math.abs(sat - 1) > 0.005) parts.push(`saturate(${sat.toFixed(3)})`);
+  if (temp > 0.01) parts.push(`sepia(${(temp * 0.35).toFixed(3)})`);
+  if (Math.abs(hue) > 0.5) parts.push(`hue-rotate(${hue.toFixed(1)}deg)`);
+  if (blur > 0.05) parts.push(`blur(${blur.toFixed(2)}px)`);
+  return parts.length ? parts.join(' ') : 'none';
+}
+
+// Builds a real-time CSS transform string for mirror / flip (and future zoom/rotate/pan).
+export function buildCssTransform(clip, extraTranslateX = 0) {
+  if (!clip) return 'none';
+  const parts = [];
+  if (Math.abs(extraTranslateX) > 0.01) parts.push(`translateX(${extraTranslateX.toFixed(2)}%)`);
+  const sx = clip.flipH ? -1 : 1;
+  const sy = clip.flipV ? -1 : 1;
+  if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+  return parts.length ? parts.join(' ') : 'none';
+}
+
+// Computes live transition visual state at timeline time `t`.
+export function transitionState(clip, t) {
+  const base = { opacityMul: 1, overlayColor: null, overlayOpacity: 0, translateX: 0 };
+  if (!clip) return base;
+  const dur = Number(clip.transition) || 0;
+  const type = clip.transitionType || (dur > 0 ? 'dissolve' : 'none');
+  if (dur <= 0 || type === 'none') return base;
+
+  const elapsed = t - clip.start;
+  const remaining = clipEnd(clip) - t;
+  let progress = 1; // 1 = fully visible, 0 = fully transitioned
+  if (elapsed >= 0 && elapsed < dur) {
+    progress = Math.min(1, Math.max(0, elapsed / dur));
+  } else if (remaining >= 0 && remaining < dur && (type === 'fade-black' || type === 'fade-white')) {
+    progress = Math.min(1, Math.max(0, remaining / dur));
+  }
+  if (progress >= 1) return base;
+
+  if (type === 'dissolve') return { ...base, opacityMul: progress };
+  if (type === 'fade-black') return { ...base, overlayColor: '#000000', overlayOpacity: 1 - progress };
+  if (type === 'fade-white') return { ...base, overlayColor: '#ffffff', overlayOpacity: 1 - progress };
+  if (type === 'slide-left') return { ...base, translateX: (1 - progress) * 100 };
+  return base;
 }
 
 // Puts the audio of a video clip on a free audio track as its own clip, and mutes the video.

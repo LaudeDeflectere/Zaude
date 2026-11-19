@@ -1,6 +1,16 @@
 // Desktop shell for Zaude. Starts a tiny local server for the editor files and opens them in a window.
 // A local server is used because browsers refuse ES module scripts loaded from file:// URLs.
 const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
+
+// Enable hardware GPU rasterization, WebGL, and accelerated video decoding on Linux/Windows,
+// while capping the JS heap so system RAM stays lean on 16 GB laptops.
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiVideoDecoder,CanvasOopRasterization');
+}
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,6 +18,8 @@ const crypto = require('node:crypto');
 const remote = require('./remote-analysis.cjs');
 const media = require('./media.cjs');
 const project = require('./project.cjs');
+const waveform = require('./waveform.cjs');
+const zdFormat = require('./zd-format.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
 const { spawn } = require('node:child_process');
@@ -166,11 +178,13 @@ function saveSettings(next) {
 }
 
 let activeJob = null; // { id, cancel }
+const zdSessionDirs = new Set();
 
-// Folders the editor may play media from: the Zaude output folder and Mannimmate's default output.
+// Folders the editor may play media from: the Zaude output folder, Mannimmate's default output,
+// opened project folders, and unpacked .zd session folders.
 function mediaRoots() {
   const s = loadSettings();
-  return [s.outDir, path.join(os.homedir(), 'Videos', 'Mannimmate'), ...projectFolders()];
+  return [s.outDir, path.join(os.homedir(), 'Videos', 'Mannimmate'), ...projectFolders(), ...zdSessionDirs];
 }
 
 function projectFolders() {
@@ -254,6 +268,57 @@ function registerAiHandlers() {
   ipcMain.handle('project:save', (_e, folder, data) => {
     if (typeof folder !== 'string' || !folder) return { ok: false, error: 'No folder given.' };
     return project.saveProject(folder, data, projectFolders());
+  });
+
+  ipcMain.handle('project:waveform', async (_e, filePath) => {
+    if (typeof filePath !== 'string' || !media.isAllowedMedia(filePath, mediaRoots())) {
+      return { ok: false, error: 'Not an allowed media file.' };
+    }
+    return waveform.extractWaveform(filePath);
+  });
+
+  ipcMain.handle('project:saveZd', async (event, input) => {
+    if (!input || typeof input !== 'object') return { ok: false, error: 'Nothing to save.' };
+    const win = BrowserWindow.fromWebContents(event.sender);
+    let targetPath = typeof input.filePath === 'string' && input.filePath.trim() ? input.filePath.trim() : null;
+    if (!targetPath || input.saveAs) {
+      const safeName = String(input.name || 'Untitled').replace(/[^A-Za-z0-9 _.-]/g, '_').trim() || 'Untitled';
+      const defaultPath = targetPath || path.join(os.homedir(), 'Videos', `${safeName}.zd`);
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Save Zaude Project (.zd)',
+        defaultPath,
+        filters: [{ name: 'Zaude Project (*.zd)', extensions: ['zd'] }],
+      });
+      if (res.canceled || !res.filePath) return { ok: false, cancelled: true };
+      targetPath = res.filePath.toLowerCase().endsWith('.zd') ? res.filePath : res.filePath + '.zd';
+    }
+    return zdFormat.writeZdFile(targetPath, {
+      name: input.name || path.basename(targetPath, '.zd'),
+      format: input.format,
+      resolution: input.resolution,
+      clips: input.clips,
+      media: input.media,
+    });
+  });
+
+  ipcMain.handle('project:openZd', async (event, maybePath) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    let targetPath = typeof maybePath === 'string' && maybePath.trim() ? maybePath.trim() : null;
+    if (!targetPath) {
+      const res = await dialog.showOpenDialog(win, {
+        title: 'Open Zaude Project (.zd)',
+        properties: ['openFile'],
+        filters: [{ name: 'Zaude Project (*.zd)', extensions: ['zd'] }],
+      });
+      if (res.canceled || !res.filePaths.length) return { ok: false, cancelled: true };
+      targetPath = res.filePaths[0];
+    }
+    const extractRoot = path.join(app.getPath('userData'), 'zd-sessions');
+    const opened = await zdFormat.readZdFile(targetPath, extractRoot);
+    if (opened.ok && opened.sessionDir) {
+      zdSessionDirs.add(opened.sessionDir);
+    }
+    return opened;
   });
 
   // ---------- render the timeline to an MP4 (NVIDIA encoder when available) ----------

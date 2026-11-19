@@ -4,13 +4,13 @@
 export const MIN_AREA_PX = 90; // a window smaller than this is removed when its seam is dragged
 
 export const WINDOW_TYPES = [
-  { id: 'bin', label: 'Bin' },
-  { id: 'viewer', label: 'Viewer' },
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'inspector', label: 'Inspector' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'masking', label: 'Masking' },
-  { id: 'remote', label: 'Remote machines' },
+  { id: 'bin', label: 'Bin', desc: 'Media files, folder import & clip preview' },
+  { id: 'viewer', label: 'Viewer', desc: 'Video monitor, playback & scrub bar' },
+  { id: 'timeline', label: 'Timeline', desc: 'Multi-track clips, ruler & trackpad editing' },
+  { id: 'inspector', label: 'Inspector', desc: 'Selected clip volume, opacity & audio' },
+  { id: 'tools', label: 'Tools', desc: 'Cut, Edit, Audio & Deliver actions' },
+  { id: 'masking', label: 'Masking', desc: 'AI subject rotoscoping & cutout (soon)' },
+  { id: 'remote', label: 'Remote machines', desc: 'SSH GPU server & ComfyUI status' },
 ];
 
 const typeLabel = (id) => (WINDOW_TYPES.find((t) => t.id === id) || { label: id }).label;
@@ -99,11 +99,26 @@ export function serialize(tree) {
   return JSON.stringify(tree);
 }
 
+// Advances the internal ID counter past any numeric IDs already present in a loaded tree
+// so newly added areas/splits never collide with deserialized IDs.
+function syncSeq(node) {
+  if (!node) return;
+  const m = /^[as](\d+)$/.exec(node.id);
+  if (m) seq = Math.max(seq, Number(m[1]));
+  if (node.kind === 'split') {
+    syncSeq(node.a);
+    syncSeq(node.b);
+  }
+}
+
 // Reads a saved layout. Returns the default layout if the saved data is not valid.
 export function deserialize(text) {
   try {
     const tree = JSON.parse(text);
-    if (isValid(tree) && allAreas(tree).length) return tree;
+    if (isValid(tree) && allAreas(tree).length) {
+      syncSeq(tree);
+      return tree;
+    }
   } catch { /* fall through */ }
   return defaultLayout();
 }

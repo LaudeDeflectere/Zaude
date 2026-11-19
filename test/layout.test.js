@@ -53,3 +53,20 @@ test('deserialize falls back to the default layout for bad data', () => {
   const tree = L.area('bin');
   assert.equal(L.deserialize(L.serialize(tree)).type, 'bin');
 });
+
+test('deserialize advances IDs so newly added windows never collide with saved ones', () => {
+  const saved = JSON.stringify({
+    id: 's50',
+    kind: 'split',
+    dir: 'row',
+    ratio: 0.5,
+    a: { id: 'a48', kind: 'area', type: 'bin' },
+    b: { id: 'a49', kind: 'area', type: 'viewer' },
+  });
+  const loaded = L.deserialize(saved);
+  const next = L.addBeside(loaded, 'a48', 'timeline', 'col');
+  const ids = [];
+  const walk = (n) => { ids.push(n.id); if (n.kind === 'split') { walk(n.a); walk(n.b); } };
+  walk(next);
+  assert.equal(new Set(ids).size, ids.length);
+});

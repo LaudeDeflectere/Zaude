@@ -33,6 +33,8 @@ export function initialState() {
     playhead: 12 + 8 / T.FPS,
     playing: false,
     selected: null,
+    selectedIds: [],
+    eyedropper: false,
     page: 'cut',
     pps: 14,
     snap: true,
@@ -45,6 +47,7 @@ export function initialState() {
     media: [],             // files in the imported folder
     binSelected: null,     // path of the bin file selected
     projectFolder: null,
+    zdFilePath: null,
     projectName: 'Untitled',
   };
 }
@@ -63,7 +66,7 @@ export function createActions(store, engine) {
     const s = get();
     store.set({
       clips,
-      past: [...s.past, T.clone(s.clips)].slice(-200),
+      past: [...s.past, T.clone(s.clips)].slice(-50),
       future: [],
       log: message || s.log,
     });
@@ -75,7 +78,7 @@ export function createActions(store, engine) {
     const s = get();
     let past = s.past;
     if (!gesture || gesture.key !== key) {
-      past = [...s.past, T.clone(s.clips)].slice(-200);
+      past = [...s.past, T.clone(s.clips)].slice(-50);
       gesture = { key, timer: null };
     }
     clearTimeout(gesture.timer);
@@ -101,9 +104,12 @@ export function createActions(store, engine) {
       const after = T.findClip(next, clip.id);
       msg = clip.name + " length " + after.dur.toFixed(2) + " s";
     } else if (mode === "move") {
-      next = T.moveClip(s.clips, clip.id, amount);
+      const ids = s.selectedIds && s.selectedIds.length > 1 ? s.selectedIds : [clip.id];
+      next = ids.length > 1 ? T.moveClips(s.clips, ids, amount) : T.moveClip(s.clips, clip.id, amount);
       const after = T.findClip(next, clip.id);
-      msg = clip.name + " starts at " + after.start.toFixed(2) + " s";
+      msg = ids.length > 1
+        ? `Moved ${ids.length} clips (first at ${after.start.toFixed(2)} s)`
+        : clip.name + " starts at " + after.start.toFixed(2) + " s";
     } else {
       next = T.slipClip(s.clips, clip.id, amount * clip.speed);
       const after = T.findClip(next, clip.id);
@@ -162,10 +168,17 @@ export function createActions(store, engine) {
   }
 
   function deleteSelected() {
-    const sel = selectedClip();
-    if (!sel) return needSelection();
-    commit(T.deleteClip(get().clips, sel.id), 'Deleted ' + sel.name);
-    store.set({ selected: null });
+    const s = get();
+    const ids = (s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : []))
+      .filter((id) => T.findClip(s.clips, id));
+    if (!ids.length) return needSelection();
+    if (ids.length > 1) {
+      commit(T.deleteClips(s.clips, ids), `Deleted ${ids.length} clips`);
+    } else {
+      const sel = T.findClip(s.clips, ids[0]);
+      commit(T.deleteClip(s.clips, sel.id), 'Deleted ' + sel.name);
+    }
+    store.set({ selected: null, selectedIds: [] });
   }
 
   function duplicate() {
@@ -178,6 +191,7 @@ export function createActions(store, engine) {
     const sel = selectedClip();
     if (!sel) return needSelection();
     commit(T.rippleDelete(get().clips, sel.id), 'Ripple deleted ' + sel.name);
+    store.set({ selected: null, selectedIds: [] });
   }
 
   function slip() {
@@ -198,6 +212,86 @@ export function createActions(store, engine) {
     commit(T.toggleTransition(get().clips, sel.id), 'Cross dissolve toggled on ' + sel.name);
   }
 
+  function setTransition(type, duration) {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    const label = (T.TRANSITION_TYPES.find((x) => x.id === type) || { label: type }).label;
+    commit(T.setTransition(get().clips, sel.id, type, duration), `${sel.name} transition: ${label}`);
+  }
+
+  function toggleMirror(axis) {
+    const sel = selectedClip();
+    if (!sel || sel.kind !== 'video') return needSelection('Select a video clip to mirror.');
+    const key = axis === 'v' ? 'flipV' : 'flipH';
+    const next = !sel[key];
+    commit(T.setFlag(get().clips, sel.id, key, next), `${sel.name} ${axis === 'v' ? 'vertical' : 'horizontal'} mirror ${next ? 'on' : 'off'}`);
+  }
+
+  function resetFilters() {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    commit(T.resetFilters(get().clips, sel.id), `Reset filters on ${sel.name}`);
+  }
+
+  function resetHsl() {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    commit(T.resetHsl(get().clips, sel.id), `Reset selective HSL on ${sel.name}`);
+  }
+
+  function addHslBand(hex) {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    commit(T.addHslBand(get().clips, sel.id, hex), `Added HSL color ${hex || ''}`.trim());
+  }
+
+  function removeHslBand(bandId) {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    commit(T.removeHslBand(get().clips, sel.id, bandId), `Removed HSL color band`);
+  }
+
+  function selectHslBand(bandId) {
+    const sel = selectedClip();
+    if (!sel) return;
+    store.set({ clips: T.setFlag(get().clips, sel.id, 'hslActiveBand', bandId) });
+  }
+
+  function setHslBandProp(clipId, bandId, key, value, live = true) {
+    const s = get();
+    const prevClip = T.findClip(s.clips, clipId);
+    const next = T.updateHslBand(s.clips, clipId, bandId, { [key]: value });
+    const nextClip = T.findClip(next, clipId);
+    if (prevClip && nextClip && Array.isArray(prevClip.hslBands) && Array.isArray(nextClip.hslBands)) {
+      const pb = prevClip.hslBands.find((b) => b.id === bandId);
+      const nb = nextClip.hslBands.find((b) => b.id === bandId);
+      if (pb && nb && pb[key] === nb[key]) return;
+    }
+    if (live) liveChange(`hsl:${clipId}:${bandId}:${key}`, next);
+    else commit(next, `Updated HSL ${key}`);
+  }
+
+  function setHslTarget(hex, addNew = false) {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    if (addNew) {
+      commit(T.addHslBand(get().clips, sel.id, hex), `Added HSL color ${hex}`);
+      return;
+    }
+    const activeId = sel.hslActiveBand || (sel.hslBands && sel.hslBands[0] && sel.hslBands[0].id) || 'hb0';
+    commit(T.updateHslBand(get().clips, sel.id, activeId, { hex }), `${sel.name} HSL color set to ${hex}`);
+  }
+
+  function setEyedropper(mode) {
+    const on = mode === true ? 'replace' : (mode || false);
+    store.set({
+      eyedropper: on,
+      log: on
+        ? (on === 'add' ? 'Click on the video to add a new HSL color (Esc to cancel)' : 'Click on the video to pick a color (Esc to cancel)')
+        : get().log,
+    });
+  }
+
   function detach() {
     const sel = selectedClip();
     if (!sel) return needSelection();
@@ -207,9 +301,13 @@ export function createActions(store, engine) {
   }
 
   function setProp(clipId, prop, value) {
-    const next = T.setProp(get().clips, clipId, prop, value);
+    const s = get();
+    const prev = T.findClip(s.clips, clipId);
+    if (!prev) return;
+    const next = T.setProp(s.clips, clipId, prop, value);
     if (!next) return;
     const clip = T.findClip(next, clipId);
+    if (T.propValue(prev, prop) === T.propValue(clip, prop)) return;
     liveChange(`${clipId}:${prop}`, next, `${clip.name} ${T.PROPS[prop].label.toLowerCase()} ${T.PROPS[prop].format(T.propValue(clip, prop))}`);
   }
 
@@ -222,11 +320,36 @@ export function createActions(store, engine) {
   // ---------- selection, playhead, view ----------
 
   function select(id) {
-    store.set({ selected: id, log: id ? (T.findClip(get().clips, id)?.name || '') : get().log });
+    store.set({
+      selected: id,
+      selectedIds: id ? [id] : [],
+      log: id ? (T.findClip(get().clips, id)?.name || '') : get().log,
+    });
+  }
+
+  function selectMany(ids, message) {
+    const s = get();
+    const valid = [...new Set(ids)].filter((id) => T.findClip(s.clips, id));
+    store.set({
+      selected: valid[0] || null,
+      selectedIds: valid,
+      log: message || (valid.length ? `Selected ${valid.length} clip${valid.length === 1 ? '' : 's'}` : s.log),
+    });
+  }
+
+  function toggleSelect(id) {
+    const s = get();
+    const cur = s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : []);
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    selectMany(next);
   }
 
   function seekTo(t) {
     engine.seekTo(t);
+  }
+
+  function stepBy(deltaSec) {
+    engine.seekTo(get().playhead + deltaSec);
   }
 
   function togglePlay() {
@@ -317,6 +440,60 @@ export function createActions(store, engine) {
     };
     const res = await api.save(s.projectFolder, data);
     log(res.ok ? 'Project saved' : 'Could not save the project: ' + res.error);
+    return res;
+  }
+
+  async function saveZd(saveAs = false) {
+    const api = projectApi();
+    if (!api || !api.saveZd) return log('Saving .zd projects needs the desktop app.');
+    const s = get();
+    log('Saving .zd project (bundling media)…');
+    const res = await api.saveZd({
+      filePath: saveAs ? null : s.zdFilePath,
+      saveAs,
+      name: s.projectName,
+      format: s.format,
+      resolution: s.resolution,
+      clips: s.clips,
+      media: s.media,
+    });
+    if (res.cancelled) return log('Save cancelled');
+    if (!res.ok) return log('Could not save .zd: ' + res.error);
+    const name = res.filePath.split(/[\\/]/).pop().replace(/\.zd$/i, '') || s.projectName;
+    const mb = (res.totalBytes / (1024 * 1024)).toFixed(1);
+    store.set({
+      zdFilePath: res.filePath,
+      projectName: name,
+      log: `Saved ${name}.zd (${res.assetCount} media file${res.assetCount === 1 ? '' : 's'}, ${mb} MB)`,
+    });
+    return res;
+  }
+
+  async function openZd() {
+    const api = projectApi();
+    if (!api || !api.openZd) return log('Opening .zd projects needs the desktop app.');
+    log('Opening .zd project…');
+    const res = await api.openZd();
+    if (res.cancelled) return log('Open cancelled');
+    if (!res.ok) return log('Could not open .zd: ' + res.error);
+    const p = res.project;
+    store.set({
+      zdFilePath: res.filePath,
+      projectFolder: res.sessionDir,
+      projectName: p.name,
+      format: p.format || 'MP4',
+      resolution: p.resolution || '1920 × 1080',
+      clips: Array.isArray(p.clips) ? p.clips : [],
+      media: Array.isArray(p.media) ? p.media : [],
+      selected: null,
+      selectedIds: [],
+      binSelected: null,
+      past: [],
+      future: [],
+      playhead: 0,
+      playing: false,
+      log: `Opened ${p.name}.zd (${res.assetCount} embedded media file${res.assetCount === 1 ? '' : 's'})`,
+    });
     return res;
   }
 
@@ -419,9 +596,9 @@ export function createActions(store, engine) {
 
 
   return {
-    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, detach,
-    setProp, bumpVolume, select, seekTo, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
-    setPage, importFolder, selectBin, addBinItem, saveProject, scheduleSave, generationEvent, runTool, exportProject, exportRender,
+    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
+    setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
+    setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,
     selectedClip, log, commitClips, gesture: trackpadGesture, liveClips,
   };
 }

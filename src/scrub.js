@@ -3,9 +3,10 @@
 //   scroll changes the clip's length, and Shift and Alt scroll move and slip it (see gestures below).
 // - Value fields (the inspector): Ctrl + any direction changes the value.
 import * as T from './timeline.js';
+import { getHslBands } from './color.js';
 
-export const SENS_WHEEL = 0.002; // value per scroll pixel
-export const SENS_DRAG = 0.005;  // value per dragged pixel
+export const SENS_WHEEL = 0.0015; // fraction of property range per scroll pixel
+export const SENS_DRAG = 0.0045;  // fraction of property range per dragged pixel
 
 // The scroll amount along the dominant axis, positive meaning "up" or "right".
 export function dominantScroll(e) {
@@ -39,8 +40,19 @@ export function installScrub(root, { store, actions }) {
       const clip = T.findClip(s.clips, field.dataset.scrubClip);
       if (!clip) return;
       const prop = field.dataset.scrubProp;
+      const def = T.PROPS[prop];
+      if (!def) return;
+      const span = def.max - def.min;
       const { px } = dominantScroll(e);
-      actions.setProp(clip.id, prop, scrubbedValue(clip, prop, px * SENS_WHEEL));
+      if (field.dataset.scrubBand) {
+        const band = getHslBands(clip).find((b) => b.id === field.dataset.scrubBand);
+        if (!band) return;
+        const key = field.dataset.scrubBandKey;
+        const cur = typeof band[key] === 'number' ? band[key] : def.default;
+        actions.setHslBandProp(clip.id, band.id, key, Math.min(def.max, Math.max(def.min, cur + px * SENS_WHEEL * span)));
+      } else {
+        actions.setProp(clip.id, prop, scrubbedValue(clip, prop, px * SENS_WHEEL * span));
+      }
       return;
     }
     if (blk && e.ctrlKey) {
@@ -61,31 +73,47 @@ export function installScrub(root, { store, actions }) {
       const { px } = { px: e.deltaX * (e.deltaMode === 1 ? 16 : 1) };
       if (Math.abs(px) <= Math.abs(e.deltaY)) { e.preventDefault(); return; } // pinch and vertical scroll
       e.preventDefault();
-      actions.gesture(mode, px, e.deltaX);
+      actions.gesture(mode, px);
     }
   }, { passive: false });
 
-  // Ctrl + drag over a value field
+  // Drag (with or without Ctrl) over a value field in the Inspector
   root.addEventListener('pointerdown', (e) => {
     const field = e.target.closest('[data-scrub-prop]');
-    if (!field || !e.ctrlKey || e.button !== 0) return;
+    if (!field || e.button !== 0) return;
     e.preventDefault();
     const s = store.get();
     const clip = T.findClip(s.clips, field.dataset.scrubClip);
     if (!clip) return;
     const prop = field.dataset.scrubProp;
-    const start = T.propValue(clip, prop);
+    const def = T.PROPS[prop];
+    if (!def) return;
+    const span = def.max - def.min;
+    const bandId = field.dataset.scrubBand || null;
+    const bandKey = field.dataset.scrubBandKey || null;
+    let start;
+    if (bandId) {
+      const band = getHslBands(clip).find((b) => b.id === bandId);
+      if (!band) return;
+      start = typeof band[bandKey] === 'number' ? band[bandKey] : def.default;
+    } else {
+      start = T.propValue(clip, prop);
+    }
     const x0 = e.clientX;
     const y0 = e.clientY;
     const move = (ev) => {
-      const amount = ((ev.clientX - x0) - (ev.clientY - y0)) * SENS_DRAG;
-      actions.setProp(clip.id, prop, Math.min(T.PROPS[prop].max, Math.max(T.PROPS[prop].min, start + amount)));
+      const amount = ((ev.clientX - x0) - (ev.clientY - y0)) * SENS_DRAG * span;
+      const nextVal = Math.min(def.max, Math.max(def.min, start + amount));
+      if (bandId) actions.setHslBandProp(clip.id, bandId, bandKey, nextVal);
+      else actions.setProp(clip.id, prop, nextVal);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   });
 }
