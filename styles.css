@@ -168,6 +168,22 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 .hsl-swatches { display: flex; gap: 4px; flex-wrap: wrap; }
 .hsl-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .hsl-swatch.on { border-color: #fff; transform: scale(1.12); }
+
+/* export mini-panel inside right-side inspector */
+.exp-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); flex: none; }
+.exp-body { gap: 8px; }
+.exp-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.exp-preset-grid button { height: 2.2rem; font-size: 0.9rem; }
+.exp-pill-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.exp-pill-row button { height: 2.05rem; padding: 0 8px; font-size: 0.88rem; }
+.exp-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.exp-lbl { display: flex; flex-direction: column; gap: 4px; color: #A4A4B8; font-size: 0.88rem; min-width: 0; }
+.exp-lbl select, .exp-lbl input { height: 2.2rem; border-radius: 6px; border: 1px solid #3A3A48; background: #121218; color: #ECECF2; padding: 0 8px; min-width: 0; }
+.exp-progress { height: 7px; background: #121218; border: 1px solid #3A3A48; border-radius: 99px; overflow: hidden; flex: none; }
+.exp-progress div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
+.exp-status { font-size: 0.88rem; word-break: break-word; }
+.exp-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.exp-go { flex: 1; height: 2.5rem; }
 .insp-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .scrub-field { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid #2F2F3B; border-radius: 6px; cursor: ew-resize; user-select: none; background: #121218; flex: none; }
 .scrub-field:hover { border-color: #46465A; }

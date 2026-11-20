@@ -40,7 +40,10 @@ document.getElementById('windows-open').addEventListener('click', (e) => {
 });
 document.getElementById('open-zd').addEventListener('click', () => actions.openZd());
 document.getElementById('save-zd').addEventListener('click', (e) => actions.saveZd(e.shiftKey));
-document.getElementById('export-top').addEventListener('click', () => actions.exportRender());
+document.getElementById('export-top').addEventListener('click', () => {
+  workspace.ensurePanel('inspector');
+  actions.toggleExport();
+});
 
 // AI render events come from the text to video dialog (ai-ui.js)
 window.addEventListener('zaude:t2v', (e) => actions.generationEvent(e.detail));

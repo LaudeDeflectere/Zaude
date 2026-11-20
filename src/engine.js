@@ -96,6 +96,7 @@ export function createEngine(store) {
   }
 
   function seek(el, want) {
+    if (el.readyState < 1 || el.seeking) return;
     const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : Infinity;
     const clamped = Math.min(Math.max(0, want), Math.max(0, dur - 0.02));
     if (Math.abs(el.currentTime - clamped) > EPS_SEEK || (el.paused && Math.abs(el.currentTime - clamped) > 0.04)) {
@@ -176,22 +177,34 @@ export function createEngine(store) {
       if (!playing && !video.paused) video.pause();
     }
 
-    // audio clips: one element each, created when first needed
-    const active = new Set();
+    // audio clips: reuse one audio element per track (A1, A2, ...) so cuts on the same
+    // source file never recreate <audio> elements or re-buffer from scratch.
+    const activeTracks = new Set();
     for (const c of s.clips) {
       if (c.kind !== 'audio' || !c.path) continue;
       if (!isActive(c, t)) continue;
-      active.add(c.id);
-      let entry = audioEls.get(c.id);
-      if (!entry || entry.path !== c.path) {
-        const el = entry ? entry.el : document.createElement('audio');
-        if (!entry) el.addEventListener('loadedmetadata', () => sync());
-        entry = { el, gain: entry ? entry.gain : null, path: c.path, token: 0 };
-        audioEls.set(c.id, entry);
+      const key = c.track || c.id;
+      activeTracks.add(key);
+      let entry = audioEls.get(key);
+      if (!entry) {
+        const el = document.createElement('audio');
+        el.preload = 'auto';
+        el.addEventListener('loadedmetadata', () => sync());
+        el.addEventListener('canplay', () => sync());
+        el.addEventListener('seeked', () => sync());
+        entry = { el, gain: null, gainTried: false, path: null, token: 0 };
+        audioEls.set(key, entry);
+      }
+      if (entry.path !== c.path) {
+        entry.path = c.path;
         const token = ++entry.token;
         urlFor(c.path).then((url) => {
           if (!url || entry.token !== token) return;
-          el.src = url;
+          if (entry.el.src !== url) {
+            entry.el.src = url;
+            entry.el.load();
+          }
+          sync();
         });
       }
       if (!entry.gain && !entry.gainTried) {
@@ -201,17 +214,13 @@ export function createEngine(store) {
       setGain(entry.gain, entry.el, c);
       setRate(entry.el, c);
       seek(entry.el, srcTime(c, t));
-      if (playing && entry.el.paused) entry.el.play().catch(() => {});
+      if (playing && entry.el.paused && entry.el.readyState >= 2 && !entry.el.seeking) {
+        entry.el.play().catch(() => {});
+      }
       if (!playing && !entry.el.paused) entry.el.pause();
     }
-    const liveAudioIds = new Set(s.clips.filter((c) => c.kind === 'audio' && c.path).map((c) => c.id));
-    for (const [id, entry] of audioEls) {
-      if (!liveAudioIds.has(id)) {
-        entry.el.pause();
-        entry.el.removeAttribute('src');
-        try { entry.el.load(); } catch { /* ignore */ }
-        audioEls.delete(id);
-      } else if (!active.has(id) && !entry.el.paused) {
+    for (const [key, entry] of audioEls) {
+      if (!activeTracks.has(key) && !entry.el.paused) {
         entry.el.pause();
       }
     }
@@ -242,7 +251,8 @@ export function createEngine(store) {
 
   function play() {
     if (store.get().playing) return;
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    const ctx = context();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     lastTs = performance.now();
     store.set({ playing: true });
     rafId = requestAnimationFrame(tick);

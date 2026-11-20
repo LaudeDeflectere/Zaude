@@ -27,6 +27,40 @@ export const TOOLS = {
   deliver: [{ id: 'format', label: 'Set format' }, { id: 'resolution', label: 'Set resolution' }, { id: 'export', label: 'Export project' }],
 };
 
+export const EXPORT_PRESETS = [
+  { id: 'youtube', label: 'YouTube', aspect: '16:9', resTier: '1080', fps: 30, quality: 'high', format: 'MP4' },
+  { id: 'youtube4k', label: 'YouTube 4K', aspect: '16:9', resTier: '2160', fps: 60, quality: 'high', format: 'MP4' },
+  { id: 'tiktok', label: 'TikTok / Reels', aspect: '9:16', resTier: '1080', fps: 30, quality: 'high', format: 'MP4' },
+  { id: 'square', label: 'Instagram 1:1', aspect: '1:1', resTier: '1080', fps: 30, quality: 'high', format: 'MP4' },
+  { id: 'cinema', label: 'Cinema 24p', aspect: '16:9', resTier: '1080', fps: 24, quality: 'ultra', format: 'MOV' },
+  { id: 'preview', label: 'Quick Preview', aspect: '16:9', resTier: '720', fps: 24, quality: 'draft', format: 'MP4' },
+];
+
+export const ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5', '21:9'];
+export const RES_TIERS = [
+  { id: '720', label: '720p (HD)' },
+  { id: '1080', label: '1080p (Full HD)' },
+  { id: '2160', label: '4K (Ultra HD)' },
+];
+
+// Computes exact even output pixel dimensions for any aspect ratio + resolution tier.
+export function exportDimensions(aspect, resTier) {
+  const shortSide = Number(resTier) || 1080;
+  const parts = String(aspect || '16:9').split(':').map(Number);
+  const aw = parts[0] > 0 ? parts[0] : 16;
+  const ah = parts[1] > 0 ? parts[1] : 9;
+  let w;
+  let h;
+  if (aw >= ah) {
+    h = shortSide;
+    w = Math.round((shortSide * aw) / ah);
+  } else {
+    w = shortSide;
+    h = Math.round((shortSide * ah) / aw);
+  }
+  return { width: Math.round(w / 2) * 2, height: Math.round(h / 2) * 2 };
+}
+
 export function initialState() {
   return {
     clips: T.initialClips(),
@@ -35,6 +69,19 @@ export function initialState() {
     selected: null,
     selectedIds: [],
     eyedropper: false,
+    exportOpen: false,
+    exportCfg: {
+      preset: 'youtube',
+      aspect: '16:9',
+      resTier: '1080',
+      fps: 30,
+      quality: 'high',
+      format: 'MP4',
+      rangeMode: 'full',
+      rangeStart: 0,
+      rangeEnd: 10,
+    },
+    exportStatus: { busy: false, progress: 0, message: '', lastPath: null },
     page: 'cut',
     pps: 14,
     snap: true,
@@ -227,6 +274,13 @@ export function createActions(store, engine) {
     commit(T.setFlag(get().clips, sel.id, key, next), `${sel.name} ${axis === 'v' ? 'vertical' : 'horizontal'} mirror ${next ? 'on' : 'off'}`);
   }
 
+  function toggleFill() {
+    const sel = selectedClip();
+    if (!sel || sel.kind !== 'video') return needSelection('Select a video clip to fill the frame.');
+    const next = !sel.fill;
+    commit(T.setFlag(get().clips, sel.id, 'fill', next), `${sel.name} ${next ? 'fills the frame' : 'fits inside the frame'}`);
+  }
+
   function resetFilters() {
     const sel = selectedClip();
     if (!sel) return needSelection();
@@ -401,6 +455,7 @@ export function createActions(store, engine) {
       clips: data && Array.isArray(data.clips) ? data.clips : get().clips,
       format: (data && data.format) || get().format,
       resolution: (data && data.resolution) || get().resolution,
+      captions: (data && data.captions) || null,
       past: [],
       future: [],
       log: `Opened ${scan.media.length} files from ${folder}`,
@@ -438,6 +493,7 @@ export function createActions(store, engine) {
       resolution: s.resolution,
       clips: s.clips,
     };
+    if (s.captions) data.captions = s.captions; // subtitle file (.ass/.srt) in the project folder, burned in on export
     const res = await api.save(s.projectFolder, data);
     log(res.ok ? 'Project saved' : 'Could not save the project: ' + res.error);
     return res;
@@ -528,19 +584,95 @@ export function createActions(store, engine) {
     }
   }
 
-  // ---------- render the timeline to an MP4 ----------
+  // ---------- export panel & render the timeline to MP4/MOV ----------
+  function mediaEnd(clips) {
+    const media = clips.filter((c) => c.path && !c.generating && (c.kind === 'video' || c.kind === 'audio'));
+    if (!media.length) return T.projectEnd(clips);
+    return Math.max(...media.map((c) => T.clipEnd(c)));
+  }
+
+  function openExport() {
+    const s = get();
+    const end = Number(mediaEnd(s.clips).toFixed(2));
+    const cfg = { ...s.exportCfg };
+    if (cfg.rangeEnd <= cfg.rangeStart || cfg.rangeEnd > end + 0.05) {
+      cfg.rangeStart = 0;
+      cfg.rangeEnd = Math.max(0.5, end);
+    }
+    store.set({ exportOpen: true, exportCfg: cfg });
+  }
+
+  function closeExport() {
+    store.set({ exportOpen: false });
+  }
+
+  function toggleExport() {
+    if (get().exportOpen) closeExport();
+    else openExport();
+  }
+
+  function setExportCfg(patch) {
+    const s = get();
+    const next = { ...s.exportCfg, ...patch };
+    if (patch.aspect || patch.resTier || patch.fps || patch.quality || patch.format) {
+      if (!patch.preset) next.preset = 'custom';
+    }
+    store.set({ exportCfg: next });
+  }
+
+  function applyExportPreset(presetId) {
+    const p = EXPORT_PRESETS.find((x) => x.id === presetId);
+    if (!p) return;
+    setExportCfg({
+      preset: p.id,
+      aspect: p.aspect,
+      resTier: p.resTier,
+      fps: p.fps,
+      quality: p.quality,
+      format: p.format,
+    });
+  }
+
   let rendering = false;
   async function exportRender() {
     const api = window.zaudeRender;
     if (!api) return log('Rendering needs the desktop app.');
     if (rendering) return log('A render is already running.');
     const s = get();
+    const cfg = s.exportCfg;
+    const dims = exportDimensions(cfg.aspect, cfg.resTier);
+    const useRange = cfg.rangeMode === 'custom';
     rendering = true;
-    const off = api.onProgress((p) => log(`Rendering ${Math.round(p * 100)}%`));
-    log('Rendering…');
+    store.set({ exportStatus: { busy: true, progress: 0, message: 'Starting export…', lastPath: null }, log: 'Rendering…' });
+    const off = api.onProgress((p) => {
+      const pct = Math.round(p * 100);
+      store.set({
+        exportStatus: { busy: true, progress: p, message: `Exporting ${pct}%…`, lastPath: null },
+        log: `Rendering ${pct}%`,
+      });
+    });
     try {
-      const res = await api.start({ clips: s.clips, resolution: s.resolution, folder: s.projectFolder, name: s.projectName });
-      log(res.ok ? `Rendered ${res.path} (${res.encoder === 'h264_nvenc' ? 'NVIDIA NVENC' : 'CPU'})` : 'Render failed: ' + res.error);
+      const res = await api.start({
+        clips: s.clips,
+        resolution: `${dims.width} × ${dims.height}`,
+        width: dims.width,
+        height: dims.height,
+        fps: cfg.fps,
+        quality: cfg.quality,
+        format: cfg.format,
+        rangeStart: useRange ? Number(cfg.rangeStart) : null,
+        rangeEnd: useRange ? Number(cfg.rangeEnd) : null,
+        folder: s.projectFolder,
+        name: s.projectName,
+        captions: s.captions || null,
+      });
+      if (res.ok) {
+        const encLabel = res.encoder === 'h264_nvenc' ? 'NVIDIA NVENC' : 'CPU';
+        const msg = `Exported (${encLabel}): ${res.path.split(/[\\/]/).pop()}`;
+        store.set({ exportStatus: { busy: false, progress: 1, message: msg, lastPath: res.path }, log: `Rendered ${res.path} (${encLabel})` });
+      } else {
+        store.set({ exportStatus: { busy: false, progress: 0, message: 'Export failed: ' + res.error, lastPath: null }, log: 'Render failed: ' + res.error });
+      }
     } finally {
       off();
       rendering = false;
@@ -596,9 +728,10 @@ export function createActions(store, engine) {
 
 
   return {
-    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
+    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
     setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
     setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,
+    openExport, closeExport, toggleExport, setExportCfg, applyExportPreset,
     selectedClip, log, commitClips, gesture: trackpadGesture, liveClips,
   };
 }

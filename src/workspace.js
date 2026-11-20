@@ -416,11 +416,21 @@ export function createWorkspace(root, { createPanel, store, onLayoutChange }) {
     }
   });
 
+  function ensurePanel(type) {
+    const areas = L.allAreas(tree);
+    if (areas.some((a) => a.type === type)) return;
+    maximizedArea = null;
+    const target = areas.find((a) => a.type === 'viewer') || areas[areas.length - 1];
+    tree = L.addBeside(tree, target.id, type, 'row');
+    commit();
+  }
+
   return {
     init,
     render,
     resetLayout,
     applyScale,
+    ensurePanel,
     openWindowsMenu,
     getTree: () => tree,
   };

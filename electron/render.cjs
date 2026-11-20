@@ -6,8 +6,43 @@ const PRESETS = {
   '1280 × 720': { w: 1280, h: 720 },
   '1920 × 1080': { w: 1920, h: 1080 },
   '3840 × 2160': { w: 3840, h: 2160 },
+  '1080 × 1920': { w: 1080, h: 1920 },
+  '1080 × 1080': { w: 1080, h: 1080 },
+  '1080 × 1350': { w: 1080, h: 1350 },
 };
 const FPS = 24;
+
+function resolveSize(resolution, width, height) {
+  const wNum = Number(width);
+  const hNum = Number(height);
+  if (Number.isFinite(wNum) && Number.isFinite(hNum) && wNum >= 64 && hNum >= 64) {
+    return { w: Math.round(wNum / 2) * 2, h: Math.round(hNum / 2) * 2 };
+  }
+  if (PRESETS[resolution]) return PRESETS[resolution];
+  const m = /^(\d+)\s*[×x]\s*(\d+)$/i.exec(String(resolution || '').trim());
+  if (m) return { w: Math.round(Number(m[1]) / 2) * 2, h: Math.round(Number(m[2]) / 2) * 2 };
+  return PRESETS['1920 × 1080'];
+}
+
+function qualityArgs(encoder, quality) {
+  const q = String(quality || 'high').toLowerCase();
+  if (encoder === 'h264_nvenc') {
+    const map = {
+      draft: ['-c:v', 'h264_nvenc', '-preset', 'p3', '-rc', 'vbr', '-cq', '28', '-b:v', '0'],
+      standard: ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '23', '-b:v', '0'],
+      high: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '19', '-b:v', '0'],
+      ultra: ['-c:v', 'h264_nvenc', '-preset', 'p6', '-rc', 'vbr', '-cq', '15', '-b:v', '0'],
+    };
+    return map[q] || map.high;
+  }
+  const map = {
+    draft: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26'],
+    standard: ['-c:v', 'libx264', '-preset', 'medium', '-crf', '21'],
+    high: ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18'],
+    ultra: ['-c:v', 'libx264', '-preset', 'slow', '-crf', '15'],
+  };
+  return map[q] || map.high;
+}
 
 let encoderCache = null;
 // Returns { encoder: 'h264_nvenc' | 'libx264', cuda: boolean }. Result is cached for the session.
@@ -36,13 +71,60 @@ function atempoChain(speed) {
 
 const r3 = (n) => Number(Number(n).toFixed(3));
 
+// Scales one clip into the W×H frame. Default: fit inside with black bars (as before).
+// fill: cover the frame and crop the edges. zoom > 1 enlarges further; panX/panY (-100…100)
+// pick which part stays in view (0 = centre, ±100 = the edge).
+function framingFilter(c, size) {
+  const z = typeof c.zoom === 'number' && c.zoom > 1 ? Math.min(4, c.zoom) : 1;
+  if (!c.fill && z === 1) {
+    return `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black`;
+  }
+  const sw = Math.round((size.w * z) / 2) * 2;
+  const sh = Math.round((size.h * z) / 2) * 2;
+  const fx = r3(0.5 + Math.max(-100, Math.min(100, Number(c.panX) || 0)) / 200);
+  const fy = r3(0.5 + Math.max(-100, Math.min(100, Number(c.panY) || 0)) / 200);
+  const mode = c.fill ? 'increase' : 'decrease';
+  return `scale=${sw}:${sh}:force_original_aspect_ratio=${mode}:flags=lanczos,` +
+    `pad=max(iw\\,${size.w}):max(ih\\,${size.h}):(ow-iw)/2:(oh-ih)/2:black,` +
+    `crop=${size.w}:${size.h}:(iw-${size.w})*${fx}:(ih-${size.h})*${fy}`;
+}
+
 // Builds the ffmpeg arguments for the timeline. Pure: no files are read.
 // Clips without a file (titles, placeholders still generating) are skipped.
-function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda = false }) {
-  const size = PRESETS[resolution] || PRESETS['1920 × 1080'];
-  const media = clips.filter((c) => c.path && !c.generating && (c.kind === 'video' || c.kind === 'audio'));
+function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality = 'high', rangeStart = null, rangeEnd = null, subtitles = null, output, encoder = 'libx264', cuda = false }) {
+  const size = resolveSize(resolution, width, height);
+  const outFps = Math.max(1, Math.min(120, Math.round(Number(fps) || FPS)));
+  let media = clips.filter((c) => c.path && !c.generating && (c.kind === 'video' || c.kind === 'audio'));
   if (!media.length) return { error: 'The timeline has no media clips to render.' };
-  const total = Math.max(...media.map((c) => c.start + c.dur));
+
+  const fullEnd = Math.max(...media.map((c) => c.start + c.dur));
+  const hasRange = rangeStart !== null && rangeEnd !== null && Number.isFinite(Number(rangeStart)) && Number.isFinite(Number(rangeEnd));
+  const winStart = hasRange ? Math.max(0, Number(rangeStart)) : 0;
+  const winEnd = hasRange ? Math.max(winStart, Number(rangeEnd)) : fullEnd;
+  if (winEnd - winStart < 0.05) return { error: 'Export range must be at least 0.05 seconds long.' };
+
+  if (hasRange) {
+    media = media
+      .map((c) => {
+        const cStart = c.start;
+        const cEnd = c.start + c.dur;
+        const ovStart = Math.max(cStart, winStart);
+        const ovEnd = Math.min(cEnd, winEnd);
+        if (ovEnd - ovStart < 0.01) return null;
+        const trimLeft = ovStart - cStart;
+        const speed = c.speed || 1;
+        return {
+          ...c,
+          start: ovStart - winStart,
+          dur: ovEnd - ovStart,
+          srcIn: (c.srcIn || 0) + trimLeft * speed,
+        };
+      })
+      .filter(Boolean);
+    if (!media.length) return { error: 'No media clips fall inside the selected export range.' };
+  }
+
+  const total = hasRange ? (winEnd - winStart) : Math.max(...media.map((c) => c.start + c.dur));
 
   const inputs = [];
   const graph = [];
@@ -62,7 +144,7 @@ function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda 
     return inputIndex.get(key);
   };
 
-  let base = `color=c=black:s=${size.w}x${size.h}:r=${FPS}:d=${r3(total)}[base0]`;
+  let base = `color=c=black:s=${size.w}x${size.h}:r=${outFps}:d=${r3(total)}[base0]`;
   graph.push(base);
   let last = 'base0';
   videoClips.forEach((c, k) => {
@@ -108,12 +190,16 @@ function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda 
     const fxChain = fx.length ? ',' + fx.join(',') : '';
     graph.push(
       `[${idx}:v]trim=start=${r3(c.srcIn || 0)}:duration=${used},setpts=(PTS-STARTPTS)/${c.speed || 1}+${r3(c.start)}/TB,` +
-      `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black${fxChain},` +
+      `${framingFilter(c, size)}${fxChain},` +
       `format=yuva420p,colorchannelmixer=aa=${r3(opacity)}[v${k}]`);
     graph.push(`[${last}][v${k}]overlay=eof_action=pass:shortest=0[base${k + 1}]`);
     last = `base${k + 1}`;
   });
-  graph.push(`[${last}]format=yuv420p[vout]`);
+  // burned-in captions; with an export range the subtitle times shift with it
+  const subs = subtitles
+    ? `setpts=PTS+${r3(winStart)}/TB,subtitles='${String(subtitles).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}',setpts=PTS-${r3(winStart)}/TB,`
+    : '';
+  graph.push(`[${last}]${subs}format=yuv420p[vout]`);
 
   const audioLabels = [];
   audioClips.forEach((c, k) => {
@@ -132,9 +218,7 @@ function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda 
     audioArgs = ['-map', '[aout]', '-c:a', 'aac', '-b:a', '192k'];
   }
 
-  const encodeArgs = encoder === 'h264_nvenc'
-    ? ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '22', '-b:v', '0']
-    : ['-c:v', 'libx264', '-preset', 'medium', '-crf', '20'];
+  const encodeArgs = qualityArgs(encoder, quality);
 
   return {
     args: [
@@ -143,20 +227,21 @@ function buildRenderArgs({ clips, resolution, output, encoder = 'libx264', cuda 
       '-filter_complex', graph.join(';'),
       '-map', '[vout]', ...audioArgs,
       ...encodeArgs,
-      '-pix_fmt', 'yuv420p', '-r', String(FPS),
+      '-pix_fmt', 'yuv420p', '-r', String(outFps),
       '-t', String(r3(total)),
       '-movflags', '+faststart',
       output,
     ],
     total,
     size,
+    fps: outFps,
   };
 }
 
 // Runs the render. onProgress receives a fraction from 0 to 1. Resolves to { ok, path } or { ok: false, error }.
-function renderTimeline({ clips, resolution, output, onProgress = () => {}, ffmpeg = 'ffmpeg' }) {
+function renderTimeline({ clips, resolution, width, height, fps, quality, rangeStart, rangeEnd, subtitles, output, onProgress = () => {}, ffmpeg = 'ffmpeg' }) {
   const enc = detectEncoder();
-  const built = buildRenderArgs({ clips, resolution, output, encoder: enc.encoder, cuda: enc.cuda });
+  const built = buildRenderArgs({ clips, resolution, width, height, fps, quality, rangeStart, rangeEnd, subtitles, output, encoder: enc.encoder, cuda: enc.cuda });
   if (built.error) return Promise.resolve({ ok: false, error: built.error });
   return new Promise((resolve) => {
     let child;

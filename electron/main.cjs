@@ -322,6 +322,13 @@ function registerAiHandlers() {
   });
 
   // ---------- render the timeline to an MP4 (NVIDIA encoder when available) ----------
+  // A project's caption file must be a plain file name inside the project folder.
+  function captionsPath(folder, name) {
+    if (!name || typeof name !== 'string' || /[\\/]/.test(name) || !/\.(ass|srt)$/i.test(name)) return null;
+    const p = path.join(folder, name);
+    return fs.existsSync(p) ? p : null;
+  }
+
   ipcMain.handle('render:start', async (event, input) => {
     if (!input || !Array.isArray(input.clips)) return { ok: false, error: 'No timeline to render.' };
     const folders = projectFolders();
@@ -329,13 +336,21 @@ function registerAiHandlers() {
     fs.mkdirSync(folder, { recursive: true });
     const safeName = String(input.name || 'zaude').replace(/[^A-Za-z0-9 _.-]/g, '_').slice(0, 60) || 'zaude';
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const output = path.join(folder, `${safeName}-${stamp}.mp4`);
+    const ext = String(input.format || 'MP4').toUpperCase() === 'MOV' ? 'mov' : 'mp4';
+    const output = path.join(folder, `${safeName}-${stamp}.${ext}`);
     const sender = event.sender;
     renderRunning = true;
     try {
       return await render.renderTimeline({
         clips: input.clips,
         resolution: input.resolution,
+        width: input.width,
+        height: input.height,
+        fps: input.fps,
+        quality: input.quality,
+        rangeStart: input.rangeStart,
+        rangeEnd: input.rangeEnd,
+        subtitles: captionsPath(folder, input.captions),
         output,
         onProgress: (p) => { if (!sender.isDestroyed()) sender.send('render:progress', p); },
       });

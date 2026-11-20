@@ -1,7 +1,7 @@
 // The content of each window type. Every panel builds its DOM once, updates from the store,
 // and uses delegated listeners so it can be moved or rebuilt without losing state.
 import * as T from './timeline.js';
-import { TOOLS, PAGES } from './actions.js';
+import { TOOLS, PAGES, EXPORT_PRESETS, ASPECT_RATIOS, RES_TIERS, exportDimensions } from './actions.js';
 import { timelineThumbStages } from './thumbs.js';
 import { drawWaveform } from './waveform.js';
 import { hexToRgb, rgbToHsl, hslToRgb, rgbToHex, normalizeHex, getHslBands, isBandActive, MAX_HSL_BANDS } from './color.js';
@@ -896,13 +896,55 @@ export function inspectorPanel({ store, actions }) {
 
   root.addEventListener('change', (e) => {
     const hexInput = e.target.closest('[data-hsl-hex]');
-    if (!hexInput) return;
-    const norm = normalizeHex(hexInput.value, null);
-    if (norm) actions.setHslTarget(norm, false);
-    else { lastStructKey = ''; update(store.get()); }
+    if (hexInput) {
+      const norm = normalizeHex(hexInput.value, null);
+      if (norm) actions.setHslTarget(norm, false);
+      else { lastStructKey = ''; update(store.get()); }
+      return;
+    }
+    const expField = e.target.closest('[data-exp-field]');
+    if (expField) {
+      const key = expField.dataset.expField;
+      const val = expField.type === 'number' ? Number(expField.value) : expField.value;
+      if (key === 'fps') actions.setExportCfg({ fps: Number(val) });
+      else if (key === 'rangeStart') actions.setExportCfg({ rangeStart: Math.max(0, Number(val) || 0) });
+      else if (key === 'rangeEnd') actions.setExportCfg({ rangeEnd: Math.max(0.1, Number(val) || 0.1) });
+      else actions.setExportCfg({ [key]: val });
+    }
   });
 
   root.addEventListener('click', (e) => {
+    const expPreset = e.target.closest('[data-exp-preset]');
+    if (expPreset) return actions.applyExportPreset(expPreset.dataset.expPreset);
+    const expAspect = e.target.closest('[data-exp-aspect]');
+    if (expAspect) return actions.setExportCfg({ aspect: expAspect.dataset.expAspect });
+    const expFps = e.target.closest('[data-exp-fps]');
+    if (expFps) return actions.setExportCfg({ fps: Number(expFps.dataset.expFps) });
+    const expRange = e.target.closest('[data-exp-range]');
+    if (expRange) return actions.setExportCfg({ rangeMode: expRange.dataset.expRange });
+    const expAct = e.target.closest('[data-exp-act]');
+    if (expAct) {
+      const a = expAct.dataset.expAct;
+      if (a === 'close') return actions.closeExport();
+      if (a === 'start') return actions.exportRender();
+      if (a === 'set-in') {
+        const s = store.get();
+        const t = Number(s.playhead.toFixed(2));
+        actions.setExportCfg({ rangeMode: 'custom', rangeStart: t, rangeEnd: Math.max(t + 0.5, s.exportCfg.rangeEnd) });
+        return;
+      }
+      if (a === 'set-out') {
+        const s = store.get();
+        const t = Number(s.playhead.toFixed(2));
+        actions.setExportCfg({ rangeMode: 'custom', rangeStart: Math.min(s.exportCfg.rangeStart, Math.max(0, t - 0.5)), rangeEnd: Math.max(0.5, t) });
+        return;
+      }
+      if (a === 'reveal') {
+        const p = store.get().exportStatus.lastPath;
+        if (p && window.zaudeAI && window.zaudeAI.reveal) window.zaudeAI.reveal(p);
+        return;
+      }
+    }
     const tabBtn = e.target.closest('[data-insp-tab]');
     if (tabBtn) {
       tab = tabBtn.dataset.inspTab;
@@ -935,6 +977,7 @@ export function inspectorPanel({ store, actions }) {
     if (!act) return;
     if (act.dataset.act === 'detach') actions.detach();
     if (act.dataset.act === 'mirror-h') actions.toggleMirror('h');
+    if (act.dataset.act === 'fill') actions.toggleFill();
     if (act.dataset.act === 'mirror-v') actions.toggleMirror('v');
     if (act.dataset.act === 'reset-filters') actions.resetFilters();
     if (act.dataset.act === 'reset-hsl') actions.resetHsl();
@@ -1037,7 +1080,99 @@ export function inspectorPanel({ store, actions }) {
     }
   }
 
+  function renderExportPanel(s) {
+    const cfg = s.exportCfg;
+    const st = s.exportStatus;
+    const dims = exportDimensions(cfg.aspect, cfg.resTier);
+    const media = s.clips.filter((c) => c.path && !c.generating && (c.kind === 'video' || c.kind === 'audio'));
+    const fullEnd = media.length ? Math.max(...media.map((c) => T.clipEnd(c))) : T.projectEnd(s.clips);
+    const dur = cfg.rangeMode === 'custom'
+      ? Math.max(0, Number(cfg.rangeEnd) - Number(cfg.rangeStart))
+      : fullEnd;
+
+    const expKey = JSON.stringify([cfg, st.busy, Math.round((st.progress || 0) * 100), st.message, st.lastPath, fullEnd.toFixed(2)]);
+    if (lastStructKey === 'export|' + expKey) return;
+    lastStructKey = 'export|' + expKey;
+
+    root.innerHTML = `
+      <div class="exp-head">
+        <span class="insp-title">Export Video</span>
+        <button class="area-btn" data-exp-act="close" title="Back to Clip &amp; Effects">×</button>
+      </div>
+      <div class="insp-body exp-body">
+        <div class="lbl">Platform presets</div>
+        <div class="exp-preset-grid">
+          ${EXPORT_PRESETS.map((p) => `<button class="${cfg.preset === p.id ? 'on' : ''}" data-exp-preset="${p.id}">${esc(p.label)}</button>`).join('')}
+        </div>
+
+        <div class="lbl">Aspect ratio <span class="muted">(${dims.width} × ${dims.height})</span></div>
+        <div class="exp-pill-row">
+          ${ASPECT_RATIOS.map((ar) => `<button class="${cfg.aspect === ar ? 'on' : ''}" data-exp-aspect="${ar}">${ar}</button>`).join('')}
+        </div>
+
+        <div class="exp-two-col">
+          <label class="exp-lbl">Resolution
+            <select data-exp-field="resTier">
+              ${RES_TIERS.map((r) => `<option value="${r.id}" ${cfg.resTier === r.id ? 'selected' : ''}>${r.label}</option>`).join('')}
+            </select>
+          </label>
+          <label class="exp-lbl">Format
+            <select data-exp-field="format">
+              <option value="MP4" ${cfg.format === 'MP4' ? 'selected' : ''}>MP4 (H.264)</option>
+              <option value="MOV" ${cfg.format === 'MOV' ? 'selected' : ''}>MOV (QuickTime)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="exp-two-col">
+          <div class="exp-lbl">Framerate
+            <div class="exp-pill-row">
+              ${[24, 30, 60].map((f) => `<button class="${Number(cfg.fps) === f ? 'on' : ''}" data-exp-fps="${f}">${f} fps</button>`).join('')}
+            </div>
+          </div>
+          <label class="exp-lbl">Quality
+            <select data-exp-field="quality">
+              <option value="draft" ${cfg.quality === 'draft' ? 'selected' : ''}>Draft (fastest)</option>
+              <option value="standard" ${cfg.quality === 'standard' ? 'selected' : ''}>Standard</option>
+              <option value="high" ${cfg.quality === 'high' ? 'selected' : ''}>High</option>
+              <option value="ultra" ${cfg.quality === 'ultra' ? 'selected' : ''}>Ultra</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="lbl">Export range <span class="muted">(${dur.toFixed(1)} s)</span></div>
+        <div class="exp-pill-row">
+          <button class="${cfg.rangeMode === 'full' ? 'on' : ''}" data-exp-range="full">Full (${fullEnd.toFixed(1)} s)</button>
+          <button class="${cfg.rangeMode === 'custom' ? 'on' : ''}" data-exp-range="custom">Custom part</button>
+        </div>
+        ${cfg.rangeMode === 'custom' ? `
+          <div class="exp-two-col">
+            <label class="exp-lbl">Start (sec)
+              <input type="number" step="0.1" min="0" max="${fullEnd.toFixed(2)}" value="${Number(cfg.rangeStart).toFixed(2)}" data-exp-field="rangeStart">
+            </label>
+            <label class="exp-lbl">End (sec)
+              <input type="number" step="0.1" min="0.1" max="${fullEnd.toFixed(2)}" value="${Number(cfg.rangeEnd).toFixed(2)}" data-exp-field="rangeEnd">
+            </label>
+          </div>
+          <div class="exp-pill-row">
+            <button data-exp-act="set-in" title="Set export start to current playhead">In = Playhead</button>
+            <button data-exp-act="set-out" title="Set export end to current playhead">Out = Playhead</button>
+          </div>` : ''}
+
+        ${st.busy ? `<div class="exp-progress"><div style="width:${Math.round((st.progress || 0) * 100)}%"></div></div>` : ''}
+        ${st.message ? `<div class="exp-status muted">${esc(st.message)}</div>` : ''}
+        <div class="exp-actions">
+          <button class="primary exp-go" data-exp-act="start" ${st.busy ? 'disabled' : ''}>${st.busy ? `Exporting ${Math.round((st.progress || 0) * 100)}%…` : `Export ${cfg.format}`}</button>
+          ${st.lastPath ? '<button data-exp-act="reveal">Show in folder</button>' : ''}
+        </div>
+      </div>`;
+  }
+
   function update(s) {
+    if (s.exportOpen) {
+      renderExportPanel(s);
+      return;
+    }
     const c = s.selected ? T.findClip(s.clips, s.selected) : null;
     if (!c) {
       if (lastStructKey !== 'none') {
@@ -1055,7 +1190,7 @@ export function inspectorPanel({ store, actions }) {
     const activeTr = c.transition > 0 ? (c.transitionType || 'dissolve') : 'none';
     const structKey = [
       c.id, c.name, c.track, c.start.toFixed(2), c.dur.toFixed(2), c.speed,
-      c.muted, c.flipH, c.flipV, activeTr, tab, s.eyedropper, multiCount,
+      c.muted, c.flipH, c.flipV, c.fill, activeTr, tab, s.eyedropper, multiCount,
       bands.map((b) => b.id).join(','), active ? active.id : '',
     ].join('|');
 
@@ -1148,6 +1283,13 @@ export function inspectorPanel({ store, actions }) {
         ${isMedia ? scrubField('volume') : ''}
         ${isVideo ? scrubField('opacity') : ''}
         ${isVideo ? scrubField('blur') : ''}
+        ${isVideo ? `<div class="lbl">Framing</div>
+        <div class="insp-row">
+          <button class="${c.fill ? 'on' : ''}" data-act="fill" title="Fill the export frame, cropping the edges (for vertical Shorts from wide clips)">▣ Fill frame</button>
+        </div>
+        ${scrubField('zoom')}
+        ${scrubField('panX')}
+        ${scrubField('panY')}` : ''}
         ${isVideo ? `<div class="insp-row">
           <button class="${c.flipH ? 'on' : ''}" data-act="mirror-h" title="Mirror horizontally">⇄ Mirror H</button>
           <button class="${c.flipV ? 'on' : ''}" data-act="mirror-v" title="Mirror vertically">⇅ Mirror V</button>

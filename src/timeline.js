@@ -334,6 +334,10 @@ export const PROPS = {
   hslLight: { min: -100, max: 100, step: 1, default: 0, label: 'Color Light', format: signedIntFmt },
   hslRange: { min: 1, max: 100, step: 1, default: 35, label: 'Color Range', format: intFmt },
   transition: { min: 0.1, max: 3, step: 0.1, default: 0.5, label: 'Duration', format: (v) => v.toFixed(1) + ' s' },
+  // framing: zoom into the clip and choose which part stays in frame (-100 left/top … +100 right/bottom)
+  zoom: { min: 1, max: 4, step: 0.01, default: 1, label: 'Zoom', format: (v) => '×' + v.toFixed(2) },
+  panX: { min: -100, max: 100, step: 1, default: 0, label: 'Pan X', format: signedIntFmt },
+  panY: { min: -100, max: 100, step: 1, default: 0, label: 'Pan Y', format: signedIntFmt },
 };
 
 export function propValue(clip, prop) {
@@ -461,6 +465,15 @@ export function buildCssTransform(clip, extraTranslateX = 0) {
   if (!clip) return 'none';
   const parts = [];
   if (Math.abs(extraTranslateX) > 0.01) parts.push(`translateX(${extraTranslateX.toFixed(2)}%)`);
+  // zoom + pan: panX/panY of ±100 move the view to the edge of the zoomed picture
+  const z = typeof clip.zoom === 'number' && clip.zoom > 1 ? clip.zoom : 1;
+  if (z > 1) {
+    const k = ((z - 1) / (2 * z)) * 100;
+    const tx = -((Number(clip.panX) || 0) / 100) * k;
+    const ty = -((Number(clip.panY) || 0) / 100) * k;
+    parts.push(`scale(${z.toFixed(3)})`);
+    if (Math.abs(tx) > 0.01 || Math.abs(ty) > 0.01) parts.push(`translate(${tx.toFixed(2)}%, ${ty.toFixed(2)}%)`);
+  }
   const sx = clip.flipH ? -1 : 1;
   const sy = clip.flipV ? -1 : 1;
   if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);

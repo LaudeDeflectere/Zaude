@@ -30,6 +30,34 @@ test('buildRenderArgs uses NVENC when asked and skips muted video audio', () => 
   assert.ok(graph.includes('[1:a]'));
 });
 
+test('buildRenderArgs supports custom aspect/size, fps, quality, and partial export range', () => {
+  const clips = [
+    { id: 'v1', track: 'V1', kind: 'video', path: '/a.mp4', start: 0, dur: 10, srcIn: 1, speed: 1, hasAudio: false },
+    { id: 'v2', track: 'V1', kind: 'video', path: '/b.mp4', start: 10, dur: 10, srcIn: 0, speed: 1, hasAudio: false },
+  ];
+  const b = render.buildRenderArgs({
+    clips,
+    width: 1080,
+    height: 1920,
+    fps: 60,
+    quality: 'draft',
+    rangeStart: 3,
+    rangeEnd: 8,
+    output: '/tiktok.mp4',
+  });
+  assert.equal(b.size.w, 1080);
+  assert.equal(b.size.h, 1920);
+  assert.equal(b.fps, 60);
+  assert.equal(b.total, 5);
+  assert.ok(b.args.includes('60'));
+  assert.ok(b.args.includes('5'));
+  // Only v1 overlaps [3, 8], trimmed to start=4 (1 + 3) duration=5
+  const graph = b.args[b.args.indexOf('-filter_complex') + 1];
+  assert.ok(graph.includes('s=1080x1920:r=60:d=5'));
+  assert.ok(graph.includes('trim=start=4:duration=5'));
+  assert.ok(!b.args.includes('/b.mp4'));
+});
+
 test('a real render produces an MP4 of the right length', { skip: !hasFfmpeg && 'ffmpeg not installed' }, async () => {
   const dir = fsr.mkdtempSync(pathr.join(osr.tmpdir(), 'zaude-render-'));
   try {
@@ -52,4 +80,27 @@ test('a real render produces an MP4 of the right length', { skip: !hasFfmpeg && 
   } finally {
     fsr.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('fill + zoom + pan crop the clip to the frame instead of letterboxing', () => {
+  const clip = { id: 'a', kind: 'video', path: '/x.mp4', track: 'V1', start: 0, dur: 2, fill: true, zoom: 1.5, panX: 100, panY: -100 };
+  const built = render.buildRenderArgs({ clips: [clip], width: 1080, height: 1920, output: '/o.mp4' });
+  const graph = built.args[built.args.indexOf('-filter_complex') + 1];
+  assert.match(graph, /scale=1620:2880:force_original_aspect_ratio=increase/);
+  assert.match(graph, /crop=1080:1920:\(iw-1080\)\*1:\(ih-1920\)\*0/);
+  assert.doesNotMatch(graph, /pad=1080:1920/);
+});
+
+test('clips without framing keep the old fit-with-bars filter', () => {
+  const clip = { id: 'a', kind: 'video', path: '/x.mp4', track: 'V1', start: 0, dur: 2 };
+  const built = render.buildRenderArgs({ clips: [clip], width: 1080, height: 1920, output: '/o.mp4' });
+  const graph = built.args[built.args.indexOf('-filter_complex') + 1];
+  assert.match(graph, /scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920/);
+});
+
+test('captions are burned in after the clips are composed', () => {
+  const clip = { id: 'a', kind: 'video', path: '/x.mp4', track: 'V1', start: 0, dur: 2 };
+  const built = render.buildRenderArgs({ clips: [clip], width: 1080, height: 1920, subtitles: '/p/caps.ass', output: '/o.mp4' });
+  const graph = built.args[built.args.indexOf('-filter_complex') + 1];
+  assert.match(graph, /subtitles='\/p\/caps\.ass',.*format=yuv420p\[vout\]/);
 });
