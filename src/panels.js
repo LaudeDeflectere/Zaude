@@ -215,6 +215,7 @@ export function viewerPanel({ store, actions, engine }) {
   const root = el(`<div class="panel viewer">
     <div class="viewer-stage">
       <div class="viewer-text muted"></div>
+      <div class="viewer-transform-hud" hidden></div>
       <div class="dropper-loupe" hidden><span class="dropper-swatch"></span><span class="dropper-hex">#000000</span></div>
     </div>
     <div class="transport">
@@ -235,6 +236,8 @@ export function viewerPanel({ store, actions, engine }) {
   const loupe = root.querySelector('.dropper-loupe');
   const loupeSwatch = root.querySelector('.dropper-swatch');
   const loupeHex = root.querySelector('.dropper-hex');
+  const transformHud = root.querySelector('.viewer-transform-hud');
+  let hudTimer = null;
   const gpuPill = root.querySelector('.gpu-pill');
   if (engine.getGpuInfo) {
     const raw = engine.getGpuInfo();
@@ -258,6 +261,77 @@ export function viewerPanel({ store, actions, engine }) {
   }
   ensureVideoAttached();
 
+  function showTransformHud(clip) {
+    if (!clip) return;
+    const sc = T.propValue(clip, 'scale');
+    const rot = T.propValue(clip, 'rotation');
+    const px = T.propValue(clip, 'posX');
+    const py = T.propValue(clip, 'posY');
+    transformHud.textContent = `Scale ${sc}% · Rot ${rot > 0 ? '+' : ''}${rot}° · Pos ${px > 0 ? '+' : ''}${px}%, ${py > 0 ? '+' : ''}${py}%`;
+    transformHud.hidden = false;
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => { transformHud.hidden = true; }, 1300);
+  }
+
+  function targetVideoClip() {
+    const s = store.get();
+    const atHead = T.clipAt(s.clips.filter((c) => c.path && c.kind === 'video'), s.playhead);
+    if (atHead) {
+      if (s.selected !== atHead.id) actions.select(atHead.id);
+      return atHead;
+    }
+    const sel = s.selected ? T.findClip(s.clips, s.selected) : null;
+    return sel && sel.kind === 'video' ? sel : null;
+  }
+
+  // Shift + trackpad gestures over Viewer:
+  // - Shift + Pinch (ctrlKey) or Shift + vertical scroll -> Scale (zoom)
+  // - Shift + horizontal two-finger scroll -> Rotate
+  // - Shift + Alt + two-finger scroll -> Pan X / Y
+  let scaleAccum = 0;
+  let rotAccum = 0;
+  let panXAccum = 0;
+  let panYAccum = 0;
+  let accumClipId = null;
+  let accumTimer = null;
+
+  stage.addEventListener('wheel', (e) => {
+    if (!e.shiftKey) return;
+    const clip = targetVideoClip();
+    if (!clip) return;
+    e.preventDefault();
+    const mul = e.deltaMode === 1 ? 16 : 1;
+    const dx = e.deltaX * mul;
+    const dy = e.deltaY * mul;
+
+    if (accumClipId !== clip.id) {
+      accumClipId = clip.id;
+      scaleAccum = T.propValue(clip, 'scale');
+      rotAccum = T.propValue(clip, 'rotation');
+      panXAccum = T.propValue(clip, 'posX');
+      panYAccum = T.propValue(clip, 'posY');
+    }
+    clearTimeout(accumTimer);
+    accumTimer = setTimeout(() => { accumClipId = null; }, 350);
+
+    if (e.altKey) {
+      panXAccum = Math.min(100, Math.max(-100, panXAccum - dx * 0.12));
+      panYAccum = Math.min(100, Math.max(-100, panYAccum - dy * 0.12));
+      actions.transformClip(clip.id, { posX: Math.round(panXAccum), posY: Math.round(panYAccum) });
+    } else if (e.ctrlKey || Math.abs(dy) >= Math.abs(dx)) {
+      // Pinch (ctrlKey) or vertical scroll -> zoom/scale
+      const gain = e.ctrlKey ? 0.55 : 0.22;
+      scaleAccum = Math.min(400, Math.max(10, scaleAccum - dy * gain));
+      actions.transformClip(clip.id, { scale: Math.round(scaleAccum) });
+    } else {
+      // Horizontal two-finger swipe -> rotate
+      rotAccum = Math.min(180, Math.max(-180, rotAccum + dx * 0.25));
+      actions.transformClip(clip.id, { rotation: Math.round(rotAccum) });
+    }
+    const updated = T.findClip(store.get().clips, clip.id);
+    showTransformHud(updated);
+  }, { passive: false });
+
   stage.addEventListener('pointermove', (e) => {
     if (!store.get().eyedropper) { loupe.hidden = true; return; }
     const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, stage) : null;
@@ -272,13 +346,45 @@ export function viewerPanel({ store, actions, engine }) {
   stage.addEventListener('pointerleave', () => { loupe.hidden = true; });
   stage.addEventListener('pointerdown', (e) => {
     const mode = store.get().eyedropper;
-    if (!mode || e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, stage) : null;
-    loupe.hidden = true;
-    actions.setEyedropper(false);
-    if (picked) actions.setHslTarget(picked.hex, mode === 'add');
+    if (mode && e.button === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, stage) : null;
+      loupe.hidden = true;
+      actions.setEyedropper(false);
+      if (picked) actions.setHslTarget(picked.hex, mode === 'add');
+      return;
+    }
+    // Shift + drag on Viewer -> pan video X/Y directly
+    if (e.shiftKey && e.button === 0) {
+      const clip = targetVideoClip();
+      if (!clip) return;
+      e.preventDefault();
+      const r = stage.getBoundingClientRect();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const baseX = T.propValue(clip, 'posX');
+      const baseY = T.propValue(clip, 'posY');
+      stage.classList.add('transform-drag');
+      const move = (ev) => {
+        const dxPct = r.width > 0 ? ((ev.clientX - startX) / r.width) * 100 : 0;
+        const dyPct = r.height > 0 ? ((ev.clientY - startY) / r.height) * 100 : 0;
+        actions.transformClip(clip.id, {
+          posX: Math.round(Math.min(100, Math.max(-100, baseX + dxPct))),
+          posY: Math.round(Math.min(100, Math.max(-100, baseY + dyPct))),
+        });
+        showTransformHud(T.findClip(store.get().clips, clip.id));
+      };
+      const up = () => {
+        stage.classList.remove('transform-drag');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    }
   });
 
   function timeFromX(clientX) {
@@ -979,6 +1085,7 @@ export function inspectorPanel({ store, actions }) {
     if (act.dataset.act === 'mirror-h') actions.toggleMirror('h');
     if (act.dataset.act === 'fill') actions.toggleFill();
     if (act.dataset.act === 'mirror-v') actions.toggleMirror('v');
+    if (act.dataset.act === 'reset-transform') actions.resetTransform();
     if (act.dataset.act === 'reset-filters') actions.resetFilters();
     if (act.dataset.act === 'reset-hsl') actions.resetHsl();
     if (act.dataset.act === 'add-hsl-band') {
@@ -1283,6 +1390,13 @@ export function inspectorPanel({ store, actions }) {
         ${isMedia ? scrubField('volume') : ''}
         ${isVideo ? scrubField('opacity') : ''}
         ${isVideo ? scrubField('blur') : ''}
+        ${isVideo ? `<div class="lbl">Transform <span class="muted">(Shift + trackpad in Viewer)</span></div>
+        ${T.TRANSFORM_PROPS.map((p) => scrubField(p)).join('')}
+        <div class="insp-row">
+          <button class="${c.flipH ? 'on' : ''}" data-act="mirror-h" title="Mirror horizontally">⇄ Mirror H</button>
+          <button class="${c.flipV ? 'on' : ''}" data-act="mirror-v" title="Mirror vertically">⇅ Mirror V</button>
+          <button data-act="reset-transform" title="Reset scale, rotation, position, and mirror">Reset</button>
+        </div>` : ''}
         ${isVideo ? `<div class="lbl">Framing</div>
         <div class="insp-row">
           <button class="${c.fill ? 'on' : ''}" data-act="fill" title="Fill the export frame, cropping the edges (for vertical Shorts from wide clips)">▣ Fill frame</button>
@@ -1290,10 +1404,6 @@ export function inspectorPanel({ store, actions }) {
         ${scrubField('zoom')}
         ${scrubField('panX')}
         ${scrubField('panY')}` : ''}
-        ${isVideo ? `<div class="insp-row">
-          <button class="${c.flipH ? 'on' : ''}" data-act="mirror-h" title="Mirror horizontally">⇄ Mirror H</button>
-          <button class="${c.flipV ? 'on' : ''}" data-act="mirror-v" title="Mirror vertically">⇅ Mirror V</button>
-        </div>` : ''}
         ${isMedia ? `<div class="insp-row"><button data-act="mute">${c.muted ? 'Unmute' : 'Mute'}</button>
           ${isVideo && c.hasAudio !== false && !c.muted ? '<button data-act="detach">Separate Audio Track</button>' : ''}</div>` : ''}
         <div class="insp-row"><button data-act="delete">Delete clip</button></div>`;

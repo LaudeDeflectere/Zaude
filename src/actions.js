@@ -274,6 +274,34 @@ export function createActions(store, engine) {
     commit(T.setFlag(get().clips, sel.id, key, next), `${sel.name} ${axis === 'v' ? 'vertical' : 'horizontal'} mirror ${next ? 'on' : 'off'}`);
   }
 
+  function resetTransform() {
+    const sel = selectedClip();
+    if (!sel || sel.kind !== 'video') return needSelection('Select a video clip to reset transform.');
+    commit(T.resetTransform(get().clips, sel.id), `Reset transform on ${sel.name}`);
+  }
+
+  function transformClip(clipId, patch) {
+    const s = get();
+    const prev = T.findClip(s.clips, clipId);
+    if (!prev || prev.kind !== 'video') return;
+    let next = s.clips;
+    let changed = false;
+    for (const key of T.TRANSFORM_PROPS) {
+      if (patch[key] === undefined) continue;
+      const before = T.propValue(prev, key);
+      const updated = T.setProp(next, clipId, key, patch[key]);
+      const after = T.propValue(T.findClip(updated, clipId), key);
+      if (after !== before) {
+        next = updated;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const afterClip = T.findClip(next, clipId);
+    const msg = `${afterClip.name} · Scale ${T.propValue(afterClip, 'scale')}% · Rot ${T.propValue(afterClip, 'rotation')}° · Pos ${T.propValue(afterClip, 'posX')}%, ${T.propValue(afterClip, 'posY')}%`;
+    liveChange(`transform:${clipId}`, next, msg);
+  }
+
   function toggleFill() {
     const sel = selectedClip();
     if (!sel || sel.kind !== 'video') return needSelection('Select a video clip to fill the frame.');
@@ -728,7 +756,7 @@ export function createActions(store, engine) {
 
 
   return {
-    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
+    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
     setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
     setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,
     openExport, closeExport, toggleExport, setExportCfg, applyExportPreset,

@@ -187,12 +187,34 @@ function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality 
       fx.push(`fade=t=out:st=${r3(Math.max(c.start, c.start + c.dur - trDur))}:d=${r3(trDur)}:color=${col}`);
     }
 
+    const scalePct = typeof c.scale === 'number' ? c.scale : 100;
+    const rotDeg = typeof c.rotation === 'number' ? c.rotation : 0;
+    const posX = typeof c.posX === 'number' ? c.posX : 0;
+    const posY = typeof c.posY === 'number' ? c.posY : 0;
+    const hasTransform = Math.abs(scalePct - 100) > 0.1 || Math.abs(rotDeg) > 0.1 || Math.abs(posX) > 0.1 || Math.abs(posY) > 0.1;
+
+    if (Math.abs(scalePct - 100) > 0.1) {
+      const sw = Math.max(2, Math.round((size.w * scalePct / 100) / 2) * 2);
+      const sh = Math.max(2, Math.round((size.h * scalePct / 100) / 2) * 2);
+      fx.push(`scale=${sw}:${sh}`);
+    }
+    if (Math.abs(rotDeg) > 0.1) {
+      const rad = r3((rotDeg * Math.PI) / 180);
+      fx.push(`format=rgba,rotate=${rad}:c=black@0:ow=rotw(${rad}):oh=roth(${rad})`);
+    }
+
     const fxChain = fx.length ? ',' + fx.join(',') : '';
     graph.push(
       `[${idx}:v]trim=start=${r3(c.srcIn || 0)}:duration=${used},setpts=(PTS-STARTPTS)/${c.speed || 1}+${r3(c.start)}/TB,` +
       `${framingFilter(c, size)}${fxChain},` +
       `format=yuva420p,colorchannelmixer=aa=${r3(opacity)}[v${k}]`);
-    graph.push(`[${last}][v${k}]overlay=eof_action=pass:shortest=0[base${k + 1}]`);
+    if (hasTransform) {
+      const dx = Math.round((size.w * posX) / 100);
+      const dy = Math.round((size.h * posY) / 100);
+      graph.push(`[${last}][v${k}]overlay=x=(W-w)/2+(${dx}):y=(H-h)/2+(${dy}):eof_action=pass:shortest=0[base${k + 1}]`);
+    } else {
+      graph.push(`[${last}][v${k}]overlay=eof_action=pass:shortest=0[base${k + 1}]`);
+    }
     last = `base${k + 1}`;
   });
   // burned-in captions; with an export range the subtitle times shift with it

@@ -58,6 +58,17 @@ test('buildRenderArgs supports custom aspect/size, fps, quality, and partial exp
   assert.ok(!b.args.includes('/b.mp4'));
 });
 
+test('buildRenderArgs bakes clip scale, rotation, and position into ffmpeg filter graph', () => {
+  const clips = [
+    { id: 'v', track: 'V1', kind: 'video', path: '/a.mp4', start: 0, dur: 4, srcIn: 0, speed: 1, scale: 150, rotation: 30, posX: 10, posY: -20, hasAudio: false },
+  ];
+  const b = render.buildRenderArgs({ clips, width: 1000, height: 500, fps: 30, output: '/tr.mp4' });
+  const graph = b.args[b.args.indexOf('-filter_complex') + 1];
+  assert.ok(graph.includes('scale=1500:750'));
+  assert.ok(graph.includes('rotate=0.524:c=black@0:ow=rotw(0.524):oh=roth(0.524)'));
+  assert.ok(graph.includes('overlay=x=(W-w)/2+(100):y=(H-h)/2+(-100):eof_action=pass:shortest=0'));
+});
+
 test('a real render produces an MP4 of the right length', { skip: !hasFfmpeg && 'ffmpeg not installed' }, async () => {
   const dir = fsr.mkdtempSync(pathr.join(osr.tmpdir(), 'zaude-render-'));
   try {

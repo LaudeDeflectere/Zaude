@@ -307,17 +307,24 @@ export const FILTER_PROPS = [
 ];
 
 export const HSL_PROPS = ['hslHue', 'hslSat', 'hslLight', 'hslRange'];
+export const TRANSFORM_PROPS = ['scale', 'rotation', 'posX', 'posY'];
 
 const pctFmt = (v) => Math.round(v * 100) + '%';
 const intFmt = (v) => String(Math.round(v));
+const intPctFmt = (v) => Math.round(v) + '%';
 const signedIntFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n; };
+const signedPctFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n + '%'; };
 const degFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n + '°'; };
 
-// Clip properties with predetermined integer steps for filters/HSL (less compute, zero float churn).
+// Clip properties with predetermined integer steps for filters/HSL/transform (less compute, zero float churn).
 export const PROPS = {
   volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: pctFmt },
   opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: pctFmt },
   blur: { min: 0, max: 100, step: 1, default: 0, label: 'Blur', format: intFmt },
+  scale: { min: 10, max: 400, step: 1, default: 100, label: 'Scale', format: intPctFmt },
+  rotation: { min: -180, max: 180, step: 1, default: 0, label: 'Rotate', format: degFmt },
+  posX: { min: -100, max: 100, step: 1, default: 0, label: 'Position X', format: signedPctFmt },
+  posY: { min: -100, max: 100, step: 1, default: 0, label: 'Position Y', format: signedPctFmt },
   exposure: { min: -100, max: 100, step: 1, default: 0, label: 'Lighting', format: signedIntFmt },
   brightness: { min: 0, max: 100, step: 1, default: 50, label: 'Brightness', format: intFmt },
   contrast: { min: 0, max: 100, step: 1, default: 50, label: 'Contrast', format: intFmt },
@@ -460,11 +467,34 @@ export function buildCssFilter(clip) {
   return parts.length ? parts.join(' ') : 'none';
 }
 
-// Builds a real-time CSS transform string for mirror / flip (and future zoom/rotate/pan).
+export function resetTransform(clips, id) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    return {
+      ...c,
+      scale: PROPS.scale.default,
+      rotation: PROPS.rotation.default,
+      posX: PROPS.posX.default,
+      posY: PROPS.posY.default,
+      flipH: false,
+      flipV: false,
+    };
+  });
+}
+
+// Builds a real-time CSS transform string for position, rotation, scale, zoom/pan framing, and mirror.
 export function buildCssTransform(clip, extraTranslateX = 0) {
   if (!clip) return 'none';
   const parts = [];
-  if (Math.abs(extraTranslateX) > 0.01) parts.push(`translateX(${extraTranslateX.toFixed(2)}%)`);
+  const px = propValue(clip, 'posX') + extraTranslateX;
+  const py = propValue(clip, 'posY');
+  if (Math.abs(px) > 0.01 || Math.abs(py) > 0.01) {
+    parts.push(`translate(${px.toFixed(2)}%, ${py.toFixed(2)}%)`);
+  }
+  const rot = propValue(clip, 'rotation');
+  if (Math.abs(rot) > 0.01) parts.push(`rotate(${Math.round(rot)}deg)`);
+  const sc = propValue(clip, 'scale') / 100;
+  if (Math.abs(sc - 1) > 0.001) parts.push(`scale(${sc.toFixed(3)})`);
   // zoom + pan: panX/panY of ±100 move the view to the edge of the zoomed picture
   const z = typeof clip.zoom === 'number' && clip.zoom > 1 ? clip.zoom : 1;
   if (z > 1) {

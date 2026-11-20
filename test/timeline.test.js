@@ -283,3 +283,20 @@ test('addHslBand, updateHslBand, and removeHslBand manage multiple color bands',
   clips = T.removeHslBand(clips, 'v', secondId);
   assert.equal(clips[0].hslBands.length, 1);
 });
+
+test('buildCssTransform and resetTransform handle scale, rotation, position, and mirror', () => {
+  const c = clip({ id: 'v', scale: 150, rotation: -30, posX: 12, posY: -8, flipH: true });
+  const tr = T.buildCssTransform(c);
+  assert.ok(tr.includes('translate(12.00%, -8.00%)'));
+  assert.ok(tr.includes('rotate(-30deg)'));
+  assert.ok(tr.includes('scale(1.500)'));
+  assert.ok(tr.includes('scale(-1, 1)'));
+
+  const reset = T.resetTransform([c], 'v')[0];
+  assert.equal(reset.scale, 100);
+  assert.equal(reset.rotation, 0);
+  assert.equal(reset.posX, 0);
+  assert.equal(reset.posY, 0);
+  assert.equal(reset.flipH, false);
+  assert.equal(T.buildCssTransform(reset), 'none');
+});

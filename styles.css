@@ -120,6 +120,9 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 .program-video, .program-gl { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 0; transition: transform .04s linear; }
 .program-video[hidden], .program-gl[hidden] { display: none; }
 .viewer-stage.eyedropper-on { cursor: crosshair; outline: 2px solid var(--accent2); outline-offset: -2px; }
+.viewer-stage.transform-drag { cursor: grabbing; outline: 2px solid var(--accent); outline-offset: -2px; }
+.viewer-transform-hud { position: absolute; top: 8px; left: 8px; z-index: 12; padding: 3px 8px; border-radius: 6px; background: rgba(18,18,24,.88); border: 1px solid rgba(139,92,246,.55); color: #EDE6FF; font-size: 0.84rem; font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+.viewer-transform-hud[hidden] { display: none; }
 .dropper-loupe { position: absolute; z-index: 12; display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px; border-radius: 6px; background: rgba(18,18,24,.92); border: 1px solid #454558; box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
 .dropper-loupe[hidden] { display: none; }
 .dropper-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.35); flex: none; }
