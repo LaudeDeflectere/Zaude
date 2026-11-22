@@ -128,7 +128,8 @@ function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality 
 
   const inputs = [];
   const graph = [];
-  const videoClips = media.filter((c) => c.kind === 'video').sort((a, b) => a.track.localeCompare(b.track));
+  const trackNum = (tr) => parseInt(String(tr || 'V1').slice(1), 10) || 1;
+  const videoClips = media.filter((c) => c.kind === 'video').sort((a, b) => trackNum(a.track) - trackNum(b.track));
   const audioClips = media.filter((c) => c.hasAudio !== false && !c.muted && (c.kind === 'audio' || c.hasAudio === true));
 
   // one input per clip, so each clip uses its own streams

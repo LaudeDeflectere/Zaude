@@ -220,14 +220,20 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 .tl-corner { position: sticky; top: 0; left: 0; z-index: 6; background: var(--panel); border-bottom: 1px solid var(--line); }
 .ruler { position: sticky; top: 0; z-index: 4; height: 20px; background: var(--panel); border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; min-width: 100%; }
 .ruler span { position: absolute; top: 2px; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; border-left: 1px solid #3A3A48; padding-left: 3px; height: 15px; white-space: nowrap; }
-.labels { position: sticky; left: 0; z-index: 5; background: var(--panel); display: grid; grid-template-rows: repeat(4, minmax(44px, 1fr)); gap: 4px; height: 100%; }
+.labels { position: sticky; left: 0; z-index: 5; background: var(--panel); display: grid; grid-template-rows: repeat(var(--track-count, 4), minmax(44px, 1fr)); gap: 4px; height: 100%; }
 .tlbl { display: flex; align-items: center; color: #A4A4B8; font-weight: 500; padding-left: 4px; white-space: nowrap; background: #14141B; border-radius: 5px; }
 .canvas { position: relative; display: flex; flex-direction: column; min-width: 100%; height: 100%; }
-.tracks { display: grid; grid-template-rows: repeat(4, minmax(44px, 1fr)); gap: 4px; flex: 1; height: 100%; }
-.trk { position: relative; background: #14141B; border-radius: 5px; cursor: pointer; min-height: 44px; }
-.blk { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; padding: 0 10px 0 7px; display: flex; align-items: center; font-size: 0.92rem; color: #EEF0F5; white-space: nowrap; overflow: hidden; border: 1px solid rgba(255,255,255,.12); background: #2A2A36; cursor: grab; user-select: none; }
-.blk:active { cursor: grabbing; }
-.blk.sel { outline: 2px solid #fff; outline-offset: -2px; }
+.tracks { display: grid; grid-template-rows: repeat(var(--track-count, 4), minmax(44px, 1fr)); gap: 4px; flex: 1; height: 100%; }
+.trk { position: relative; background: #14141B; border-radius: 5px; min-height: 44px; }
+.blk { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; padding: 0 10px 0 7px; display: flex; align-items: center; font-size: 0.92rem; color: #EEF0F5; white-space: nowrap; overflow: hidden; border: 1px solid rgba(255,255,255,.14); background: #2A2A36; user-select: none; }
+.blk.sel {
+  border: 2px solid #38bdf8;
+  outline: 2px solid #ffffff;
+  outline-offset: -4px;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.72), 0 0 16px rgba(56, 189, 248, 0.55), inset 0 0 18px rgba(56, 189, 248, 0.28);
+  z-index: 5;
+  filter: brightness(1.12);
+}
 .blk.video { background: #2E4460; }
 .blk.audio { background: #23464F; }
 .blk.title { background: #3B3A22; }
@@ -484,4 +490,124 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 .kf-del {
   margin-left: auto;
   padding: 1px 6px;
+}
+
+/* ---------- AutoCAD-style crosshair cursor (hollow center pickbox + 4 orthogonal lines) ---------- */
+:root {
+  --autocad-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cg stroke='%23000000' stroke-width='2.6' fill='none'%3E%3Cline x1='16' y1='1' x2='16' y2='13'/%3E%3Cline x1='16' y1='19' x2='16' y2='31'/%3E%3Cline x1='1' y1='16' x2='13' y2='16'/%3E%3Cline x1='19' y1='16' x2='31' y2='16'/%3E%3Crect x='13' y='13' width='6' height='6'/%3E%3C/g%3E%3Cg stroke='%23ffffff' stroke-width='1.2' fill='none'%3E%3Cline x1='16' y1='1' x2='16' y2='13'/%3E%3Cline x1='16' y1='19' x2='16' y2='31'/%3E%3Cline x1='1' y1='16' x2='13' y2='16'/%3E%3Cline x1='19' y1='16' x2='31' y2='16'/%3E%3Crect x='13' y='13' width='6' height='6'/%3E%3C/g%3E%3C/svg%3E") 16 16, crosshair;
+}
+.timeline .canvas,
+.timeline .tracks,
+.timeline .trk,
+.timeline .blk,
+.timeline .ruler,
+.viewer .stage {
+  cursor: var(--autocad-cursor);
+}
+.timeline .blk-handle,
+.timeline .blk-fade,
+.timeline .beat-marker {
+  cursor: ew-resize;
+}
+
+/* ---------- Mannimmate AI Studio Popup & Debug Console ---------- */
+.ai-studio-card {
+  width: min(740px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.ai-head-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ai-mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.ai-mode-tabs button {
+  flex: 1;
+  min-width: 110px;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+.ai-mode-tabs button.on {
+  background: var(--accent, #8b5cf6);
+  color: #fff;
+  border-color: var(--accent, #8b5cf6);
+}
+.ai-route-badge {
+  font-size: 11px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ai-file-row {
+  display: flex;
+  gap: 6px;
+}
+.ai-file-row input { flex: 1; }
+.ai-inline-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.ai-dryrun-lbl {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted, #9aa0b4);
+  cursor: pointer;
+}
+.ai-debug {
+  margin-top: 12px;
+  border: 1px solid var(--line, #2a2d3a);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #0d0f17;
+}
+.ai-debug summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+.ai-debug-cmd {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #141724;
+  border: 1px solid #24293d;
+  color: #93c5fd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+.ai-debug-tools {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ai-debug-log {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 4px;
+  background: #08090e;
+  border: 1px solid #1f2435;
+  color: #d4d8e8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

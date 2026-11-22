@@ -4,6 +4,64 @@ import { getHslBands, makeHslBand, normalizeHex, MAX_HSL_BANDS } from './color.j
 export const FPS = 24;
 export const SPEEDS = [0.5, 1, 2, 4];
 export const TRACK_IDS = ['V2', 'V1', 'A1', 'A2'];
+
+// Visual/stacking priority: higher-numbered video tracks sit above lower ones (V3 < V2 < V1),
+// followed by audio tracks ascending (A1 < A2 < A3).
+export function trackPriority(trackId) {
+  const s = String(trackId || '');
+  const n = parseInt(s.slice(1), 10) || 1;
+  if (s.startsWith('V')) return -1000 - n;
+  if (s.startsWith('A')) return 1000 + n;
+  const idx = TRACK_IDS.indexOf(s);
+  return idx >= 0 ? idx : 9999;
+}
+
+export function defaultTracks() {
+  return [
+    { id: 'V2', kind: 'video', label: 'Video 2' },
+    { id: 'V1', kind: 'video', label: 'Video 1' },
+    { id: 'A1', kind: 'audio', label: 'Audio 1' },
+    { id: 'A2', kind: 'audio', label: 'Audio 2' },
+  ];
+}
+
+export function sortTracks(tracks) {
+  return [...tracks].sort((a, b) => trackPriority(a.id) - trackPriority(b.id));
+}
+
+export function addTrack(tracks, kind) {
+  const list = Array.isArray(tracks) && tracks.length ? [...tracks] : defaultTracks();
+  const isAudio = kind === 'audio';
+  const prefix = isAudio ? 'A' : 'V';
+  const nums = list
+    .filter((t) => String(t.id).startsWith(prefix))
+    .map((t) => parseInt(String(t.id).slice(1), 10) || 0);
+  const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
+  const id = `${prefix}${nextNum}`;
+  const label = `${isAudio ? 'Audio' : 'Video'} ${nextNum}`;
+  list.push({ id, kind: isAudio ? 'audio' : 'video', label });
+  return sortTracks(list);
+}
+
+export function ensureTracksForClips(tracks, clips) {
+  const list = Array.isArray(tracks) && tracks.length ? [...tracks] : defaultTracks();
+  const seen = new Set(list.map((t) => t.id));
+  for (const c of (clips || [])) {
+    if (!c || !c.track || seen.has(c.track)) continue;
+    const isAudio = String(c.track).startsWith('A');
+    const num = parseInt(String(c.track).slice(1), 10) || 1;
+    list.push({ id: c.track, kind: isAudio ? 'audio' : 'video', label: `${isAudio ? 'Audio' : 'Video'} ${num}` });
+    seen.add(c.track);
+  }
+  return sortTracks(list);
+}
+
+export function isTrackCompatible(clip, trackId) {
+  if (!clip || !trackId) return false;
+  const isAudioTrack = String(trackId).startsWith('A');
+  const isAudioClip = clip.kind === 'audio';
+  return isAudioClip ? isAudioTrack : !isAudioTrack;
+}
 const EPS = 1e-6;
 
 let seq = 0;
@@ -59,7 +117,7 @@ export function timecode(sec) {
 export function clipAt(clips, t) {
   const hits = clips.filter((c) => t >= c.start - EPS && t < clipEnd(c) - EPS);
   if (!hits.length) return null;
-  return hits.sort((a, b) => TRACK_IDS.indexOf(a.track) - TRACK_IDS.indexOf(b.track))[0];
+  return hits.sort((a, b) => trackPriority(a.track) - trackPriority(b.track))[0];
 }
 
 // Split every clip that straddles t (optionally only on one track).
@@ -238,6 +296,20 @@ export function moveClip(clips, id, deltaSec) {
   const nextStart = others.filter((x) => x.start > c.start + EPS).reduce((m, x) => Math.min(m, x.start), Infinity);
   const start = Math.min(Math.max(c.start + deltaSec, prevEnd, 0), nextStart - c.dur);
   return clips.map((x) => (x.id === id ? { ...x, start } : { ...x }));
+}
+
+// Move a clip to another compatible track (e.g. V1 -> V2, A1 -> A2) at targetStart if space is free.
+// Returns the updated clip array, or null if targetTrack is incompatible or blocked at targetStart.
+export function moveClipToTrack(clips, id, targetTrack, targetStart) {
+  const c = findClip(clips, id);
+  if (!c || !isTrackCompatible(c, targetTrack)) return null;
+  const start = Math.max(0, Number(targetStart) || 0);
+  const end = start + c.dur;
+  const conflict = clips.some(
+    (x) => x.track === targetTrack && x.id !== id && x.start < end - EPS && clipEnd(x) > start + EPS
+  );
+  if (conflict) return null;
+  return clips.map((x) => (x.id === id ? { ...x, track: targetTrack, start } : { ...x }));
 }
 
 // Move a group of clips rigidly by deltaSec, stopping if any clip in the group hits 0 or an unselected neighbour.
@@ -544,13 +616,14 @@ export function transitionState(clip, t) {
 
 // Puts the audio of a video clip on a free audio track as its own clip, and mutes the video.
 // Returns { clips } or { error }.
-export function detachAudio(clips, id) {
+export function detachAudio(clips, id, audioTracks = ['A1', 'A2']) {
   const c = findClip(clips, id);
   if (!c || c.kind !== 'video') return { error: 'Select a video clip to detach its audio.' };
   if (c.hasAudio === false) return { error: 'This clip has no audio track.' };
   if (c.muted) return { error: 'This clip’s audio is already detached.' };
   const busy = (track) => clips.some((x) => x.track === track && x.start < clipEnd(c) - EPS && clipEnd(x) > c.start + EPS);
-  const track = ['A1', 'A2'].find((t) => !busy(t));
+  const candidates = Array.isArray(audioTracks) && audioTracks.length ? audioTracks : ['A1', 'A2'];
+  const track = candidates.find((t) => !busy(t));
   if (!track) return { error: 'No free audio track at this point. Clear space on Audio 1 or Audio 2 first.' };
   const audio = { ...c, id: newId(), track, kind: 'audio', muted: false, volume: c.volume ?? 1, opacity: 1, transition: 0, linkedTo: c.id, name: c.name + ' (audio)' };
   const video = { ...c, muted: true };

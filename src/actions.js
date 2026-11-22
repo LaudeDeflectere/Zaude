@@ -64,6 +64,7 @@ export function exportDimensions(aspect, resTier) {
 export function initialState() {
   return {
     clips: T.initialClips(),
+    tracks: T.defaultTracks(),
     playhead: 12 + 8 / T.FPS,
     playing: false,
     selected: null,
@@ -452,6 +453,14 @@ export function createActions(store, engine) {
     log('Fit the whole timeline');
   }
 
+  function addTrack(kind) {
+    const s = get();
+    const next = T.addTrack(s.tracks, kind);
+    const added = next.find((t) => !(s.tracks || []).some((old) => old.id === t.id));
+    store.set({ tracks: next, log: `Added track ${added ? added.label : kind}` });
+    scheduleSave();
+  }
+
   function toggleSnap() {
     const snap = !get().snap;
     store.set({ snap, log: 'Magnetic snap ' + (snap ? 'on' : 'off') });
@@ -596,6 +605,7 @@ export function createActions(store, engine) {
       projectName: (data && data.name) || folder.split(/[\\/]/).pop(),
       media: scan.media,
       clips: data && Array.isArray(data.clips) ? data.clips : get().clips,
+      tracks: T.ensureTracksForClips(data && data.tracks ? data.tracks : T.defaultTracks(), data && Array.isArray(data.clips) ? data.clips : get().clips),
       beats: data && data.beats ? T.setBeatGrid(T.defaultBeats(), data.beats) : T.defaultBeats(),
       format: (data && data.format) || get().format,
       resolution: (data && data.resolution) || get().resolution,
@@ -636,6 +646,7 @@ export function createActions(store, engine) {
       format: s.format,
       resolution: s.resolution,
       clips: s.clips,
+      tracks: s.tracks,
       beats: s.beats,
     };
     if (s.captions) data.captions = s.captions; // subtitle file (.ass/.srt) in the project folder, burned in on export
@@ -656,6 +667,7 @@ export function createActions(store, engine) {
       format: s.format,
       resolution: s.resolution,
       clips: s.clips,
+      tracks: s.tracks,
       beats: s.beats,
       media: s.media,
     });
@@ -686,6 +698,7 @@ export function createActions(store, engine) {
       format: p.format || 'MP4',
       resolution: p.resolution || '1920 × 1080',
       clips: Array.isArray(p.clips) ? p.clips : [],
+      tracks: T.ensureTracksForClips(p.tracks || T.defaultTracks(), Array.isArray(p.clips) ? p.clips : []),
       beats: p.beats ? T.setBeatGrid(T.defaultBeats(), p.beats) : T.defaultBeats(),
       media: Array.isArray(p.media) ? p.media : [],
       selected: null,
@@ -876,7 +889,7 @@ export function createActions(store, engine) {
 
   return {
     undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
-    setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
+    setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime, addTrack,
     detectBeats, setBeatGrid, addBeatMarker, moveBeatMarker, removeBeatMarker, clearBeats,
     setClipFade, upsertVolumeKeyframe, removeVolumeKeyframe, clearVolumeKeyframes,
     setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,

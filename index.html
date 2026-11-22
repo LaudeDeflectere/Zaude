@@ -16,7 +16,7 @@
     <div class="grow"></div>
     <button id="aichat-open" class="ai" title="Open AI Chat assistant (Claude, Codex, OpenCode, MCP)">AI Chat</button>
     <button id="help-open" title="Open Help, Shortcuts, MCP Setup &amp; AI Tips">Help &amp; Tips</button>
-    <button id="t2v-open" class="ai" title="Generate a clip from a text prompt">Text to video</button>
+    <button id="t2v-open" class="ai" title="Open Mannimmate AI Studio (Text to Video, RefMod, Restyle, Coverage)">✨ AI Studio</button>
     <button id="remote-open">Remote machines</button>
     <button id="update-btn" title="Check for updates">Check for updates</button>
     <button id="export-top" class="primary" data-action="export">Export</button>
@@ -36,50 +36,180 @@
 </div>
 
 <div id="t2v-dialog" class="modal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="t2v-title">
+  <div class="modal-card ai-studio-card" role="dialog" aria-modal="true" aria-labelledby="t2v-title">
     <div class="modal-head">
-      <h2 id="t2v-title">Text to video</h2>
-      <button id="t2v-close">Close</button>
+      <h2 id="t2v-title">✨ Mannimmate AI Studio</h2>
+      <div class="ai-head-btns">
+        <button type="button" id="ai-refresh" title="Reload RefMods, models & LoRAs from Mannimmate">↻ Models</button>
+        <button type="button" id="ai-doctor" title="Run mannimmate_cli.py doctor --json">🩺 Doctor</button>
+        <button type="button" id="t2v-close">Close</button>
+      </div>
     </div>
+
+    <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">
+      <button type="button" class="on" data-ai-mode="text-render">Text → Video</button>
+      <button type="button" data-ai-mode="refmod">RefMod → Video</button>
+      <button type="button" data-ai-mode="auto">Video Restyle</button>
+      <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
+    </div>
+
     <form id="t2v-form" class="t2v-form">
-      <label class="t2v-wide">Prompt
-        <textarea name="prompt" rows="4" maxlength="4000" placeholder="e.g. A red sailboat rocks gently on blue water, locked-off wide shot" required></textarea>
-      </label>
-      <label>Length (seconds)
-        <input name="seconds" type="number" min="1" max="60" step="1" value="2" required>
-      </label>
-      <label>Resolution
-        <select name="resolution">
-          <option value="320" selected>320p</option>
-          <option value="480">480p · 854 × 480</option>
-          <option value="640">640p · 1138 × 640</option>
-          <option value="720">720p · 1280 × 720</option>
+      <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
+
+      <label class="t2v-wide" data-modes="refmod,auto">RefMod Character
+        <select name="refmod" id="ai-refmod-select">
+          <option value="">— Loading RefMods… —</option>
         </select>
       </label>
-      <label>Quality
+
+      <label data-modes="refmod">RefMod Mode
+        <select name="refmodMode">
+          <option value="generate" selected>Generate (new clip)</option>
+          <option value="continue">Continue (extend latent)</option>
+        </select>
+      </label>
+
+      <label data-modes="refmod">Identity / Voice
+        <div class="ai-inline-pair">
+          <input name="identityStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Identity strength (0–1)">
+          <input name="voiceStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Voice strength (0–1)">
+        </div>
+      </label>
+
+      <label class="t2v-wide" data-modes="refmod" id="ai-latent-wrap" hidden>Saved Latent (for Continue)
+        <select name="latent" id="ai-latent-select">
+          <option value="">— Auto / latest —</option>
+        </select>
+      </label>
+
+      <label class="t2v-wide" data-modes="auto">Source Video
+        <div class="ai-file-row">
+          <input name="video" placeholder="/path/to/source.mp4" autocomplete="off">
+          <button type="button" data-pick-file="video">Browse…</button>
+        </div>
+      </label>
+
+      <label data-modes="auto">Start (s)
+        <input name="start" type="number" min="0" step="0.1" value="0">
+      </label>
+
+      <label data-modes="auto">End (s)
+        <input name="end" type="number" min="0.5" step="0.1" value="5">
+      </label>
+
+      <label class="t2v-wide" data-modes="text-render,auto">Reference Image (optional for Text→Video)
+        <div class="ai-file-row">
+          <input name="ref" placeholder="/path/to/reference.png" autocomplete="off">
+          <button type="button" data-pick-file="image" data-pick-target="ref">Browse…</button>
+        </div>
+      </label>
+
+      <label class="t2v-wide" data-modes="coverage">Scene Reference Image
+        <div class="ai-file-row">
+          <input name="image" placeholder="/path/to/scene.png" autocomplete="off">
+          <button type="button" data-pick-file="image" data-pick-target="image">Browse…</button>
+        </div>
+      </label>
+
+      <label class="t2v-wide" data-modes="coverage">Coverage Target (optional)
+        <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
+      </label>
+
+      <label class="t2v-wide" data-modes="text-render,refmod">Prompt
+        <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
+      </label>
+
+      <label data-modes="text-render,refmod">Length (seconds)
+        <input name="seconds" type="number" min="1" max="60" step="1" value="4">
+      </label>
+
+      <label data-modes="text-render,refmod,auto">Resolution
+        <select name="resolution">
+          <option value="320">320p</option>
+          <option value="480" selected>480p</option>
+          <option value="640">640p</option>
+          <option value="720">720p</option>
+        </select>
+      </label>
+
+      <label data-modes="text-render,auto">Preset
         <select name="quality">
           <option value="draft">Draft · fastest</option>
           <option value="normal" selected>Normal</option>
-          <option value="ultra">Ultra · slowest, most detail</option>
+          <option value="ultra">Ultra</option>
         </select>
       </label>
+
+      <label data-modes="text-render">Aspect
+        <select name="aspect">
+          <option value="16:9" selected>16:9 Landscape</option>
+          <option value="9:16">9:16 Portrait</option>
+        </select>
+      </label>
+
+      <label data-modes="refmod">FPS
+        <select name="fps">
+          <option value="24" selected>24 fps</option>
+          <option value="12">12 fps (2× faster)</option>
+          <option value="6">6 fps (4× faster)</option>
+        </select>
+      </label>
+
+      <label data-modes="auto">Background Mode
+        <select name="backgroundMode">
+          <option value="keep" selected>Keep source room</option>
+          <option value="sheet">Reference sheet backdrop</option>
+          <option value="scene">Described scene</option>
+          <option value="image">Custom background image</option>
+        </select>
+      </label>
+
+      <label>Model (auto-routed)
+        <select name="model" id="ai-model-select">
+          <option value="">Auto (Mannimmate default)</option>
+        </select>
+      </label>
+
+      <label>LoRA
+        <select name="lora" id="ai-lora-select">
+          <option value="">Auto / None</option>
+        </select>
+      </label>
+
       <label>Steps
         <input name="steps" type="number" min="1" max="100" step="1" value="4" placeholder="auto">
       </label>
-      <label>Aspect
-        <input value="16:9 (project default)" disabled>
+
+      <label>Seed (optional)
+        <input name="seed" type="number" step="1" placeholder="random">
       </label>
+
       <label class="t2v-wide">Mannimmate folder
         <input name="mannimmateDir" autocomplete="off">
       </label>
+
       <div class="t2v-wide t2v-actions">
-        <button type="submit" class="ai" id="t2v-generate">Generate</button>
-        <button type="button" id="t2v-cancel" disabled>Cancel render</button>
+        <button type="submit" class="ai" id="t2v-generate">▶ Run Mannimmate</button>
+        <button type="button" id="t2v-cancel" disabled>Cancel</button>
+        <label class="ai-dryrun-lbl" title="Build graph/manifest offline without sending to GPU">
+          <input type="checkbox" name="dryRun" id="ai-dry-run"> Dry run (debug)
+        </label>
       </div>
     </form>
+
     <div id="t2v-status" class="t2v-status" aria-live="polite"></div>
     <div id="t2v-progress" class="t2v-progress" hidden><div id="t2v-bar"></div></div>
     <div id="t2v-result" class="t2v-result"></div>
+
+    <details class="ai-debug" open>
+      <summary>Debug Console <span class="muted">(command preview, stdout, stderr, exit code)</span></summary>
+      <div class="ai-debug-cmd" id="ai-cmd-preview"></div>
+      <div class="ai-debug-tools">
+        <button type="button" id="ai-log-copy">Copy log</button>
+        <button type="button" id="ai-log-clear">Clear</button>
+      </div>
+      <pre class="ai-debug-log" id="ai-debug-log">Ready. Pick a mode or click "🩺 Doctor" to inspect Mannimmate.</pre>
+    </details>
   </div>
 </div>
 

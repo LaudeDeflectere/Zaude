@@ -633,7 +633,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         <div class="tl-grid">
           <div class="tl-corner"></div>
           <div class="ruler" aria-label="Ruler. Click to move the playhead."></div>
-          <div class="labels">${TRACKS.map((t) => `<div class="tlbl">${t.label}</div>`).join('')}</div>
+          <div class="labels"></div>
           <div class="canvas">
             <div class="beat-grid" aria-hidden="true"></div>
             <div class="tracks"></div>
@@ -652,6 +652,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       <button data-act="delete" title="Delete (Delete key)">Delete</button>
       <button data-act="duplicate" title="Duplicate">Duplicate</button>
       <button data-act="snap" class="snap-btn" title="Magnetic snap (clips & beats)">Snap</button>
+      <button data-act="add-video-track" title="Add a new Video track row">+V</button>
+      <button data-act="add-audio-track" title="Add a new Audio track row">+A</button>
       <span class="sep"></span>
       <button data-act="detect-beats" class="beats-btn" title="Detect tempo, downbeats & beat markers from audio">♫ Beats</button>
       <span class="beat-ctl" hidden>
@@ -671,6 +673,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     </div>
   </div>`);
   const scroller = root.querySelector('.scroller');
+  const labelsEl = root.querySelector('.labels');
   const canvas = root.querySelector('.canvas');
   const beatGridEl = root.querySelector('.beat-grid');
   const ruler = root.querySelector('.ruler');
@@ -703,6 +706,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (a === 'trim') return actions.trim();
       if (a === 'delete') return actions.deleteSelected();
       if (a === 'duplicate') return actions.duplicate();
+      if (a === 'add-video-track') return actions.addTrack('video');
+      if (a === 'add-audio-track') return actions.addTrack('audio');
       if (a === 'detect-beats') return actions.detectBeats();
       if (a === 'beat-nudge-l') {
         const b = store.get().beats || T.defaultBeats();
@@ -986,14 +991,23 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     if (!alreadyInGroup) actions.select(clipId);
 
     const x0 = e.clientX;
+    const y0 = e.clientY;
     const initClip = T.findClip(store.get().clips, clipId);
     const start0 = initClip ? initClip.start : 0;
     let lastX = x0;
     let moved = false;
 
+    const findTrackUnderY = (clientY) => {
+      for (const row of tracks.querySelectorAll('.trk[data-track]')) {
+        const r = row.getBoundingClientRect();
+        if (clientY >= r.top && clientY <= r.bottom) return row.dataset.track;
+      }
+      return null;
+    };
+
     const move = (ev) => {
       const dx = ev.clientX - lastX;
-      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      if (!moved && Math.abs(ev.clientX - x0) < 3 && Math.abs(ev.clientY - y0) < 6) return;
       moved = true;
       lastX = ev.clientX;
       const s = store.get();
@@ -1010,18 +1024,25 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         const ids = s.selectedIds && s.selectedIds.length > 1 && s.selectedIds.includes(clipId)
           ? s.selectedIds
           : [clipId];
-        let stepDt = dt;
-        if (ids.length === 1 && s.snap) {
+        let next = null;
+        if (ids.length === 1) {
           const rawStart = Math.max(0, start0 + (ev.clientX - x0) / s.pps);
-          const snapped = actions.snapTime(rawStart, s.pps);
-          stepDt = snapped - clip.start;
+          const targetStart = s.snap ? actions.snapTime(rawStart, s.pps) : rawStart;
+          const hoverTrack = findTrackUnderY(ev.clientY);
+          if (hoverTrack && hoverTrack !== clip.track && T.isTrackCompatible(clip, hoverTrack)) {
+            next = T.moveClipToTrack(s.clips, clipId, hoverTrack, targetStart);
+          }
+          if (!next) {
+            next = T.moveClip(s.clips, clipId, targetStart - clip.start);
+          }
+        } else {
+          next = T.moveClips(s.clips, ids, dt);
         }
-        const next = ids.length > 1 ? T.moveClips(s.clips, ids, stepDt) : T.moveClip(s.clips, clipId, stepDt);
         if (next) {
           const after = T.findClip(next, clipId);
           const msg = ids.length > 1
             ? `Moved ${ids.length} clips (first at ${after.start.toFixed(2)} s)`
-            : `${clip.name} starts at ${after.start.toFixed(2)} s`;
+            : `${clip.name} on ${after.track} at ${after.start.toFixed(2)} s`;
           actions.liveClips('drag-move:' + ids.join(','), next, msg);
         }
       }
@@ -1040,10 +1061,12 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
   function update(s) {
     const selKey = (s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : [])).join(',');
+    const trackList = T.ensureTracksForClips(s.tracks, s.clips);
+    const tracksKey = trackList.map((t) => t.id).join(',');
     const b = s.beats || T.defaultBeats();
     const beatsKey = `${b.enabled}:${b.snap}:${b.bpm}:${b.offset}:${b.beatsPerBar}:${b.subdivisions}:` +
       (Array.isArray(b.markers) ? b.markers.map((m) => `${m.id}@${m.time}`).join(',') : '');
-    const timelineKey = `${s.pps}|${s.snap}|${selKey}|${beatsKey}|` + s.clips.map((c) =>
+    const timelineKey = `${s.pps}|${s.snap}|${selKey}|${tracksKey}|${beatsKey}|` + s.clips.map((c) =>
       `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.progress}:${c.name}:${c.path}`
     ).join(';');
     if (timelineKey === lastTimelineKey) {
@@ -1051,6 +1074,10 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       return;
     }
     lastTimelineKey = timelineKey;
+
+    labelsEl.style.setProperty('--track-count', String(trackList.length));
+    tracks.style.setProperty('--track-count', String(trackList.length));
+    labelsEl.innerHTML = trackList.map((t) => `<div class="tlbl">${esc(t.label)}</div>`).join('');
 
     const end = T.projectEnd(s.clips);
     const pxWidth = Math.max(scroller.clientWidth - 86, end * s.pps);
@@ -1102,7 +1129,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const pendingThumbs = [];
     const waveClips = [];
     const selSet = new Set(s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : []));
-    tracks.innerHTML = TRACKS.map((tr) => {
+    tracks.innerHTML = trackList.map((tr) => {
       const blocks = s.clips.filter((c) => c.track === tr.id).map((c) => {
         const kind = c.generating ? 'gen' : (c.kind === 'audio' ? 'audio' : c.kind === 'video' ? 'video' : 'title');
         const sel = selSet.has(c.id) ? ' sel' : '';

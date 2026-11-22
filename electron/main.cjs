@@ -248,6 +248,7 @@ async function createWindow() {
 // ---------- AI: text to video ----------
 // One render at a time, since the GPU runs one job. Progress goes to the window as "ai:job" events.
 const textToVideo = require('./text-to-video.cjs');
+const mannimmate = require('./mannimmate.cjs');
 const os = require('node:os');
 
 const settingsFile = () => path.join(app.getPath('userData'), 'zaude-settings.json');
@@ -331,6 +332,61 @@ function registerAiHandlers() {
     if (!activeJob || activeJob.id !== id) return { ok: false, error: 'That render is not running.' };
     activeJob.cancel();
     return { ok: true };
+  });
+
+  // ---------- Unified Mannimmate AI Studio (Text->Video, RefMod, Auto, Coverage) ----------
+  ipcMain.handle('ai:mannimmate:options', async (_e, dirOverride) => {
+    const settings = loadSettings();
+    const mannimmateDir = String(dirOverride || '').trim() || settings.mannimmateDir;
+    return mannimmate.fetchOptions({ mannimmateDir, python: settings.python });
+  });
+
+  ipcMain.handle('ai:mannimmate:doctor', async (_e, dirOverride) => {
+    const settings = loadSettings();
+    const mannimmateDir = String(dirOverride || '').trim() || settings.mannimmateDir;
+    return mannimmate.runDoctor({ mannimmateDir, python: settings.python });
+  });
+
+  ipcMain.handle('ai:mannimmate:pickFile', async (event, kind) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const filters = kind === 'video'
+      ? [{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4v'] }]
+      : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }];
+    const res = await dialog.showOpenDialog(win, {
+      title: kind === 'video' ? 'Choose source video' : 'Choose reference image',
+      properties: ['openFile'],
+      filters,
+    });
+    if (res.canceled || !res.filePaths.length) return null;
+    return res.filePaths[0];
+  });
+
+  ipcMain.handle('ai:mannimmate:start', (event, input) => {
+    if (activeJob) return { ok: false, error: 'A Mannimmate job is already running. Wait for it or cancel it.' };
+    const settings = loadSettings();
+    const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
+    if (mannimmateDir !== settings.mannimmateDir) {
+      saveSettings({ ...settings, mannimmateDir });
+    }
+    const id = crypto.randomUUID();
+    const send = (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('ai:job', { id, ...payload });
+    };
+    const job = mannimmate.runJob({
+      mannimmateDir,
+      python: settings.python,
+      request: input,
+      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+      outDir: settings.outDir,
+      onEvent: send,
+    });
+    activeJob = { id, cancel: job.cancel };
+    job.promise.then((result) => {
+      activeJob = null;
+      if (result.ok) send({ type: 'done', path: result.path, dryRun: Boolean(result.dryRun), code: result.code });
+      else send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
+    });
+    return { ok: true, id };
   });
 
   // Gives the editor a URL it can play. Only files inside the output folders are allowed.
