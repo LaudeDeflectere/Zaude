@@ -85,6 +85,7 @@ export function initialState() {
     page: 'cut',
     pps: 14,
     snap: true,
+    beats: T.defaultBeats(),
     past: [],
     future: [],
     log: 'Ready. Import a folder or use a tool.',
@@ -458,7 +459,121 @@ export function createActions(store, engine) {
 
   function snapTime(t, pps) {
     const s = get();
-    return T.snapTime(s.clips, Math.max(0, t), s.snap, SNAP_PX / pps);
+    const extra = T.allBeatSnapPoints(s.beats, T.projectEnd(s.clips));
+    return T.snapTime(s.clips, Math.max(0, t), s.snap, SNAP_PX / pps, extra);
+  }
+
+  // ---------- beat detection, grid & editable markers ----------
+
+  async function detectBeats(clipId) {
+    const api = projectApi();
+    if (!api || !api.detectBeats) return log('Beat detection needs the desktop app.');
+    const s = get();
+    const sel = clipId ? T.findClip(s.clips, clipId) : selectedClip();
+    const target = (sel && sel.path && (sel.kind === 'audio' || sel.kind === 'video'))
+      ? sel
+      : (s.clips.find((c) => c.kind === 'audio' && c.path) || s.clips.find((c) => c.kind === 'video' && c.path));
+    if (!target) return log('Add an audio or video clip first to detect beats.');
+
+    log(`Detecting beats in ${target.name}…`);
+    const beatsPerBar = (s.beats && s.beats.beatsPerBar) || 4;
+    const res = await api.detectBeats(target.path, { beatsPerBar });
+    if (!res || !res.ok) return log('Beat detection failed: ' + ((res && res.error) || 'unknown error'));
+
+    const speed = target.speed || 1;
+    const srcIn = Number(target.srcIn) || 0;
+    const toTimeline = (srcT) => target.start + (srcT - srcIn) / speed;
+    const clipEndT = T.clipEnd(target);
+    const beatDur = 60 / (res.bpm * speed);
+
+    let offset = toTimeline(res.offset);
+    const barDur = beatDur * beatsPerBar;
+    while (offset < target.start - 0.005) offset += barDur;
+    while (offset - barDur >= 0) offset -= barDur;
+    offset = Math.max(0, Math.round(offset * 1000) / 1000);
+
+    const markers = (res.markers || [])
+      .map((m) => ({ ...m, time: Math.round(toTimeline(m.time) * 1000) / 1000 }))
+      .filter((m) => m.time >= target.start - 0.02 && m.time <= clipEndT + 0.02);
+
+    const nextBeats = T.setBeatGrid(s.beats, {
+      enabled: true,
+      snap: true,
+      bpm: Math.round(res.bpm * speed * 10) / 10,
+      offset,
+      beatsPerBar,
+      sourceClipId: target.id,
+      markers,
+    });
+    store.set({ beats: nextBeats, log: `Detected ${nextBeats.bpm} BPM (${markers.length} beat markers)` });
+    scheduleSave();
+    return nextBeats;
+  }
+
+  function setBeatGrid(patch) {
+    const s = get();
+    const next = T.setBeatGrid(s.beats, patch);
+    store.set({ beats: next, log: `Beat grid: ${next.bpm} BPM · ${next.subdivisions}× sub` });
+    scheduleSave();
+  }
+
+  function addBeatMarker(time, kind = 'custom', label = '') {
+    const s = get();
+    const t = typeof time === 'number' ? time : s.playhead;
+    const next = T.addBeatMarker(s.beats, t, kind, label);
+    store.set({ beats: next, log: `Added beat marker at ${T.timecode(t)}` });
+    scheduleSave();
+  }
+
+  function moveBeatMarker(id, time, live = false) {
+    const s = get();
+    const next = T.moveBeatMarker(s.beats, id, time);
+    store.set({ beats: next });
+    if (!live) scheduleSave();
+  }
+
+  function removeBeatMarker(id) {
+    const s = get();
+    const next = T.removeBeatMarker(s.beats, id);
+    store.set({ beats: next, log: 'Removed beat marker' });
+    scheduleSave();
+  }
+
+  function clearBeats() {
+    store.set({ beats: T.defaultBeats(), log: 'Cleared beat grid & markers' });
+    scheduleSave();
+  }
+
+  // ---------- audio fades & volume keyframes ----------
+
+  function setClipFade(id, edge, durSec, live = false) {
+    const s = get();
+    const next = T.setClipFade(s.clips, id, edge, durSec);
+    if (live) {
+      store.set({ clips: next });
+    } else {
+      const label = edge === 'in' ? 'Fade In' : 'Fade Out';
+      commit(next, `${label} ${Math.max(0, Number(durSec) || 0).toFixed(2)}s`);
+    }
+  }
+
+  function upsertVolumeKeyframe(id, localT, value) {
+    const s = get();
+    const clip = T.findClip(s.clips, id);
+    if (!clip) return;
+    const t = typeof localT === 'number' ? localT : Math.max(0, Math.min(clip.dur, s.playhead - clip.start));
+    const v = typeof value === 'number' ? value : T.volumeAt(clip, clip.start + t);
+    commit(T.upsertVolumeKeyframe(s.clips, id, t, v), `Volume keyframe ${Math.round(v * 100)}% at +${t.toFixed(2)}s`);
+  }
+
+  function removeVolumeKeyframe(id, kfId) {
+    const s = get();
+    commit(T.removeVolumeKeyframe(s.clips, id, kfId), 'Removed volume keyframe');
+  }
+
+  function clearVolumeKeyframes(id) {
+    const s = get();
+    commit(T.clearVolumeKeyframes(s.clips, id), 'Cleared volume keyframes');
   }
 
   function setPage(id) {
@@ -481,6 +596,7 @@ export function createActions(store, engine) {
       projectName: (data && data.name) || folder.split(/[\\/]/).pop(),
       media: scan.media,
       clips: data && Array.isArray(data.clips) ? data.clips : get().clips,
+      beats: data && data.beats ? T.setBeatGrid(T.defaultBeats(), data.beats) : T.defaultBeats(),
       format: (data && data.format) || get().format,
       resolution: (data && data.resolution) || get().resolution,
       captions: (data && data.captions) || null,
@@ -520,6 +636,7 @@ export function createActions(store, engine) {
       format: s.format,
       resolution: s.resolution,
       clips: s.clips,
+      beats: s.beats,
     };
     if (s.captions) data.captions = s.captions; // subtitle file (.ass/.srt) in the project folder, burned in on export
     const res = await api.save(s.projectFolder, data);
@@ -539,6 +656,7 @@ export function createActions(store, engine) {
       format: s.format,
       resolution: s.resolution,
       clips: s.clips,
+      beats: s.beats,
       media: s.media,
     });
     if (res.cancelled) return log('Save cancelled');
@@ -568,6 +686,7 @@ export function createActions(store, engine) {
       format: p.format || 'MP4',
       resolution: p.resolution || '1920 × 1080',
       clips: Array.isArray(p.clips) ? p.clips : [],
+      beats: p.beats ? T.setBeatGrid(T.defaultBeats(), p.beats) : T.defaultBeats(),
       media: Array.isArray(p.media) ? p.media : [],
       selected: null,
       selectedIds: [],
@@ -758,6 +877,8 @@ export function createActions(store, engine) {
   return {
     undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
     setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime,
+    detectBeats, setBeatGrid, addBeatMarker, moveBeatMarker, removeBeatMarker, clearBeats,
+    setClipFade, upsertVolumeKeyframe, removeVolumeKeyframe, clearVolumeKeyframes,
     setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,
     openExport, closeExport, toggleExport, setExportCfg, applyExportPreset,
     selectedClip, log, commitClips, gesture: trackpadGesture, liveClips,

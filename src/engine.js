@@ -81,8 +81,8 @@ export function createEngine(store) {
   const srcTime = (c, t) => c.srcIn + (t - c.start) * (c.speed || 1);
   const isActive = (c, t) => t >= c.start - 1e-6 && t < c.start + c.dur - 1e-6;
 
-  function setGain(gainHolder, el, clip) {
-    const vol = clip.muted ? 0 : T.propValue(clip, 'volume');
+  function setGain(gainHolder, el, clip, timelineTime) {
+    const vol = T.volumeAt(clip, timelineTime);
     // Only route through WebAudio GainNode when boosting above 100% volume.
     // Keeping normal 0..100% playback on native <video>/<audio> avoids Chromium's
     // suspended-AudioContext silence trap on Linux PipeWire/ALSA.
@@ -197,7 +197,7 @@ export function createEngine(store) {
         fxOverlay.style.background = nextFxBg;
         styleCache.fxBg = nextFxBg;
       }
-      setGain(videoGain, video, vc);
+      setGain(videoGain, video, vc, t);
       setRate(video, vc);
       if (video.readyState >= 1) {
         seek(video, srcTime(vc, t), playing, true, videoClipNeedsSeek);
@@ -236,7 +236,7 @@ export function createEngine(store) {
           sync();
         });
       }
-      setGain(entry.gain, entry.el, c);
+      setGain(entry.gain, entry.el, c, t);
       setRate(entry.el, c);
       seek(entry.el, srcTime(c, t), playing, false, false);
       if (playing && entry.el.paused && entry.el.readyState >= 1) {

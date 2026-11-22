@@ -223,15 +223,45 @@ function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality 
     : '';
   graph.push(`[${last}]${subs}format=yuv420p[vout]`);
 
+  // Builds an FFmpeg volume filter supporting both static volume and piecewise-linear volume keyframes.
+  function volumeFilterFor(c) {
+    const kfs = Array.isArray(c.volumeKeyframes)
+      ? [...c.volumeKeyframes].filter((k) => Number.isFinite(k.t) && Number.isFinite(k.value)).sort((a, b) => a.t - b.t)
+      : [];
+    if (!kfs.length) {
+      const vol = typeof c.volume === 'number' ? c.volume : 1;
+      return `volume=${r3(vol)}`;
+    }
+    if (kfs.length === 1) {
+      return `volume=${r3(kfs[0].value)}`;
+    }
+    // Nested if(lt(t, ti), ..., ...) piecewise linear expression evaluated per frame.
+    let expr = String(r3(kfs[kfs.length - 1].value));
+    for (let i = kfs.length - 2; i >= 0; i--) {
+      const a = kfs[i];
+      const b = kfs[i + 1];
+      const dt = Math.max(0.001, b.t - a.t);
+      const seg = `${r3(a.value)}+(${r3(b.value - a.value)})*(t-${r3(a.t)})/${r3(dt)}`;
+      expr = `if(lt(t,${r3(b.t)}),${seg},${expr})`;
+    }
+    expr = `if(lt(t,${r3(kfs[0].t)}),${r3(kfs[0].value)},${expr})`;
+    return `volume='${expr}':eval=frame`;
+  }
+
   const audioLabels = [];
   audioClips.forEach((c, k) => {
     const idx = addInput(c);
     const used = r3(c.dur * (c.speed || 1));
-    const vol = typeof c.volume === 'number' ? c.volume : 1;
     const tempo = (c.speed || 1) !== 1 ? atempoChain(c.speed) + ',' : '';
+    const fadeIn = Math.max(0, Math.min(c.dur, Number(c.fadeIn) || 0));
+    const fadeOut = Math.max(0, Math.min(c.dur, Number(c.fadeOut) || 0));
+    const fades = [];
+    if (fadeIn > 0.005) fades.push(`afade=t=in:st=0:d=${r3(fadeIn)}`);
+    if (fadeOut > 0.005) fades.push(`afade=t=out:st=${r3(Math.max(0, c.dur - fadeOut))}:d=${r3(fadeOut)}`);
+    const fadeChain = fades.length ? ',' + fades.join(',') : '';
     graph.push(
       `[${idx}:a]atrim=start=${r3(c.srcIn || 0)}:duration=${used},asetpts=PTS-STARTPTS,${tempo}` +
-      `volume=${r3(vol)},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
+      `${volumeFilterFor(c)}${fadeChain},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
     audioLabels.push(`[a${k}]`);
   });
   let audioArgs = [];

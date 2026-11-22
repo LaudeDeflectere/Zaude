@@ -1,4 +1,5 @@
 // Frontend audio waveform / spectral graph cache and canvas renderer.
+import { generateBeatGrid, volumeAt } from './timeline.js';
 
 // Slices a file's full peaks/spectral arrays to the portion visible in `clip`.
 export function sliceWaveform(data, clip) {
@@ -18,8 +19,9 @@ export function sliceWaveform(data, clip) {
   };
 }
 
-// Draws a spectral-colored bar graph onto `canvas` for the given clip and waveform data.
-export function drawWaveform(canvas, data, clip) {
+// Draws a spectral-colored bar graph onto `canvas` for the given clip and waveform data,
+// optionally overlaying beat/bar/subdivision ticks, fade-in/out ramps, and volume keyframes.
+export function drawWaveform(canvas, data, clip, beats = null) {
   if (!canvas || !data) return;
   const sliced = sliceWaveform(data, clip);
   if (!sliced.peaks.length) return;
@@ -38,16 +40,19 @@ export function drawWaveform(canvas, data, clip) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
 
-  const vol = clip.muted ? 0 : (typeof clip.volume === 'number' ? clip.volume : 1);
   const barStep = Math.max(2 * dpr, Math.floor(3 * dpr));
   const barW = Math.max(1 * dpr, barStep - 1 * dpr);
   const bars = Math.max(1, Math.floor(w / barStep));
   const { peaks, spectral } = sliced;
   const n = peaks.length;
   const isAudioOnly = clip.kind === 'audio';
+  const dur = Math.max(0.01, Number(clip.dur) || 0.01);
+  const start = Number(clip.start) || 0;
 
   for (let i = 0; i < bars; i++) {
     const idx = Math.min(n - 1, Math.floor((i / bars) * n));
+    const t = start + ((i + 0.5) / bars) * dur;
+    const vol = volumeAt(clip, t);
     const amp = peaks[idx] * vol;
     const spec = spectral[idx] ?? 0.4;
     const clamped = Math.min(1, amp);
@@ -67,6 +72,99 @@ export function drawWaveform(canvas, data, clip) {
     const x = i * barStep;
     const y = isAudioOnly ? (h - barH) / 2 : (h - barH);
     ctx.fillRect(x, y, barW, barH);
+  }
+
+  // Beat / downbeat / subdivision lines directly on the waveform
+  if (beats && beats.enabled) {
+    const grid = generateBeatGrid(beats, start + dur);
+    for (const g of grid) {
+      if (g.time < start - 1e-4 || g.time > start + dur + 1e-4) continue;
+      const x = Math.round(((g.time - start) / dur) * w);
+      if (g.kind === 'downbeat') {
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.75)';
+        ctx.fillRect(x, 0, Math.max(1.5 * dpr, 2), h);
+      } else if (g.kind === 'beat') {
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.32)';
+        ctx.fillRect(x, 0, Math.max(1, dpr), h);
+      } else if (w / dur > 35 * dpr) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+        ctx.fillRect(x, Math.round(h * 0.55), 1, Math.round(h * 0.45));
+      }
+    }
+  }
+
+  // Fade-in & fade-out ramp overlays
+  const fadeIn = Math.max(0, Math.min(dur, Number(clip.fadeIn) || 0));
+  const fadeOut = Math.max(0, Math.min(dur, Number(clip.fadeOut) || 0));
+  if (fadeIn > 0.005) {
+    const fw = Math.round((fadeIn / dur) * w);
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 12, 18, 0.52)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(fw, 0);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+    ctx.lineWidth = Math.max(1, 1.5 * dpr);
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    ctx.lineTo(fw, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (fadeOut > 0.005) {
+    const fw = Math.round((fadeOut / dur) * w);
+    ctx.save();
+    ctx.fillStyle = 'rgba(10, 12, 18, 0.52)';
+    ctx.beginPath();
+    ctx.moveTo(w, 0);
+    ctx.lineTo(w - fw, 0);
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+    ctx.lineWidth = Math.max(1, 1.5 * dpr);
+    ctx.beginPath();
+    ctx.moveTo(w - fw, 0);
+    ctx.lineTo(w, h);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Volume keyframe envelope curve & keyframe dots
+  const kfs = Array.isArray(clip.volumeKeyframes) ? clip.volumeKeyframes : [];
+  if (kfs.length > 0 && !clip.muted) {
+    const yForVol = (v) => {
+      // Map 0..2 linear volume to bottom..top (above 200% clamps at top edge)
+      const norm = Math.max(0, Math.min(1, v / 2));
+      return Math.round((1 - norm) * (h - 6 * dpr) + 3 * dpr);
+    };
+    ctx.save();
+    ctx.strokeStyle = 'rgba(52, 211, 153, 0.95)';
+    ctx.lineWidth = Math.max(1.5, 1.75 * dpr);
+    ctx.beginPath();
+    ctx.moveTo(0, yForVol(kfs[0].value));
+    for (const kf of kfs) {
+      const x = Math.round((kf.t / dur) * w);
+      ctx.lineTo(x, yForVol(kf.value));
+    }
+    ctx.lineTo(w, yForVol(kfs[kfs.length - 1].value));
+    ctx.stroke();
+
+    for (const kf of kfs) {
+      const x = Math.round((kf.t / dur) * w);
+      const y = yForVol(kf.value);
+      ctx.fillStyle = '#34d399';
+      ctx.strokeStyle = '#0b1020';
+      ctx.lineWidth = Math.max(1, dpr);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(3, 3.2 * dpr), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

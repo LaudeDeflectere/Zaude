@@ -182,8 +182,9 @@ export function overwriteMedia(clips, track, t, media) {
   return [...next, makeClip(track, media, t, dur)];
 }
 
-// Snap t to the nearest clip edge within `threshold` seconds. Returns t unchanged when snapping is off.
-export function snapTime(clips, t, enabled, threshold) {
+// Snap t to the nearest clip edge or beat/marker point within `threshold` seconds.
+// Returns t unchanged when snapping is off.
+export function snapTime(clips, t, enabled, threshold, extraPoints = []) {
   if (!enabled) return t;
   let best = t;
   let bestDist = threshold;
@@ -191,6 +192,12 @@ export function snapTime(clips, t, enabled, threshold) {
     for (const edge of [c.start, clipEnd(c)]) {
       const d = Math.abs(edge - t);
       if (d <= bestDist) { best = edge; bestDist = d; }
+    }
+  }
+  if (Array.isArray(extraPoints) && extraPoints.length) {
+    for (const pt of extraPoints) {
+      const d = Math.abs(pt - t);
+      if (d <= bestDist) { best = pt; bestDist = d; }
     }
   }
   return best;
@@ -565,4 +572,196 @@ export function insertFile(clips, track, t, file) {
 // Sets one flag on a clip (for example muted). Returns a new clip list.
 export function setFlag(clips, id, key, value) {
   return clips.map((c) => (c.id === id ? { ...c, [key]: value } : { ...c }));
+}
+
+// ---------- Beat grid & editable markers ----------
+
+export function defaultBeats() {
+  return {
+    enabled: false,
+    snap: true,
+    bpm: 120,
+    offset: 0,
+    beatsPerBar: 4,
+    subdivisions: 2, // 1 = quarter, 2 = 8th, 4 = 16th
+    sourceClipId: null,
+    markers: [],
+  };
+}
+
+// Generates bar/downbeat, beat, and subdivision grid lines across [0, duration].
+export function generateBeatGrid(beats, duration) {
+  if (!beats || !beats.enabled) return [];
+  const bpm = Math.max(30, Math.min(300, Number(beats.bpm) || 120));
+  const beatsPerBar = Math.max(2, Math.min(12, Math.round(Number(beats.beatsPerBar) || 4)));
+  const subs = [1, 2, 4].includes(Number(beats.subdivisions)) ? Number(beats.subdivisions) : 2;
+  const offset = Number(beats.offset) || 0;
+  const beatDur = 60 / bpm;
+  const subDur = beatDur / subs;
+  const end = Math.max(0, Number(duration) || 0);
+  if (end <= 0) return [];
+
+  const firstStepIdx = Math.ceil((-offset - 1e-6) / subDur);
+  const lastStepIdx = Math.floor((end - offset + 1e-6) / subDur);
+  // Cap total grid points to prevent DOM overload on huge timelines
+  if (lastStepIdx - firstStepIdx > 8000) return [];
+
+  const out = [];
+  for (let i = firstStepIdx; i <= lastStepIdx; i++) {
+    const time = Math.round((offset + i * subDur) * 1000) / 1000;
+    if (time < -1e-6 || time > end + 1e-6) continue;
+    const clampedT = Math.max(0, time);
+    const subMod = ((i % subs) + subs) % subs;
+    if (subMod !== 0) {
+      out.push({ time: clampedT, kind: 'sub' });
+      continue;
+    }
+    const beatIdx = Math.round(i / subs);
+    const barMod = ((beatIdx % beatsPerBar) + beatsPerBar) % beatsPerBar;
+    const bar = Math.floor(beatIdx / beatsPerBar) + 1;
+    out.push({
+      time: clampedT,
+      kind: barMod === 0 ? 'downbeat' : 'beat',
+      bar,
+      beat: barMod + 1,
+    });
+  }
+  return out;
+}
+
+// Returns all active snap timestamps from beat grid + editable markers.
+export function allBeatSnapPoints(beats, duration) {
+  if (!beats || !beats.enabled || !beats.snap) return [];
+  const pts = [];
+  for (const g of generateBeatGrid(beats, duration)) pts.push(g.time);
+  if (Array.isArray(beats.markers)) {
+    for (const m of beats.markers) {
+      if (Number.isFinite(m.time)) pts.push(m.time);
+    }
+  }
+  return pts;
+}
+
+export function addBeatMarker(beats, time, kind = 'custom', label = '') {
+  const base = { ...defaultBeats(), ...(beats || {}), enabled: true };
+  const t = Math.max(0, Math.round(Number(time) * 1000) / 1000);
+  const markers = Array.isArray(base.markers) ? [...base.markers] : [];
+  markers.push({ id: `bm_${Date.now().toString(36)}_${markers.length + 1}`, time: t, kind, label });
+  markers.sort((a, b) => a.time - b.time);
+  return { ...base, markers };
+}
+
+export function moveBeatMarker(beats, id, time) {
+  if (!beats || !Array.isArray(beats.markers)) return beats;
+  const t = Math.max(0, Math.round(Number(time) * 1000) / 1000);
+  const markers = beats.markers
+    .map((m) => (m.id === id ? { ...m, time: t } : m))
+    .sort((a, b) => a.time - b.time);
+  return { ...beats, markers };
+}
+
+export function removeBeatMarker(beats, id) {
+  if (!beats || !Array.isArray(beats.markers)) return beats;
+  return { ...beats, markers: beats.markers.filter((m) => m.id !== id) };
+}
+
+export function setBeatGrid(beats, patch) {
+  const base = { ...defaultBeats(), ...(beats || {}) };
+  const next = { ...base, ...(patch || {}) };
+  next.bpm = Math.max(30, Math.min(300, Math.round((Number(next.bpm) || 120) * 10) / 10));
+  next.offset = Math.round((Number(next.offset) || 0) * 1000) / 1000;
+  next.beatsPerBar = Math.max(2, Math.min(12, Math.round(Number(next.beatsPerBar) || 4)));
+  next.subdivisions = [1, 2, 4].includes(Number(next.subdivisions)) ? Number(next.subdivisions) : 2;
+  return next;
+}
+
+// ---------- Audio fades & volume keyframes ----------
+
+// Evaluates effective linear volume (0..4) for `clip` at `timelineTime`,
+// combining clip mute, volume keyframes (or base volume), and fade-in / fade-out ramps.
+export function volumeAt(clip, timelineTime) {
+  if (!clip || clip.muted) return 0;
+  const dur = Math.max(0, Number(clip.dur) || 0);
+  const localT = Math.max(0, Math.min(dur, (Number(timelineTime) || 0) - (Number(clip.start) || 0)));
+
+  let base = propValue(clip, 'volume');
+  const kfs = Array.isArray(clip.volumeKeyframes) ? clip.volumeKeyframes : null;
+  if (kfs && kfs.length > 0) {
+    if (kfs.length === 1 || localT <= kfs[0].t) {
+      base = kfs[0].value;
+    } else if (localT >= kfs[kfs.length - 1].t) {
+      base = kfs[kfs.length - 1].value;
+    } else {
+      for (let i = 0; i < kfs.length - 1; i++) {
+        const a = kfs[i];
+        const b = kfs[i + 1];
+        if (localT >= a.t && localT <= b.t) {
+          const span = b.t - a.t;
+          const f = span > 1e-6 ? (localT - a.t) / span : 0;
+          base = a.value + (b.value - a.value) * f;
+          break;
+        }
+      }
+    }
+  }
+
+  let fadeMul = 1;
+  const fadeIn = Math.max(0, Math.min(dur, Number(clip.fadeIn) || 0));
+  const fadeOut = Math.max(0, Math.min(dur, Number(clip.fadeOut) || 0));
+  if (fadeIn > 1e-4 && localT < fadeIn) {
+    fadeMul *= Math.max(0, localT / fadeIn);
+  }
+  if (fadeOut > 1e-4 && localT > dur - fadeOut) {
+    fadeMul *= Math.max(0, (dur - localT) / fadeOut);
+  }
+  return Math.max(0, Math.min(4, base * fadeMul));
+}
+
+export function setClipFade(clips, id, edge, durSec) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const dur = Math.max(0, Number(c.dur) || 0);
+    const val = Math.max(0, Math.min(dur, Math.round(Number(durSec) * 100) / 100));
+    let fadeIn = Math.max(0, Number(c.fadeIn) || 0);
+    let fadeOut = Math.max(0, Number(c.fadeOut) || 0);
+    if (edge === 'in') {
+      fadeIn = val;
+      if (fadeIn + fadeOut > dur) fadeOut = Math.max(0, Math.round((dur - fadeIn) * 100) / 100);
+    } else {
+      fadeOut = val;
+      if (fadeIn + fadeOut > dur) fadeIn = Math.max(0, Math.round((dur - fadeOut) * 100) / 100);
+    }
+    return { ...c, fadeIn, fadeOut };
+  });
+}
+
+export function upsertVolumeKeyframe(clips, id, localT, value) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const dur = Math.max(0, Number(c.dur) || 0);
+    const t = Math.max(0, Math.min(dur, Math.round(Number(localT) * 1000) / 1000));
+    const v = Math.max(0, Math.min(4, Math.round(Number(value) * 100) / 100));
+    const existing = Array.isArray(c.volumeKeyframes) ? c.volumeKeyframes.map((k) => ({ ...k })) : [];
+    const near = existing.find((k) => Math.abs(k.t - t) <= 0.05);
+    if (near) {
+      near.t = t;
+      near.value = v;
+    } else {
+      existing.push({ id: `vk_${Date.now().toString(36)}_${existing.length + 1}`, t, value: v });
+    }
+    existing.sort((a, b) => a.t - b.t);
+    return { ...c, volumeKeyframes: existing };
+  });
+}
+
+export function removeVolumeKeyframe(clips, id, kfId) {
+  return clips.map((c) => {
+    if (c.id !== id) return { ...c };
+    const next = (Array.isArray(c.volumeKeyframes) ? c.volumeKeyframes : []).filter((k) => k.id !== kfId);
+    return { ...c, volumeKeyframes: next };
+  });
+}
+
+export function clearVolumeKeyframes(clips, id) {
+  return clips.map((c) => (c.id === id ? { ...c, volumeKeyframes: [] } : { ...c }));
 }

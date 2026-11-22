@@ -635,6 +635,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           <div class="ruler" aria-label="Ruler. Click to move the playhead."></div>
           <div class="labels">${TRACKS.map((t) => `<div class="tlbl">${t.label}</div>`).join('')}</div>
           <div class="canvas">
+            <div class="beat-grid" aria-hidden="true"></div>
             <div class="tracks"></div>
             <div class="playhead" aria-hidden="true"></div>
             <div class="marquee" hidden aria-hidden="true"></div>
@@ -650,7 +651,17 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       <button data-act="trim" title="Trim end to playhead">Trim</button>
       <button data-act="delete" title="Delete (Delete key)">Delete</button>
       <button data-act="duplicate" title="Duplicate">Duplicate</button>
-      <button data-act="snap" class="snap-btn" title="Magnetic snap">Snap</button>
+      <button data-act="snap" class="snap-btn" title="Magnetic snap (clips & beats)">Snap</button>
+      <span class="sep"></span>
+      <button data-act="detect-beats" class="beats-btn" title="Detect tempo, downbeats & beat markers from audio">♫ Beats</button>
+      <span class="beat-ctl" hidden>
+        <input type="number" class="beat-bpm" min="30" max="300" step="0.5" title="BPM" aria-label="BPM">
+        <button data-act="beat-nudge-l" title="Nudge beat grid −10 ms">−10ms</button>
+        <button data-act="beat-nudge-r" title="Nudge beat grid +10 ms">+10ms</button>
+        <button data-act="beat-sub" class="beat-sub-btn" title="Cycle beat subdivisions (1×, 2×, 4×)">2×</button>
+        <button data-act="beat-add-marker" title="Add beat marker at playhead (M)">+M</button>
+        <button data-act="beat-clear" title="Clear beat grid & markers">×</button>
+      </span>
       <span class="sep"></span>
       <button data-act="zoomOut" aria-label="Zoom out" title="Zoom out (−)">−</button>
       <button data-act="zoomIn" aria-label="Zoom in" title="Zoom in (+)">+</button>
@@ -661,11 +672,22 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
   </div>`);
   const scroller = root.querySelector('.scroller');
   const canvas = root.querySelector('.canvas');
+  const beatGridEl = root.querySelector('.beat-grid');
   const ruler = root.querySelector('.ruler');
   const tracks = root.querySelector('.tracks');
   const playhead = root.querySelector('.playhead');
   const marquee = root.querySelector('.marquee');
+  const beatCtl = root.querySelector('.beat-ctl');
+  const beatBpmInput = root.querySelector('.beat-bpm');
+  const beatSubBtn = root.querySelector('.beat-sub-btn');
   let lastTimelineKey = '';
+
+  beatBpmInput.addEventListener('change', () => {
+    const val = Number(beatBpmInput.value);
+    if (Number.isFinite(val) && val >= 30 && val <= 300) {
+      actions.setBeatGrid({ bpm: val, enabled: true });
+    }
+  });
 
   root.addEventListener('click', (e) => {
     const act = e.target.closest('[data-act]');
@@ -681,6 +703,23 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (a === 'trim') return actions.trim();
       if (a === 'delete') return actions.deleteSelected();
       if (a === 'duplicate') return actions.duplicate();
+      if (a === 'detect-beats') return actions.detectBeats();
+      if (a === 'beat-nudge-l') {
+        const b = store.get().beats || T.defaultBeats();
+        return actions.setBeatGrid({ offset: Math.max(0, (b.offset || 0) - 0.01) });
+      }
+      if (a === 'beat-nudge-r') {
+        const b = store.get().beats || T.defaultBeats();
+        return actions.setBeatGrid({ offset: (b.offset || 0) + 0.01 });
+      }
+      if (a === 'beat-sub') {
+        const b = store.get().beats || T.defaultBeats();
+        const order = [1, 2, 4];
+        const nextSub = order[(order.indexOf(b.subdivisions || 2) + 1) % order.length];
+        return actions.setBeatGrid({ subdivisions: nextSub });
+      }
+      if (a === 'beat-add-marker') return actions.addBeatMarker();
+      if (a === 'beat-clear') return actions.clearBeats();
       return;
     }
   });
@@ -707,7 +746,48 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   }
-  ruler.addEventListener('pointerdown', startScrub);
+  ruler.addEventListener('pointerdown', (e) => {
+    const markerEl = e.target.closest('[data-beat-marker]');
+    if (markerEl && e.button === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const markerId = markerEl.dataset.beatMarker;
+      const move = (ev) => {
+        const s = store.get();
+        const rect = canvas.getBoundingClientRect();
+        const t = Math.max(0, (ev.clientX - rect.left) / s.pps);
+        actions.moveBeatMarker(markerId, t, true);
+      };
+      const up = (ev) => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        const s = store.get();
+        const rect = canvas.getBoundingClientRect();
+        const t = Math.max(0, (ev.clientX - rect.left) / s.pps);
+        actions.moveBeatMarker(markerId, t, false);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+      return;
+    }
+    startScrub(e);
+  });
+  ruler.addEventListener('dblclick', (e) => {
+    const markerEl = e.target.closest('[data-beat-marker]');
+    if (markerEl) {
+      e.preventDefault();
+      actions.removeBeatMarker(markerEl.dataset.beatMarker);
+    }
+  });
+  ruler.addEventListener('contextmenu', (e) => {
+    const markerEl = e.target.closest('[data-beat-marker]');
+    if (markerEl) {
+      e.preventDefault();
+      actions.removeBeatMarker(markerEl.dataset.beatMarker);
+    }
+  });
 
   // right-click context menu on clips (Separate Audio Track, Mute, Split, Duplicate, Delete)
   let ctxMenu = null;
@@ -850,6 +930,50 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     }
 
     const clipId = blk.dataset.clip;
+    const fadeHandle = e.target.closest('.blk-fade');
+    if (fadeHandle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const edge = fadeHandle.dataset.fade;
+      const rect = blk.getBoundingClientRect();
+      const applyFade = (ev, live) => {
+        const s = store.get();
+        const clip = T.findClip(s.clips, clipId);
+        if (!clip) return;
+        const px = edge === 'in' ? (ev.clientX - rect.left) : (rect.right - ev.clientX);
+        const durSec = Math.max(0, Math.min(clip.dur, px / s.pps));
+        actions.setClipFade(clipId, edge, durSec, live);
+      };
+      applyFade(e, true);
+      const move = (ev) => applyFade(ev, true);
+      const up = (ev) => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        applyFade(ev, false);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+      return;
+    }
+
+    // Alt + Click on a media clip drops a volume keyframe at that exact time and vertical height.
+    if (e.altKey) {
+      const s = store.get();
+      const clip = T.findClip(s.clips, clipId);
+      if (clip && (clip.kind === 'audio' || clip.kind === 'video')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = blk.getBoundingClientRect();
+        const fracX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+        const fracY = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / Math.max(1, rect.height)));
+        actions.select(clipId);
+        actions.upsertVolumeKeyframe(clipId, fracX * clip.dur, fracY * 2);
+        return;
+      }
+    }
+
     const isTrim = Boolean(e.target.closest('.blk-handle'));
     const curSel = store.get().selectedIds || [];
 
@@ -862,6 +986,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     if (!alreadyInGroup) actions.select(clipId);
 
     const x0 = e.clientX;
+    const initClip = T.findClip(store.get().clips, clipId);
+    const start0 = initClip ? initClip.start : 0;
     let lastX = x0;
     let moved = false;
 
@@ -884,7 +1010,13 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         const ids = s.selectedIds && s.selectedIds.length > 1 && s.selectedIds.includes(clipId)
           ? s.selectedIds
           : [clipId];
-        const next = ids.length > 1 ? T.moveClips(s.clips, ids, dt) : T.moveClip(s.clips, clipId, dt);
+        let stepDt = dt;
+        if (ids.length === 1 && s.snap) {
+          const rawStart = Math.max(0, start0 + (ev.clientX - x0) / s.pps);
+          const snapped = actions.snapTime(rawStart, s.pps);
+          stepDt = snapped - clip.start;
+        }
+        const next = ids.length > 1 ? T.moveClips(s.clips, ids, stepDt) : T.moveClip(s.clips, clipId, stepDt);
         if (next) {
           const after = T.findClip(next, clipId);
           const msg = ids.length > 1
@@ -908,8 +1040,11 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
   function update(s) {
     const selKey = (s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : [])).join(',');
-    const timelineKey = `${s.pps}|${s.snap}|${selKey}|` + s.clips.map((c) =>
-      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.transition}:${c.generating}:${c.progress}:${c.name}:${c.path}`
+    const b = s.beats || T.defaultBeats();
+    const beatsKey = `${b.enabled}:${b.snap}:${b.bpm}:${b.offset}:${b.beatsPerBar}:${b.subdivisions}:` +
+      (Array.isArray(b.markers) ? b.markers.map((m) => `${m.id}@${m.time}`).join(',') : '');
+    const timelineKey = `${s.pps}|${s.snap}|${selKey}|${beatsKey}|` + s.clips.map((c) =>
+      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.progress}:${c.name}:${c.path}`
     ).join(';');
     if (timelineKey === lastTimelineKey) {
       updateTime(s);
@@ -922,6 +1057,14 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     canvas.style.width = pxWidth + 'px';
     ruler.style.width = pxWidth + 'px';
 
+    // Beat controls in bottom timeline bar
+    root.querySelector('.beats-btn').classList.toggle('on', Boolean(b.enabled));
+    beatCtl.hidden = !b.enabled;
+    if (b.enabled) {
+      if (document.activeElement !== beatBpmInput) beatBpmInput.value = String(b.bpm || 120);
+      beatSubBtn.textContent = `${b.subdivisions || 2}×`;
+    }
+
     const step = RULER_STEPS.find((x) => x * s.pps >= 70) || RULER_STEPS[RULER_STEPS.length - 1];
     let ticks = '';
     for (let i = 0; i * step <= end + 1e-9; i++) {
@@ -932,6 +1075,28 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         : `${String(m).padStart(2, '0')}:${r.toFixed(2).padStart(5, '0')}`;
       ticks += `<span style="left:${t * s.pps}px">${label}</span>`;
     }
+
+    // Beat grid lines across tracks + bar labels & editable markers on the ruler
+    let gridHtml = '';
+    if (b.enabled) {
+      const grid = T.generateBeatGrid(b, end);
+      const showSubs = s.pps >= 35;
+      for (const g of grid) {
+        if (g.kind === 'sub' && !showSubs) continue;
+        const left = (g.time * s.pps).toFixed(1);
+        gridHtml += `<span class="beat-line ${g.kind}" style="left:${left}px"></span>`;
+        if (g.kind === 'downbeat' && g.bar) {
+          ticks += `<span class="ruler-bar" style="left:${left}px">B${g.bar}</span>`;
+        }
+      }
+      for (const mk of (b.markers || [])) {
+        if (mk.time > end + 0.5) continue;
+        const left = (mk.time * s.pps).toFixed(1);
+        const cls = mk.kind === 'downbeat' ? 'downbeat' : mk.kind === 'custom' ? 'custom' : 'beat';
+        ticks += `<span class="beat-marker ${cls}" data-beat-marker="${esc(mk.id)}" style="left:${left}px" title="Beat marker at ${mk.time.toFixed(2)}s (drag to move · double-click to delete)"></span>`;
+      }
+    }
+    beatGridEl.innerHTML = gridHtml;
     ruler.innerHTML = ticks;
 
     const pendingThumbs = [];
@@ -969,9 +1134,14 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           waveClips.push(c);
         }
 
+        const fadeHandles = (hasInternalAudio || isAudioMedia)
+          ? `<span class="blk-fade blk-fade-in" data-fade="in" title="Drag to adjust Audio Fade In${c.fadeIn ? ` (${c.fadeIn.toFixed(2)}s)` : ''}" style="left:${Math.min(Math.max(0, (c.fadeIn || 0) * s.pps), Math.max(8, c.dur * s.pps) - 10)}px"></span>` +
+            `<span class="blk-fade blk-fade-out" data-fade="out" title="Drag to adjust Audio Fade Out${c.fadeOut ? ` (${c.fadeOut.toFixed(2)}s)` : ''}" style="right:${Math.min(Math.max(0, (c.fadeOut || 0) * s.pps), Math.max(8, c.dur * s.pps) - 10)}px"></span>`
+          : '';
+
         return `<div class="blk ${kind}${sel}${strip ? ' has-strip' : ''}${hasInternalAudio ? ' has-wave' : ''}" role="button" tabindex="0" data-clip="${esc(c.id)}"
             aria-label="${esc(c.name)}" style="left:${c.start * s.pps}px;width:${Math.max(8, c.dur * s.pps)}px">
-            ${strip}${waveHtml}${fill}${dissolve}<span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle" title="Drag edge to trim length"></span></div>`;
+            ${strip}${waveHtml}${fill}${dissolve}${fadeHandles}<span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle" title="Drag edge to trim length"></span></div>`;
       }).join('');
       return `<div class="trk" data-track="${tr.id}">${blocks}</div>`;
     }).join('');
@@ -990,14 +1160,15 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (cached) {
         const blk = Array.from(tracks.querySelectorAll('.blk[data-clip]')).find((b) => b.dataset.clip === c.id);
         const canvasEl = blk && blk.querySelector('.blk-wave');
-        if (canvasEl && cached.peaks.length) drawWaveform(canvasEl, cached, c);
+        if (canvasEl && cached.peaks.length) drawWaveform(canvasEl, cached, c, b);
       } else {
         waveforms.request(c.path).then((data) => {
           if (!data || !data.peaks.length) return;
           const blk = Array.from(tracks.querySelectorAll('.blk[data-clip]')).find((b) => b.dataset.clip === c.id);
           const canvasEl = blk && blk.querySelector('.blk-wave');
-          const liveClip = T.findClip(store.get().clips, c.id);
-          if (canvasEl && liveClip) drawWaveform(canvasEl, data, liveClip);
+          const liveState = store.get();
+          const liveClip = T.findClip(liveState.clips, c.id);
+          if (canvasEl && liveClip) drawWaveform(canvasEl, data, liveClip, liveState.beats);
         });
       }
     }
@@ -1266,7 +1437,48 @@ export function inspectorPanel({ store, actions }) {
       const clip = T.findClip(s.clips, s.selected);
       if (clip) actions.commitClips(T.setFlag(s.clips, clip.id, 'muted', !clip.muted), (clip.muted ? 'Unmuted ' : 'Muted ') + clip.name);
     }
+    if (act.dataset.act === 'vol-kf-add') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.upsertVolumeKeyframe(clip.id);
+    }
+    if (act.dataset.act === 'vol-kf-clear') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.clearVolumeKeyframes(clip.id);
+    }
+    if (act.dataset.act === 'vol-kf-del') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.removeVolumeKeyframe(clip.id, act.dataset.kfId);
+    }
+    if (act.dataset.act === 'vol-kf-jump') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      const t = Number(act.dataset.kfTime);
+      if (clip && Number.isFinite(t)) actions.seekTo(clip.start + t);
+    }
     if (act.dataset.act === 'delete') actions.deleteSelected();
+  });
+
+  root.addEventListener('change', (e) => {
+    const fadeInput = e.target.closest('[data-fade-input]');
+    if (fadeInput) {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.setClipFade(clip.id, fadeInput.dataset.fadeInput, Number(fadeInput.value) || 0, false);
+      return;
+    }
+    const kfVal = e.target.closest('[data-kf-val]');
+    if (kfVal) {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      const t = Number(kfVal.dataset.kfTime);
+      const pct = Number(kfVal.value);
+      if (clip && Number.isFinite(t) && Number.isFinite(pct)) {
+        actions.upsertVolumeKeyframe(clip.id, t, pct / 100);
+      }
+    }
   });
 
   // Double-click any scrub slider to reset it to its default value.
@@ -1455,9 +1667,11 @@ export function inspectorPanel({ store, actions }) {
     const { bands, active } = isVideo ? activeBandOf(c) : { bands: [], active: null };
     const multiCount = s.selectedIds && s.selectedIds.length > 1 ? s.selectedIds.length : 1;
     const activeTr = c.transition > 0 ? (c.transitionType || 'dissolve') : 'none';
+    const kfKey = (c.volumeKeyframes || []).map((k) => `${k.id}:${k.t}:${k.value}`).join(',');
     const structKey = [
       c.id, c.name, c.track, c.start.toFixed(2), c.dur.toFixed(2), c.speed,
       c.muted, c.flipH, c.flipV, c.fill, activeTr, tab, s.eyedropper, multiCount,
+      c.fadeIn || 0, c.fadeOut || 0, kfKey,
       bands.map((b) => b.id).join(','), active ? active.id : '',
     ].join('|');
 
@@ -1546,8 +1760,32 @@ export function inspectorPanel({ store, actions }) {
         </div>
         ${activeTr !== 'none' ? scrubField('transition') : '<p class="muted hint">Pick a transition above to apply it to this clip.</p>'}`;
     } else {
+      const kfs = Array.isArray(c.volumeKeyframes) ? c.volumeKeyframes : [];
+      const audioEnvHtml = isMedia ? `
+        <div class="lbl">Audio Fades &amp; Volume Keyframes <span class="muted">(Alt+Click clip)</span></div>
+        <div class="exp-two-col">
+          <label class="exp-lbl">Fade In (s)
+            <input type="number" min="0" max="${c.dur.toFixed(2)}" step="0.05" value="${(c.fadeIn || 0).toFixed(2)}" data-fade-input="in">
+          </label>
+          <label class="exp-lbl">Fade Out (s)
+            <input type="number" min="0" max="${c.dur.toFixed(2)}" step="0.05" value="${(c.fadeOut || 0).toFixed(2)}" data-fade-input="out">
+          </label>
+        </div>
+        <div class="insp-row">
+          <button data-act="vol-kf-add" title="Add or update a volume keyframe at the playhead">+ Keyframe at playhead</button>
+          ${kfs.length ? '<button data-act="vol-kf-clear">Clear</button>' : ''}
+        </div>
+        ${kfs.length ? `<div class="kf-list">${kfs.map((k) => `
+          <div class="kf-row">
+            <button class="kf-jump" data-act="vol-kf-jump" data-kf-time="${k.t}" title="Jump playhead to +${k.t.toFixed(2)}s">+${k.t.toFixed(2)}s</button>
+            <input type="number" class="kf-val" min="0" max="400" step="5" value="${Math.round(k.value * 100)}" data-kf-val="1" data-kf-time="${k.t}" aria-label="Volume percent">
+            <span class="muted">%</span>
+            <button class="kf-del" data-act="vol-kf-del" data-kf-id="${esc(k.id)}" title="Delete keyframe">×</button>
+          </div>`).join('')}</div>` : ''}` : '';
+
       bodyHtml = `
         ${isMedia ? scrubField('volume') : ''}
+        ${audioEnvHtml}
         ${isVideo ? scrubField('opacity') : ''}
         ${isVideo ? scrubField('blur') : ''}
         ${isVideo ? `<div class="lbl">Transform <span class="muted">(Shift + trackpad in Viewer)</span></div>

@@ -72,6 +72,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && store.get().eyedropper) { e.preventDefault(); return actions.setEyedropper(false); }
   if (e.key === ' ') { e.preventDefault(); return actions.togglePlay(); }
   if (key === 's') { e.preventDefault(); return actions.split(); }
+  if (key === 'm') { e.preventDefault(); return actions.addBeatMarker(); }
   if (e.key === 'ArrowLeft') { e.preventDefault(); return actions.stepBy(e.shiftKey ? -1 : -1 / T.FPS); }
   if (e.key === 'ArrowRight') { e.preventDefault(); return actions.stepBy(e.shiftKey ? 1 : 1 / T.FPS); }
   if (e.key === 'Home') { e.preventDefault(); return actions.seekTo(0); }

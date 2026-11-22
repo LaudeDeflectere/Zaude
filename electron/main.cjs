@@ -21,6 +21,7 @@ const remote = require('./remote-analysis.cjs');
 const media = require('./media.cjs');
 const project = require('./project.cjs');
 const waveform = require('./waveform.cjs');
+const beats = require('./beats.cjs');
 const zdFormat = require('./zd-format.cjs');
 const touchpad = require('./touchpad.cjs');
 const tipsStore = require('./tips.cjs');
@@ -371,6 +372,16 @@ function registerAiHandlers() {
       return { ok: false, error: 'Not an allowed media file.' };
     }
     return waveform.extractWaveform(filePath);
+  });
+
+  ipcMain.handle('project:detectBeats', async (_e, filePath, opts) => {
+    if (typeof filePath !== 'string' || !media.isAllowedMedia(filePath, mediaRoots())) {
+      return { ok: false, error: 'Not an allowed media file.' };
+    }
+    const beatsPerBar = opts && Number(opts.beatsPerBar) >= 2 && Number(opts.beatsPerBar) <= 8
+      ? Math.round(Number(opts.beatsPerBar))
+      : 4;
+    return beats.detectBeats(filePath, { beatsPerBar });
   });
 
   ipcMain.handle('project:saveZd', async (event, input) => {
