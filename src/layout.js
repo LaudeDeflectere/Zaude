@@ -9,6 +9,8 @@ export const WINDOW_TYPES = [
   { id: 'timeline', label: 'Timeline', desc: 'Multi-track clips, ruler & trackpad editing' },
   { id: 'inspector', label: 'Inspector', desc: 'Selected clip volume, opacity & audio' },
   { id: 'tools', label: 'Tools', desc: 'Cut, Edit, Audio & Deliver actions' },
+  { id: 'aichat', label: 'AI Chat', desc: 'Chat with Claude, Codex, OpenCode & MCP' },
+  { id: 'help', label: 'Help & Tips', desc: 'Shortcuts, MCP setup & AI tips notebook' },
   { id: 'masking', label: 'Masking', desc: 'AI subject rotoscoping & cutout (soon)' },
   { id: 'remote', label: 'Remote machines', desc: 'SSH GPU server & ComfyUI status' },
 ];

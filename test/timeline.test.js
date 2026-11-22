@@ -157,7 +157,7 @@ test('placeRange puts a clip in a free range and replaces what it covers', () =>
 
 test('setProp clamps to the property limits and rounds to its step', () => {
   const clips = [clip({ id: 'a' })];
-  assert.equal(T.setProp(clips, 'a', 'volume', 5)[0].volume, 2);
+  assert.equal(T.setProp(clips, 'a', 'volume', 5)[0].volume, 4);
   assert.equal(T.setProp(clips, 'a', 'opacity', -1)[0].opacity, 0);
   assert.equal(T.setProp(clips, 'a', 'volume', 0.504)[0].volume, 0.5);
 });

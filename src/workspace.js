@@ -59,6 +59,23 @@ const WINDOW_PREVIEWS = {
     <rect x="7" y="34" width="38" height="12" rx="3" fill="#2A2440" stroke="#8B5CF6"/>
     <rect x="51" y="34" width="38" height="12" rx="3" fill="#1C1C25" stroke="#33333F"/>
   </svg>`,
+  aichat: `<svg viewBox="0 0 96 56" aria-hidden="true">
+    <rect x="2" y="2" width="92" height="52" rx="4" fill="#121218" stroke="#2F2F3B"/>
+    <rect x="8" y="8" width="48" height="10" rx="3" fill="#262342" stroke="#8B5CF6"/>
+    <rect x="34" y="22" width="54" height="12" rx="3" fill="#1B2A30" stroke="#22D3EE"/>
+    <rect x="8" y="40" width="66" height="8" rx="3" fill="#1C1C25" stroke="#33333F"/>
+    <rect x="77" y="40" width="11" height="8" rx="3" fill="#8B5CF6"/>
+  </svg>`,
+  help: `<svg viewBox="0 0 96 56" aria-hidden="true">
+    <rect x="2" y="2" width="92" height="52" rx="4" fill="#121218" stroke="#2F2F3B"/>
+    <rect x="8" y="8" width="22" height="6" rx="2" fill="#262342"/>
+    <rect x="33" y="8" width="20" height="6" rx="2" fill="#1C1C25"/>
+    <rect x="8" y="18" width="80" height="14" rx="3" fill="#1B1B24" stroke="#343444"/>
+    <rect x="13" y="22" width="36" height="3" rx="1" fill="#22D3EE"/>
+    <rect x="13" y="27" width="64" height="2" rx="1" fill="#8E8EA3"/>
+    <rect x="8" y="36" width="80" height="12" rx="3" fill="#1B1B24" stroke="#343444"/>
+    <rect x="13" y="40" width="44" height="3" rx="1" fill="#8B5CF6"/>
+  </svg>`,
   masking: `<svg viewBox="0 0 96 56" aria-hidden="true">
     <rect x="2" y="2" width="92" height="52" rx="4" fill="#121218" stroke="#2F2F3B"/>
     <rect x="10" y="8" width="76" height="40" rx="3" fill="#181822"/>

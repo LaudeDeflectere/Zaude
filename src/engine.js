@@ -5,7 +5,9 @@ import * as T from './timeline.js';
 import { hasSelectiveHsl, rgbToHex } from './color.js';
 import { createHslRenderer } from './hsl-gl.js';
 
-const EPS_SEEK = 0.15; // seconds of drift allowed before the media is moved
+const EPS_SEEK_PAUSED = 0.04;      // precision when scrubbing/paused
+const EPS_SEEK_VIDEO_PLAY = 0.75;  // generous drift tolerance during video playback to avoid GOP seek thrashing
+const EPS_SEEK_AUDIO_PLAY = 0.25;  // audio sync tolerance during playback
 
 export function createEngine(store) {
   const video = document.createElement('video');
@@ -41,12 +43,14 @@ export function createEngine(store) {
 
   const urlCache = new Map();
   let videoClipId = null;
+  let videoClipNeedsSeek = false;
   let videoToken = 0;
   let audioCtx = null;
   const videoGain = { node: null, tried: false };
   const audioEls = new Map(); // clip id -> { el, gain, path, token }
   let rafId = 0;
   let lastTs = 0;
+  const styleCache = { vOp: '', vTf: '', vFlt: '', gOp: '', gTf: '', gFlt: '', fxBg: '' };
 
   const zaudioApi = () => window.zaudeAI || null;
 
@@ -77,13 +81,22 @@ export function createEngine(store) {
   const srcTime = (c, t) => c.srcIn + (t - c.start) * (c.speed || 1);
   const isActive = (c, t) => t >= c.start - 1e-6 && t < c.start + c.dur - 1e-6;
 
-  function setGain(gain, el, clip) {
+  function setGain(gainHolder, el, clip) {
     const vol = clip.muted ? 0 : T.propValue(clip, 'volume');
-    if (gain) {
-      gain.gain.value = vol;
+    // Only route through WebAudio GainNode when boosting above 100% volume.
+    // Keeping normal 0..100% playback on native <video>/<audio> avoids Chromium's
+    // suspended-AudioContext silence trap on Linux PipeWire/ALSA.
+    if (vol > 1.01 && !gainHolder.node && !gainHolder.tried) {
+      gainHolder.tried = true;
+      try { gainHolder.node = gainFor(el); } catch { gainHolder.node = null; }
+    }
+    if (gainHolder.node) {
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+      gainHolder.node.gain.value = vol;
       el.muted = false;
+      el.volume = 1;
     } else {
-      el.muted = Boolean(clip.muted);
+      el.muted = Boolean(clip.muted) || vol <= 0.001;
       el.volume = Math.min(1, Math.max(0, vol));
     }
   }
@@ -95,13 +108,20 @@ export function createEngine(store) {
     }
   }
 
-  function seek(el, want) {
-    if (el.readyState < 1 || el.seeking) return;
+  function seek(el, want, playing = false, isVideo = false, force = false) {
+    if (el.readyState < 1 || el.seeking) return false;
     const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : Infinity;
     const clamped = Math.min(Math.max(0, want), Math.max(0, dur - 0.02));
-    if (Math.abs(el.currentTime - clamped) > EPS_SEEK || (el.paused && Math.abs(el.currentTime - clamped) > 0.04)) {
-      try { el.currentTime = clamped; } catch { /* not loaded yet */ }
+    const eps = force
+      ? EPS_SEEK_PAUSED
+      : (playing && !el.paused ? (isVideo ? EPS_SEEK_VIDEO_PLAY : EPS_SEEK_AUDIO_PLAY) : EPS_SEEK_PAUSED);
+    if (Math.abs(el.currentTime - clamped) > eps) {
+      try {
+        el.currentTime = clamped;
+        return true;
+      } catch { /* not loaded yet */ }
     }
+    return false;
   }
 
   function sync() {
@@ -117,15 +137,21 @@ export function createEngine(store) {
       hslGl.canvas.hidden = true;
       if (!video.paused) video.pause();
       videoClipId = null;
-      fxOverlay.style.background = 'none';
+      videoClipNeedsSeek = false;
+      if (styleCache.fxBg !== 'none') {
+        fxOverlay.style.background = 'none';
+        styleCache.fxBg = 'none';
+      }
       fxOverlay.style.boxShadow = 'none';
     } else {
       if (videoClipId !== vc.id) {
         videoClipId = vc.id;
+        videoClipNeedsSeek = true;
         const token = ++videoToken;
         urlFor(vc.path).then((url) => {
           if (token !== videoToken || !url) return;
           if (video.src !== url) video.src = url;
+          else sync();
         });
       }
       const tr = T.transitionState(vc, t);
@@ -135,21 +161,22 @@ export function createEngine(store) {
       const blurOnlyFilter = blurPx > 0.05 ? `blur(${blurPx.toFixed(2)}px)` : 'none';
       const useGpu = hasSelectiveHsl(vc) || T.hasColorFilters(vc);
 
-      video.hidden = false;
-      video.style.opacity = opStr;
-      video.style.transform = transformStr;
+      if (video.hidden) video.hidden = false;
+      if (styleCache.vOp !== opStr) { video.style.opacity = opStr; styleCache.vOp = opStr; }
+      if (styleCache.vTf !== transformStr) { video.style.transform = transformStr; styleCache.vTf = transformStr; }
 
       if (useGpu && hslGl.render(video, vc)) {
-        hslGl.canvas.hidden = false;
-        hslGl.canvas.style.opacity = opStr;
-        hslGl.canvas.style.filter = blurOnlyFilter;
-        hslGl.canvas.style.transform = transformStr;
-        video.style.filter = 'none';
-        video.style.visibility = 'hidden';
+        if (hslGl.canvas.hidden) hslGl.canvas.hidden = false;
+        if (styleCache.gOp !== opStr) { hslGl.canvas.style.opacity = opStr; styleCache.gOp = opStr; }
+        if (styleCache.gFlt !== blurOnlyFilter) { hslGl.canvas.style.filter = blurOnlyFilter; styleCache.gFlt = blurOnlyFilter; }
+        if (styleCache.gTf !== transformStr) { hslGl.canvas.style.transform = transformStr; styleCache.gTf = transformStr; }
+        if (styleCache.vFlt !== 'none') { video.style.filter = 'none'; styleCache.vFlt = 'none'; }
+        if (video.style.visibility !== 'hidden') video.style.visibility = 'hidden';
       } else {
-        hslGl.canvas.hidden = true;
-        video.style.filter = T.buildCssFilter(vc);
-        video.style.visibility = '';
+        if (!hslGl.canvas.hidden) hslGl.canvas.hidden = true;
+        const cssFlt = T.buildCssFilter(vc);
+        if (styleCache.vFlt !== cssFlt) { video.style.filter = cssFlt; styleCache.vFlt = cssFlt; }
+        if (video.style.visibility !== '') video.style.visibility = '';
       }
 
       // Fade-to-black / fade-to-white transition overlay (vignette runs on GPU when WebGL is active)
@@ -165,14 +192,17 @@ export function createEngine(store) {
           layers.push(`radial-gradient(ellipse at center, rgba(0,0,0,0) ${inner}%, rgba(0,0,0,${(vig * 0.88).toFixed(3)}) 100%)`);
         }
       }
-      fxOverlay.style.background = layers.length ? layers.join(', ') : 'none';
-      if (!videoGain.tried) {
-        videoGain.tried = true;
-        try { videoGain.node = gainFor(video); } catch { videoGain.node = null; }
+      const nextFxBg = layers.length ? layers.join(', ') : 'none';
+      if (styleCache.fxBg !== nextFxBg) {
+        fxOverlay.style.background = nextFxBg;
+        styleCache.fxBg = nextFxBg;
       }
-      setGain(videoGain.node, video, vc);
+      setGain(videoGain, video, vc);
       setRate(video, vc);
-      seek(video, srcTime(vc, t));
+      if (video.readyState >= 1) {
+        seek(video, srcTime(vc, t), playing, true, videoClipNeedsSeek);
+        videoClipNeedsSeek = false;
+      }
       if (playing && video.paused) video.play().catch(() => {});
       if (!playing && !video.paused) video.pause();
     }
@@ -191,8 +221,7 @@ export function createEngine(store) {
         el.preload = 'auto';
         el.addEventListener('loadedmetadata', () => sync());
         el.addEventListener('canplay', () => sync());
-        el.addEventListener('seeked', () => sync());
-        entry = { el, gain: null, gainTried: false, path: null, token: 0 };
+        entry = { el, gain: { node: null, tried: false }, path: null, token: 0 };
         audioEls.set(key, entry);
       }
       if (entry.path !== c.path) {
@@ -207,14 +236,10 @@ export function createEngine(store) {
           sync();
         });
       }
-      if (!entry.gain && !entry.gainTried) {
-        entry.gainTried = true;
-        try { entry.gain = gainFor(entry.el); } catch { entry.gain = null; }
-      }
       setGain(entry.gain, entry.el, c);
       setRate(entry.el, c);
-      seek(entry.el, srcTime(c, t));
-      if (playing && entry.el.paused && entry.el.readyState >= 2 && !entry.el.seeking) {
+      seek(entry.el, srcTime(c, t), playing, false, false);
+      if (playing && entry.el.paused && entry.el.readyState >= 1) {
         entry.el.play().catch(() => {});
       }
       if (!playing && !entry.el.paused) entry.el.pause();
@@ -234,25 +259,46 @@ export function createEngine(store) {
   function tick(ts) {
     const s = store.get();
     if (!s.playing) { stopClock(); return; }
-    const dt = (ts - lastTs) / 1000;
+    const dt = Math.min(0.1, Math.max(0, (ts - lastTs) / 1000));
     lastTs = ts;
     const end = T.projectEnd(s.clips);
-    if (s.playhead + dt >= end) {
+
+    // Media-clock-driven playback: when a video clip is actively decoding, track video.currentTime
+    // directly so heavy high-res / long videos never fall behind and enter a GOP seek-thrashing loop.
+    const vc = T.clipAt(s.clips.filter((c) => c.path && c.kind === 'video'), s.playhead);
+    let nextT = s.playhead + dt;
+    if (vc && videoClipId === vc.id) {
+      if (video.seeking || video.readyState < 2) {
+        // Wait for the seek/buffer to finish before advancing the playhead.
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (!video.paused) {
+        const rate = vc.speed || 1;
+        const mediaT = vc.start + (video.currentTime - vc.srcIn) / rate;
+        if (Number.isFinite(mediaT) && mediaT >= vc.start - 0.15 && mediaT <= vc.start + vc.dur + 0.5) {
+          nextT = Math.max(s.playhead, mediaT);
+          if (nextT >= vc.start + vc.dur - 0.015) {
+            nextT = vc.start + vc.dur + 0.002;
+          }
+        }
+      }
+    }
+
+    if (nextT >= end) {
       store.setTime(end);
       store.set({ playing: false });
-      sync();
       stopClock();
       return;
     }
-    store.setTime(s.playhead + dt);
-    sync();
+    // store.setTime() notifies subscribeTime(() => sync()), so no duplicate sync() call needed.
+    store.setTime(nextT);
     rafId = requestAnimationFrame(tick);
   }
 
   function play() {
     if (store.get().playing) return;
-    const ctx = context();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     lastTs = performance.now();
     store.set({ playing: true });
     rafId = requestAnimationFrame(tick);
@@ -273,8 +319,8 @@ export function createEngine(store) {
   // Changes the playhead without playing: used by the ruler, the scrub bar, and the keyboard.
   function seekTo(t) {
     const end = T.projectEnd(store.get().clips);
+    videoClipNeedsSeek = true;
     store.setTime(Math.min(end, Math.max(0, t)));
-    sync();
   }
 
   // Samples the exact pixel from the current video frame under (clientX, clientY) inside stageEl.

@@ -318,7 +318,7 @@ const degFmt = (v) => { const n = Math.round(v); return (n > 0 ? '+' : '') + n +
 
 // Clip properties with predetermined integer steps for filters/HSL/transform (less compute, zero float churn).
 export const PROPS = {
-  volume: { min: 0, max: 2, step: 0.01, default: 1, label: 'Volume', format: pctFmt },
+  volume: { min: 0, max: 4, step: 0.01, default: 1, label: 'Volume', format: pctFmt },
   opacity: { min: 0, max: 1, step: 0.01, default: 1, label: 'Opacity', format: pctFmt },
   blur: { min: 0, max: 100, step: 1, default: 0, label: 'Blur', format: intFmt },
   scale: { min: 10, max: 400, step: 1, default: 100, label: 'Scale', format: intPctFmt },

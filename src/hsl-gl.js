@@ -5,8 +5,8 @@
 import { hexToRgb, rgbToHsl, getHslBands, isBandActive, MAX_HSL_BANDS } from './color.js';
 import * as T from './timeline.js';
 
-const MAX_PREVIEW_W = 1920;
-const MAX_PREVIEW_H = 1080;
+const MAX_PREVIEW_W = 1280;
+const MAX_PREVIEW_H = 720;
 
 const VERT = `
 attribute vec2 a_pos;
@@ -216,8 +216,8 @@ export function createHslRenderer() {
       hasUploaded = false;
     }
 
-    // Keep the frame texture in VRAM; only re-upload when playing or when frame/src changed.
-    const needsUpload = !hasUploaded || !video.paused || video.src !== lastSrc || Math.abs(video.currentTime - lastTime) > 0.001;
+    // Keep the frame texture in VRAM; only re-upload when a new decoded video frame arrives.
+    const needsUpload = !hasUploaded || video.src !== lastSrc || Math.abs(video.currentTime - lastTime) > 0.0005;
     gl.bindTexture(gl.TEXTURE_2D, tex);
     if (needsUpload) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);

@@ -2,9 +2,11 @@
 // Uses a single hidden <video> + <canvas> queue so thumbnails never stall the UI.
 
 export const TIMELINE_STAGE_SEC = 10;
+const MAX_STAGES_PER_CLIP = 12;
 
 // Computes the filmstrip stages for a timeline clip.
-// Clips <= 10s get a single starting-frame preview; clips > 10s get one stage every 10s.
+// Clips <= 10s get a single starting-frame preview; longer clips get evenly spaced stages
+// (every 10s up to 2 minutes, capped at 12 stages on very long clips to avoid decode stalls).
 export function timelineThumbStages(clip) {
   const dur = Math.max(0, Number(clip && clip.dur) || 0);
   if (dur <= 0) return [];
@@ -16,9 +18,10 @@ export function timelineThumbStages(clip) {
     return [{ offset: 0, span: dur, srcTime: Math.min(maxSrc, srcIn) }];
   }
 
+  const step = Math.max(TIMELINE_STAGE_SEC, dur / MAX_STAGES_PER_CLIP);
   const stages = [];
-  for (let offset = 0; offset < dur - 1e-6; offset += TIMELINE_STAGE_SEC) {
-    const span = Math.min(TIMELINE_STAGE_SEC, dur - offset);
+  for (let offset = 0; offset < dur - 1e-6; offset += step) {
+    const span = Math.min(step, dur - offset);
     const srcTime = Math.min(maxSrc, srcIn + offset * speed);
     stages.push({ offset, span, srcTime });
   }
@@ -28,7 +31,7 @@ export function timelineThumbStages(clip) {
 const keyFor = (filePath, timeSec) => `${filePath}@${Math.round(Math.max(0, timeSec) * 4) / 4}`;
 const MAX_THUMB_CACHE = 100;
 
-export function createThumbCache({ getMediaUrl }) {
+export function createThumbCache({ getMediaUrl, isPaused = () => false }) {
   const cache = new Map();    // key -> dataURL (string) or null (failed)
   const pending = new Map();  // key -> Promise<string|null>
   const queue = [];
@@ -122,16 +125,17 @@ export function createThumbCache({ getMediaUrl }) {
   }
 
   async function pump() {
-    if (running) return;
+    if (running || isPaused()) return;
     clearTimeout(releaseTimer);
     running = true;
     try {
-      while (queue.length) {
+      while (queue.length && !isPaused()) {
         const job = queue.shift();
         let dataUrl = null;
         try {
           const url = await getMediaUrl(job.filePath);
-          if (url) dataUrl = await captureFrame(url, job.timeSec);
+          if (url && !isPaused()) dataUrl = await captureFrame(url, job.timeSec);
+          else if (isPaused()) { queue.unshift(job); break; }
         } catch {
           dataUrl = null;
         }
@@ -143,6 +147,10 @@ export function createThumbCache({ getMediaUrl }) {
       running = false;
       scheduleRelease();
     }
+  }
+
+  function resume() {
+    if (queue.length && !running && !isPaused()) pump();
   }
 
   function getCached(filePath, timeSec) {
@@ -162,5 +170,5 @@ export function createThumbCache({ getMediaUrl }) {
     return promise;
   }
 
-  return { getCached, request };
+  return { getCached, request, resume };
 }

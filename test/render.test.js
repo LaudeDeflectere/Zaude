@@ -106,7 +106,7 @@ test('clips without framing keep the old fit-with-bars filter', () => {
   const clip = { id: 'a', kind: 'video', path: '/x.mp4', track: 'V1', start: 0, dur: 2 };
   const built = render.buildRenderArgs({ clips: [clip], width: 1080, height: 1920, output: '/o.mp4' });
   const graph = built.args[built.args.indexOf('-filter_complex') + 1];
-  assert.match(graph, /scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920/);
+  assert.match(graph, /scale=1080:1920:force_original_aspect_ratio=decrease(?::flags=[^,]+)?,pad=1080:1920/);
 });
 
 test('captions are burned in after the clips are composed', () => {

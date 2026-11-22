@@ -51,3 +51,48 @@ contextBridge.exposeInMainWorld('zaudeAI', {
     return () => ipcRenderer.removeListener('ai:job', listener);
   },
 });
+
+contextBridge.exposeInMainWorld('zaudeTouchpad', {
+  status: () => ipcRenderer.invoke('touchpad:status'),
+  onRotate: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('touchpad:rotate', listener);
+    return () => ipcRenderer.removeListener('touchpad:rotate', listener);
+  },
+});
+
+contextBridge.exposeInMainWorld('zaudeAgent', {
+  info: () => ipcRenderer.invoke('agent:info'),
+  chat: (input) => ipcRenderer.invoke('agent:chat', input),
+  cancel: () => ipcRenderer.invoke('agent:cancel'),
+  listTips: () => ipcRenderer.invoke('tips:list'),
+  addTip: (input) => ipcRenderer.invoke('tips:add', input),
+  removeTip: (id) => ipcRenderer.invoke('tips:remove', id),
+  onTipsUpdated: (callback) => {
+    const listener = (_event, tips) => callback(tips);
+    ipcRenderer.on('tips:updated', listener);
+    return () => ipcRenderer.removeListener('tips:updated', listener);
+  },
+  onGetState: (handler) => {
+    const listener = async (_event, { reqId }) => {
+      try {
+        ipcRenderer.send('bridge:reply', { reqId, result: await handler() });
+      } catch (err) {
+        ipcRenderer.send('bridge:reply', { reqId, result: { ok: false, error: err.message || String(err) } });
+      }
+    };
+    ipcRenderer.on('bridge:getState', listener);
+    return () => ipcRenderer.removeListener('bridge:getState', listener);
+  },
+  onExecTool: (handler) => {
+    const listener = async (_event, { reqId, payload }) => {
+      try {
+        ipcRenderer.send('bridge:reply', { reqId, result: await handler(payload) });
+      } catch (err) {
+        ipcRenderer.send('bridge:reply', { reqId, result: { ok: false, error: err.message || String(err) } });
+      }
+    };
+    ipcRenderer.on('bridge:execTool', listener);
+    return () => ipcRenderer.removeListener('bridge:execTool', listener);
+  },
+});

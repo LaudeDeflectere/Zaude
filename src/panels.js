@@ -5,6 +5,7 @@ import { TOOLS, PAGES, EXPORT_PRESETS, ASPECT_RATIOS, RES_TIERS, exportDimension
 import { timelineThumbStages } from './thumbs.js';
 import { drawWaveform } from './waveform.js';
 import { hexToRgb, rgbToHsl, hslToRgb, rgbToHex, normalizeHex, getHslBands, isBandActive, MAX_HSL_BANDS } from './color.js';
+import { buildAgentStateSnapshot, executeAgentTool } from './agent-bridge.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const TRACKS = [
@@ -214,6 +215,11 @@ export function binPanel({ store, actions, engine, thumbs }) {
 export function viewerPanel({ store, actions, engine }) {
   const root = el(`<div class="panel viewer">
     <div class="viewer-stage">
+      <div class="viewer-frame">
+        <div class="viewer-export-matte" aria-hidden="true">
+          <span class="viewer-aspect-tag"></span>
+        </div>
+      </div>
       <div class="viewer-text muted"></div>
       <div class="viewer-transform-hud" hidden></div>
       <div class="dropper-loupe" hidden><span class="dropper-swatch"></span><span class="dropper-hex">#000000</span></div>
@@ -231,6 +237,8 @@ export function viewerPanel({ store, actions, engine }) {
     </div>
   </div>`);
   const stage = root.querySelector('.viewer-stage');
+  const frame = root.querySelector('.viewer-frame');
+  const aspectTag = root.querySelector('.viewer-aspect-tag');
   const bar = root.querySelector('.scrubbar');
   const tip = root.querySelector('.scrub-tip');
   const loupe = root.querySelector('.dropper-loupe');
@@ -255,11 +263,36 @@ export function viewerPanel({ store, actions, engine }) {
   }
 
   function ensureVideoAttached() {
-    if (!engine.video.isConnected) stage.prepend(engine.video);
-    if (engine.glCanvas && !engine.glCanvas.isConnected) engine.video.after(engine.glCanvas);
-    if (engine.fxOverlay && !engine.fxOverlay.isConnected) (engine.glCanvas || engine.video).after(engine.fxOverlay);
+    if (!engine.video.isConnected || engine.video.parentElement !== frame) frame.prepend(engine.video);
+    if (engine.glCanvas && (!engine.glCanvas.isConnected || engine.glCanvas.parentElement !== frame)) engine.video.after(engine.glCanvas);
+    if (engine.fxOverlay && (!engine.fxOverlay.isConnected || engine.fxOverlay.parentElement !== frame)) (engine.glCanvas || engine.video).after(engine.fxOverlay);
   }
   ensureVideoAttached();
+
+  // Size the white inner export frame to match exportCfg.aspect with darkened pasteboard space around it.
+  function layoutExportFrame(s) {
+    const cfg = (s || store.get()).exportCfg || { aspect: '16:9', resTier: '1080' };
+    const parts = String(cfg.aspect || '16:9').split(':').map(Number);
+    const aw = parts[0] > 0 ? parts[0] : 16;
+    const ah = parts[1] > 0 ? parts[1] : 9;
+    const pad = 0.84; // 16% outer pasteboard margin so clips outside the export box remain visible
+    const sw = Math.max(40, stage.clientWidth * pad);
+    const sh = Math.max(40, stage.clientHeight * pad);
+    let fw = sw;
+    let fh = (sw * ah) / aw;
+    if (fh > sh) {
+      fh = sh;
+      fw = (sh * aw) / ah;
+    }
+    frame.style.width = Math.max(24, Math.round(fw)) + 'px';
+    frame.style.height = Math.max(24, Math.round(fh)) + 'px';
+    const dims = exportDimensions(cfg.aspect, cfg.resTier);
+    aspectTag.textContent = `${cfg.aspect} · ${dims.width}×${dims.height}`;
+  }
+
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => layoutExportFrame()).observe(stage);
+  }
 
   function showTransformHud(clip) {
     if (!clip) return;
@@ -284,26 +317,51 @@ export function viewerPanel({ store, actions, engine }) {
     return sel && sel.kind === 'video' ? sel : null;
   }
 
-  // Shift + trackpad gestures over Viewer:
-  // - Shift + Pinch (ctrlKey) or Shift + vertical scroll -> Scale (zoom)
-  // - Shift + horizontal two-finger scroll -> Rotate
-  // - Shift + Alt + two-finger scroll -> Pan X / Y
-  let scaleAccum = 0;
+  // Apple Maps-style trackpad & touch gestures over the Viewer:
+  // - Pinch (ctrlKey wheel, with or without Shift) -> Zoom / Scale
+  // - Shift + Two-finger swipe (L/R/U/D) -> Pan Position X / Y
+  // - Two-finger twist (native gesturechange / 2-pointer touch) OR Shift+Alt / R + scroll -> Rotate
+  let scaleAccum = 100;
   let rotAccum = 0;
   let panXAccum = 0;
   let panYAccum = 0;
   let accumClipId = null;
   let accumTimer = null;
+  let rKeyDown = false;
+  let shiftKeyDown = false;
+  let stageHovered = false;
+  let lastScrewRotateAt = 0;
 
-  stage.addEventListener('wheel', (e) => {
-    if (!e.shiftKey) return;
-    const clip = targetVideoClip();
-    if (!clip) return;
-    e.preventDefault();
-    const mul = e.deltaMode === 1 ? 16 : 1;
-    const dx = e.deltaX * mul;
-    const dy = e.deltaY * mul;
+  const onKeyDownMod = (e) => {
+    if (e.key === 'r' || e.key === 'R') rKeyDown = true;
+    if (e.key === 'Shift') shiftKeyDown = true;
+  };
+  const onKeyUpMod = (e) => {
+    if (e.key === 'r' || e.key === 'R') rKeyDown = false;
+    if (e.key === 'Shift') shiftKeyDown = false;
+  };
+  window.addEventListener('keydown', onKeyDownMod);
+  window.addEventListener('keyup', onKeyUpMod);
 
+  stage.addEventListener('pointerenter', () => { stageHovered = true; });
+  stage.addEventListener('pointerleave', () => { stageHovered = false; });
+
+  // Native Linux evdev 1-finger-anchored screw rotation (one finger stays still, second orbits)
+  const offTouchpadRotate = (window.zaudeTouchpad && window.zaudeTouchpad.onRotate)
+    ? window.zaudeTouchpad.onRotate(({ deltaAngle }) => {
+        if (!stageHovered || !Number.isFinite(deltaAngle)) return;
+        const clip = targetVideoClip();
+        if (!clip) return;
+        lastScrewRotateAt = performance.now();
+        syncAccum(clip);
+        const speedMul = shiftKeyDown ? 0.5 : 1;
+        rotAccum = Math.min(180, Math.max(-180, rotAccum + deltaAngle * speedMul));
+        actions.transformClip(clip.id, { rotation: Math.round(rotAccum) });
+        showTransformHud(T.findClip(store.get().clips, clip.id));
+      })
+    : null;
+
+  function syncAccum(clip) {
     if (accumClipId !== clip.id) {
       accumClipId = clip.id;
       scaleAccum = T.propValue(clip, 'scale');
@@ -313,28 +371,91 @@ export function viewerPanel({ store, actions, engine }) {
     }
     clearTimeout(accumTimer);
     accumTimer = setTimeout(() => { accumClipId = null; }, 350);
+  }
 
-    if (e.altKey) {
-      panXAccum = Math.min(100, Math.max(-100, panXAccum - dx * 0.12));
-      panYAccum = Math.min(100, Math.max(-100, panYAccum - dy * 0.12));
-      actions.transformClip(clip.id, { posX: Math.round(panXAccum), posY: Math.round(panYAccum) });
-    } else if (e.ctrlKey || Math.abs(dy) >= Math.abs(dx)) {
-      // Pinch (ctrlKey) or vertical scroll -> zoom/scale
-      const gain = e.ctrlKey ? 0.55 : 0.22;
-      scaleAccum = Math.min(400, Math.max(10, scaleAccum - dy * gain));
+  stage.addEventListener('wheel', (e) => {
+    // Allow pinch-to-zoom directly (e.ctrlKey) OR any Shift+trackpad gesture
+    if (!e.shiftKey && !e.ctrlKey && !rKeyDown) return;
+    const clip = targetVideoClip();
+    if (!clip) return;
+    e.preventDefault();
+    const mul = e.deltaMode === 1 ? 16 : 1;
+    const dx = e.deltaX * mul;
+    const dy = e.deltaY * mul;
+    syncAccum(clip);
+
+    if (e.ctrlKey) {
+      // Suppress accidental pinch-zoom jitter while a hardware screw-rotation is actively turning
+      if (performance.now() - lastScrewRotateAt < 180) return;
+      // Pinch-to-zoom: +50% faster by default (0.975), half speed when holding Shift (0.4875)
+      const pinchGain = e.shiftKey ? 0.4875 : 0.975;
+      scaleAccum = Math.min(400, Math.max(10, scaleAccum - dy * pinchGain));
       actions.transformClip(clip.id, { scale: Math.round(scaleAccum) });
-    } else {
-      // Horizontal two-finger swipe -> rotate
-      rotAccum = Math.min(180, Math.max(-180, rotAccum + dx * 0.25));
+    } else if (rKeyDown || e.altKey) {
+      // Screw-rotate fallback on Linux Wayland when /dev/input isn't readable
+      const d = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+      const rotGain = e.shiftKey ? 0.125 : 0.25;
+      rotAccum = Math.min(180, Math.max(-180, rotAccum + d * rotGain));
       actions.transformClip(clip.id, { rotation: Math.round(rotAccum) });
+    } else if (e.shiftKey) {
+      // Apple Maps pan: two-finger left/right/up/down moves clip position X/Y
+      panXAccum = Math.min(100, Math.max(-100, panXAccum - dx * 0.14));
+      panYAccum = Math.min(100, Math.max(-100, panYAccum - dy * 0.14));
+      actions.transformClip(clip.id, { posX: Math.round(panXAccum), posY: Math.round(panYAccum) });
     }
-    const updated = T.findClip(store.get().clips, clip.id);
-    showTransformHud(updated);
+    showTransformHud(T.findClip(store.get().clips, clip.id));
   }, { passive: false });
 
+  // Native macOS/WebKit/Wayland gesture events (two-finger pinch + twist rotation like Apple Maps)
+  let gestBaseScale = 100;
+  let gestBaseRot = 0;
+  stage.addEventListener('gesturestart', (e) => {
+    const clip = targetVideoClip();
+    if (!clip) return;
+    e.preventDefault();
+    gestBaseScale = T.propValue(clip, 'scale');
+    gestBaseRot = T.propValue(clip, 'rotation');
+  }, { passive: false });
+  stage.addEventListener('gesturechange', (e) => {
+    const clip = targetVideoClip();
+    if (!clip) return;
+    e.preventDefault();
+    const nextScale = Math.round(Math.min(400, Math.max(10, gestBaseScale * (e.scale || 1))));
+    const nextRot = Math.round(Math.min(180, Math.max(-180, gestBaseRot + (e.rotation || 0))));
+    actions.transformClip(clip.id, { scale: nextScale, rotation: nextRot });
+    showTransformHud(T.findClip(store.get().clips, clip.id));
+  }, { passive: false });
+
+  // Multi-touch 2-finger pinch + twist ("hold like a screw and turn") for touchscreens / raw touchpads
+  const activeTouches = new Map();
+  let touchStartDist = 0;
+  let touchStartAngle = 0;
+  let touchBaseScale = 100;
+  let touchBaseRot = 0;
+
   stage.addEventListener('pointermove', (e) => {
+    if (activeTouches.has(e.pointerId)) {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activeTouches.size === 2) {
+        const [p1, p2] = Array.from(activeTouches.values());
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const angle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+        const clip = targetVideoClip();
+        if (clip && touchStartDist > 5) {
+          let dAngle = angle - touchStartAngle;
+          if (dAngle > 180) dAngle -= 360;
+          if (dAngle < -180) dAngle += 360;
+          actions.transformClip(clip.id, {
+            scale: Math.round(Math.min(400, Math.max(10, touchBaseScale * (dist / touchStartDist)))),
+            rotation: Math.round(Math.min(180, Math.max(-180, touchBaseRot + dAngle))),
+          });
+          showTransformHud(T.findClip(store.get().clips, clip.id));
+        }
+        return;
+      }
+    }
     if (!store.get().eyedropper) { loupe.hidden = true; return; }
-    const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, stage) : null;
+    const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, frame) : null;
     if (!picked) { loupe.hidden = true; return; }
     const r = stage.getBoundingClientRect();
     loupe.hidden = false;
@@ -343,36 +464,65 @@ export function viewerPanel({ store, actions, engine }) {
     loupeSwatch.style.background = picked.hex;
     loupeHex.textContent = picked.hex.toUpperCase();
   });
+  stage.addEventListener('pointerup', (e) => activeTouches.delete(e.pointerId));
+  stage.addEventListener('pointercancel', (e) => activeTouches.delete(e.pointerId));
   stage.addEventListener('pointerleave', () => { loupe.hidden = true; });
   stage.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activeTouches.size === 2) {
+        const [p1, p2] = Array.from(activeTouches.values());
+        touchStartDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        touchStartAngle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180) / Math.PI;
+        const clip = targetVideoClip();
+        if (clip) {
+          touchBaseScale = T.propValue(clip, 'scale');
+          touchBaseRot = T.propValue(clip, 'rotation');
+        }
+        return;
+      }
+    }
     const mode = store.get().eyedropper;
     if (mode && e.button === 0) {
       e.preventDefault();
       e.stopPropagation();
-      const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, stage) : null;
+      const picked = engine.samplePixel ? engine.samplePixel(e.clientX, e.clientY, frame) : null;
       loupe.hidden = true;
       actions.setEyedropper(false);
       if (picked) actions.setHslTarget(picked.hex, mode === 'add');
       return;
     }
-    // Shift + drag on Viewer -> pan video X/Y directly
+    // Shift + drag on Viewer -> pan video X/Y directly (or Shift+Alt+drag to rotate around center)
     if (e.shiftKey && e.button === 0) {
       const clip = targetVideoClip();
       if (!clip) return;
       e.preventDefault();
-      const r = stage.getBoundingClientRect();
+      const r = frame.getBoundingClientRect();
       const startX = e.clientX;
       const startY = e.clientY;
       const baseX = T.propValue(clip, 'posX');
       const baseY = T.propValue(clip, 'posY');
+      const baseRot = T.propValue(clip, 'rotation');
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const startAngle = (Math.atan2(startY - cy, startX - cx) * 180) / Math.PI;
+      const rotateMode = e.altKey || rKeyDown;
       stage.classList.add('transform-drag');
       const move = (ev) => {
-        const dxPct = r.width > 0 ? ((ev.clientX - startX) / r.width) * 100 : 0;
-        const dyPct = r.height > 0 ? ((ev.clientY - startY) / r.height) * 100 : 0;
-        actions.transformClip(clip.id, {
-          posX: Math.round(Math.min(100, Math.max(-100, baseX + dxPct))),
-          posY: Math.round(Math.min(100, Math.max(-100, baseY + dyPct))),
-        });
+        if (rotateMode) {
+          const curAngle = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI;
+          let d = curAngle - startAngle;
+          if (d > 180) d -= 360;
+          if (d < -180) d += 360;
+          actions.transformClip(clip.id, { rotation: Math.round(Math.min(180, Math.max(-180, baseRot + d))) });
+        } else {
+          const dxPct = r.width > 0 ? ((ev.clientX - startX) / r.width) * 100 : 0;
+          const dyPct = r.height > 0 ? ((ev.clientY - startY) / r.height) * 100 : 0;
+          actions.transformClip(clip.id, {
+            posX: Math.round(Math.min(100, Math.max(-100, baseX + dxPct))),
+            posY: Math.round(Math.min(100, Math.max(-100, baseY + dyPct))),
+          });
+        }
         showTransformHud(T.findClip(store.get().clips, clip.id));
       };
       const up = () => {
@@ -438,6 +588,7 @@ export function viewerPanel({ store, actions, engine }) {
 
   function update(s) {
     ensureVideoAttached();
+    layoutExportFrame(s);
     stage.classList.toggle('eyedropper-on', Boolean(s.eyedropper));
     if (!s.eyedropper) loupe.hidden = true;
     const btn = root.querySelector('[data-act="play"]');
@@ -461,7 +612,16 @@ export function viewerPanel({ store, actions, engine }) {
     updateTime(s);
   }
 
-  return { el: root, update, updateTime };
+  return {
+    el: root,
+    update,
+    updateTime,
+    destroy() {
+      window.removeEventListener('keydown', onKeyDownMod);
+      window.removeEventListener('keyup', onKeyUpMod);
+      if (offTouchpadRotate) offTouchpadRotate();
+    },
+  };
 }
 
 // ---------- Timeline ----------
@@ -1474,12 +1634,423 @@ export function remotePanel({ openRemote }) {
   return { el: root, update() {} };
 }
 
+// ---------- AI Chat (Claude Code, Codex, OpenCode, Antigravity MCP) ----------
+
+const CHAT_STARTERS = [
+  'Give the selected clip a warm cinematic grade (+15 temp, 58 contrast, 20 vignette)',
+  'Split at the playhead and add a 1s fade to black on the clip',
+  'Set up a 9:16 TikTok 1080p 30fps export',
+  'Write a useful color grading tip to the Help & Tips page',
+];
+
+export function aiChatPanel({ store, actions, workspace }) {
+  const api = window.zaudeAgent || null;
+  const root = el(`<div class="panel aichat">
+    <div class="aichat-head">
+      <div class="aichat-providers" role="radiogroup" aria-label="AI Provider"></div>
+      <span class="mcp-badge muted" title="External MCP clients (Antigravity, Claude, Codex, OpenCode) can connect directly to Zaude">MCP</span>
+    </div>
+    <div class="aichat-log" aria-live="polite"></div>
+    <div class="aichat-starters">
+      ${CHAT_STARTERS.map((q) => `<button type="button" class="aichat-chip" data-starter="${esc(q)}">${esc(q)}</button>`).join('')}
+    </div>
+    <form class="aichat-form">
+      <textarea class="aichat-input" rows="2" placeholder="Ask Claude, Codex, or OpenCode to edit your video or save a tip… (Enter to send)"></textarea>
+      <div class="aichat-actions">
+        <button type="submit" class="ai aichat-send">Send</button>
+        <button type="button" class="aichat-cancel" hidden>Cancel</button>
+        <button type="button" class="aichat-clear">Clear</button>
+        <span class="grow"></span>
+        <button type="button" class="aichat-help-link" data-open-help="1">MCP Setup &amp; Tips</button>
+      </div>
+    </form>
+  </div>`);
+
+  const provBar = root.querySelector('.aichat-providers');
+  const mcpBadge = root.querySelector('.mcp-badge');
+  const logEl = root.querySelector('.aichat-log');
+  const startersEl = root.querySelector('.aichat-starters');
+  const form = root.querySelector('.aichat-form');
+  const inputEl = root.querySelector('.aichat-input');
+  const sendBtn = root.querySelector('.aichat-send');
+  const cancelBtn = root.querySelector('.aichat-cancel');
+
+  let providers = [
+    { id: 'claude', label: 'Claude', available: false },
+    { id: 'codex', label: 'Codex', available: false },
+    { id: 'opencode', label: 'OpenCode', available: false },
+  ];
+  let selectedProvider = 'claude';
+  let busy = false;
+  const messages = []; // { role: 'user'|'assistant'|'error', provider?, text, actions?: [{tool, ok, summary}] }
+
+  function renderProviders() {
+    provBar.innerHTML = providers.map((p) => `
+      <button type="button" class="prov-pill${p.id === selectedProvider ? ' on' : ''}${p.available ? ' ready' : ''}" data-prov="${p.id}" title="${p.available ? `${p.label} detected at ${p.path}` : `${p.label} CLI not found in PATH`}">
+        <span class="prov-dot"></span>${esc(p.label)}
+      </button>`).join('');
+  }
+
+  function renderMessages() {
+    startersEl.hidden = messages.length > 0;
+    if (!messages.length) {
+      logEl.innerHTML = `<div class="aichat-empty muted">
+        <p><b>AI Video Assistant</b></p>
+        <p>Tell <b>Claude Code</b>, <b>Codex</b>, or <b>OpenCode</b> what edit you want — they read your live timeline and apply filters, HSL, transforms, splits, transitions, exports, or save tips directly to the Help page.</p>
+        <p><b>Antigravity</b> and external MCP clients can also connect live via Zaude's MCP server (see <b>MCP Setup &amp; Tips</b>).</p>
+      </div>`;
+      return;
+    }
+    logEl.innerHTML = messages.map((m) => {
+      const actHtml = m.actions && m.actions.length
+        ? `<div class="aichat-tools">${m.actions.map((a) => `<span class="tool-tag ${a.ok ? 'ok' : 'err'}" title="${esc(a.summary || a.error || '')}">${a.ok ? '✓' : '✗'} ${esc(a.tool)}${a.summary ? ': ' + esc(a.summary) : ''}</span>`).join('')}</div>`
+        : '';
+      const who = m.role === 'user' ? 'You' : m.role === 'error' ? 'Error' : (m.providerLabel || 'AI');
+      return `<div class="aichat-msg ${m.role}">
+        <div class="aichat-who">${esc(who)}</div>
+        <div class="aichat-text">${esc(m.text)}</div>
+        ${actHtml}
+      </div>`;
+    }).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setBusy(on) {
+    busy = on;
+    sendBtn.disabled = on;
+    sendBtn.textContent = on ? 'Thinking…' : 'Send';
+    cancelBtn.hidden = !on;
+    inputEl.disabled = on;
+  }
+
+  async function sendMessage(text) {
+    const clean = String(text || '').trim();
+    if (!clean || busy) return;
+    if (!api) {
+      messages.push({ role: 'error', text: 'AI Chat requires the Zaude desktop app.' });
+      renderMessages();
+      return;
+    }
+    const prov = providers.find((p) => p.id === selectedProvider) || providers[0];
+    messages.push({ role: 'user', text: clean });
+    inputEl.value = '';
+    renderMessages();
+    setBusy(true);
+
+    try {
+      const s = store.get();
+      const res = await api.chat({
+        provider: selectedProvider,
+        message: clean,
+        state: buildAgentStateSnapshot(store),
+        history: messages.slice(0, -1).map((m) => ({ role: m.role, text: m.text })),
+        projectFolder: s.projectFolder,
+      });
+      if (!res.ok) {
+        messages.push({ role: 'error', text: res.error || 'AI request failed.' });
+      } else {
+        const executed = [];
+        for (const call of Array.isArray(res.calls) ? res.calls : []) {
+          const out = await executeAgentTool(call, { store, actions, workspace });
+          executed.push({ tool: call.tool, ok: Boolean(out && out.ok), summary: (out && (out.summary || out.error)) || '' });
+        }
+        messages.push({
+          role: 'assistant',
+          providerLabel: prov ? prov.label : selectedProvider,
+          text: res.text || 'Done.',
+          actions: executed,
+        });
+      }
+    } catch (err) {
+      messages.push({ role: 'error', text: err.message || String(err) });
+    } finally {
+      setBusy(false);
+      renderMessages();
+      inputEl.focus();
+    }
+  }
+
+  root.addEventListener('click', (e) => {
+    const provBtn = e.target.closest('[data-prov]');
+    if (provBtn) {
+      selectedProvider = provBtn.dataset.prov;
+      renderProviders();
+      return;
+    }
+    const starter = e.target.closest('[data-starter]');
+    if (starter) {
+      sendMessage(starter.dataset.starter);
+      return;
+    }
+    if (e.target.closest('.aichat-cancel') && api) {
+      api.cancel();
+      return;
+    }
+    if (e.target.closest('.aichat-clear')) {
+      messages.length = 0;
+      renderMessages();
+      return;
+    }
+    if (e.target.closest('[data-open-help]') && workspace && workspace.ensurePanel) {
+      workspace.ensurePanel('help');
+    }
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendMessage(inputEl.value);
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(inputEl.value);
+    }
+  });
+
+  renderProviders();
+  renderMessages();
+
+  if (api && api.info) {
+    api.info().then((info) => {
+      if (info && Array.isArray(info.providers)) {
+        providers = info.providers;
+        const firstAvail = providers.find((p) => p.available);
+        if (firstAvail && !providers.find((p) => p.id === selectedProvider && p.available)) {
+          selectedProvider = firstAvail.id;
+        }
+        renderProviders();
+      }
+      if (info && info.bridgePort) {
+        mcpBadge.textContent = info.antigravity && info.antigravity.available ? 'MCP · Antigravity Ready' : 'MCP Live';
+        mcpBadge.classList.add('live');
+        mcpBadge.title = `Zaude MCP bridge listening on 127.0.0.1:${info.bridgePort}`;
+      }
+    }).catch(() => {});
+  }
+
+  return { el: root, update() {} };
+}
+
+// ---------- Help & AI Tips Page ----------
+
+export function helpPanel() {
+  const api = window.zaudeAgent || null;
+  const root = el(`<div class="panel help-panel">
+    <div class="tabs help-tabs" role="tablist">
+      <button class="on" data-help-tab="tips">AI Tips &amp; Tricks</button>
+      <button data-help-tab="controls">Controls</button>
+      <button data-help-tab="mcp">MCP Setup</button>
+    </div>
+    <div class="help-body"></div>
+  </div>`);
+
+  const body = root.querySelector('.help-body');
+  let tab = 'tips';
+  let tips = [];
+  let search = '';
+  let agentInfo = null;
+
+  function copyText(text, btn) {
+    navigator.clipboard?.writeText(text).then(() => {
+      const prev = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = prev; }, 1200);
+    }).catch(() => {});
+  }
+
+  function render() {
+    root.querySelectorAll('[data-help-tab]').forEach((b) => b.classList.toggle('on', b.dataset.helpTab === tab));
+
+    if (tab === 'controls') {
+      body.innerHTML = `<div class="help-section">
+        <h4>Laptop Trackpad — Viewer</h4>
+        <ul class="help-list">
+          <li><b>Pinch</b>: Zoom / Scale video (<b>Shift + Pinch</b> = half-speed precision)</li>
+          <li><b>Shift + Two-finger swipe</b> (L/R/U/D): Pan video Position X / Y (Apple Maps style)</li>
+          <li><b>1-finger anchored screw turn</b> (or <b>R + scroll</b> / <b>Shift + Alt + drag</b>): Rotate video</li>
+          <li><b>White inner frame</b>: Exact exported region (adapts to Export aspect ratio); darker outside shows off-frame clip area</li>
+        </ul>
+        <h4>Laptop Trackpad — Timeline</h4>
+        <ul class="help-list">
+          <li><b>Ctrl + horizontal swipe</b>: Fine-tune selected clip length</li>
+          <li><b>Shift + horizontal swipe</b>: Move selected clip(s)</li>
+          <li><b>Alt + horizontal swipe</b>: Slip source window</li>
+          <li><b>Ctrl + vertical swipe</b> over a clip: Adjust clip volume</li>
+          <li><b>Drag empty space Left → Right (Blue)</b>: Select fully enclosed clips (AutoCAD Window)</li>
+          <li><b>Drag empty space Right → Left (Green)</b>: Select any touched clips (AutoCAD Crossing)</li>
+          <li><b>Right-click a video clip</b>: Separate Audio Track, Mute, Split, Duplicate, Delete</li>
+        </ul>
+        <h4>Keyboard &amp; Projects</h4>
+        <ul class="help-list">
+          <li><b>Space</b>: Play / Pause · <b>S</b>: Split at playhead · <b>← / →</b>: Step 1 frame (<b>Shift</b> = 1s)</li>
+          <li><b>Ctrl+Z / Ctrl+Y</b>: Undo / Redo · <b>+ / −</b>: Zoom timeline</li>
+          <li><b>Ctrl+S / Ctrl+O</b>: Save / Open self-contained <code>.zd</code> project archive (bundles all video &amp; audio)</li>
+          <li><b>Double-click any Inspector slider</b>: Reset to default</li>
+        </ul>
+      </div>`;
+      return;
+    }
+
+    if (tab === 'mcp') {
+      const srvPath = (agentInfo && agentInfo.mcpServerPath) || '/home/laude/Projects/Zaude/electron/mcp-server.cjs';
+      const port = agentInfo && agentInfo.bridgePort;
+      const mcpJson = JSON.stringify({
+        mcpServers: {
+          zaude: {
+            command: 'node',
+            args: [srvPath],
+          },
+        },
+      }, null, 2);
+      const claudeCmd = `claude mcp add zaude -- node "${srvPath}"`;
+      const codexCmd = `codex mcp add zaude -- node "${srvPath}"`;
+      const opencodeJson = JSON.stringify({
+        mcp: {
+          zaude: {
+            type: 'local',
+            command: ['node', srvPath],
+            enabled: true,
+          },
+        },
+      }, null, 2);
+
+      body.innerHTML = `<div class="help-section">
+        <div class="mcp-status-card">
+          <span class="prov-dot ${port ? 'on' : ''}"></span>
+          <div>
+            <b>Zaude MCP Server</b>
+            <div class="muted">${port ? `Live bridge active on 127.0.0.1:${port}` : 'Desktop bridge active when running Zaude desktop app'}</div>
+          </div>
+        </div>
+        <p class="muted">Connect <b>Antigravity</b>, <b>Claude Code</b>, <b>Codex</b>, or <b>OpenCode</b> to Zaude's MCP server so any AI can inspect your timeline, perform edits, and write tips to the Help page.</p>
+
+        <h4>Antigravity / Standard MCP JSON</h4>
+        <pre class="help-code">${esc(mcpJson)}</pre>
+        <button type="button" data-copy="${esc(mcpJson)}">Copy Antigravity / MCP JSON</button>
+
+        <h4>Claude Code CLI</h4>
+        <pre class="help-code">${esc(claudeCmd)}</pre>
+        <button type="button" data-copy="${esc(claudeCmd)}">Copy Claude command</button>
+
+        <h4>Codex CLI</h4>
+        <pre class="help-code">${esc(codexCmd)}</pre>
+        <button type="button" data-copy="${esc(codexCmd)}">Copy Codex command</button>
+
+        <h4>OpenCode MCP Config</h4>
+        <pre class="help-code">${esc(opencodeJson)}</pre>
+        <button type="button" data-copy="${esc(opencodeJson)}">Copy OpenCode JSON</button>
+      </div>`;
+      return;
+    }
+
+    // AI Tips & Tricks tab
+    const q = search.trim().toLowerCase();
+    const shown = q
+      ? tips.filter((t) => `${t.title} ${t.category} ${t.author} ${t.body}`.toLowerCase().includes(q))
+      : tips;
+
+    const cards = shown.length
+      ? shown.map((t) => `
+          <article class="tip-card">
+            <div class="tip-head">
+              <b>${esc(t.title)}</b>
+              <span class="tip-badge">${esc(t.category || 'General')}</span>
+              <span class="tip-author muted">by ${esc(t.author || 'AI')}</span>
+              <span class="grow"></span>
+              <button type="button" class="area-btn" data-tip-rm="${esc(t.id)}" title="Delete tip">×</button>
+            </div>
+            <div class="tip-body">${esc(t.body)}</div>
+          </article>`).join('')
+      : '<p class="muted">No matching tips yet. Ask an AI in AI Chat (or via MCP) to add tips here, or write one below!</p>';
+
+    body.innerHTML = `<div class="help-section">
+      <div class="tips-toolbar">
+        <input class="tips-search" type="search" placeholder="Search tips…" value="${esc(search)}">
+        <span class="muted">${shown.length} tip${shown.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="tips-list">${cards}</div>
+      <form class="tip-form">
+        <div class="lbl">Add a tip or trick</div>
+        <div class="tip-form-row">
+          <input name="title" placeholder="Tip title" required maxlength="120">
+          <input name="category" placeholder="Category (e.g. Color)" maxlength="40" value="Workflow">
+        </div>
+        <textarea name="body" rows="2" placeholder="Write a tip or trick…" required maxlength="4000"></textarea>
+        <button type="submit" class="primary">Save Tip</button>
+      </form>
+    </div>`;
+  }
+
+  root.addEventListener('click', (e) => {
+    const tBtn = e.target.closest('[data-help-tab]');
+    if (tBtn) { tab = tBtn.dataset.helpTab; render(); return; }
+    const copyBtn = e.target.closest('[data-copy]');
+    if (copyBtn) { copyText(copyBtn.dataset.copy, copyBtn); return; }
+    const rmBtn = e.target.closest('[data-tip-rm]');
+    if (rmBtn && api && api.removeTip) {
+      api.removeTip(rmBtn.dataset.tipRm).then((res) => {
+        if (res && Array.isArray(res.tips)) { tips = res.tips; render(); }
+      });
+    }
+  });
+
+  root.addEventListener('input', (e) => {
+    if (e.target.matches('.tips-search')) {
+      search = e.target.value;
+      render();
+      const inp = root.querySelector('.tips-search');
+      if (inp) { inp.focus(); inp.setSelectionRange(search.length, search.length); }
+    }
+  });
+
+  root.addEventListener('submit', async (e) => {
+    const form = e.target.closest('.tip-form');
+    if (!form) return;
+    e.preventDefault();
+    const fd = new FormData(form);
+    if (api && api.addTip) {
+      const res = await api.addTip({
+        title: fd.get('title'),
+        category: fd.get('category'),
+        author: 'You',
+        body: fd.get('body'),
+      });
+      if (res && res.ok && Array.isArray(res.tips)) {
+        tips = res.tips;
+        render();
+      }
+    }
+  });
+
+  const offTips = api && api.onTipsUpdated
+    ? api.onTipsUpdated((nextTips) => { tips = Array.isArray(nextTips) ? nextTips : tips; if (tab === 'tips') render(); })
+    : null;
+
+  if (api && api.listTips) {
+    api.listTips().then((list) => { tips = Array.isArray(list) ? list : []; render(); }).catch(() => render());
+  } else {
+    render();
+  }
+  if (api && api.info) {
+    api.info().then((info) => { agentInfo = info; if (tab === 'mcp') render(); }).catch(() => {});
+  }
+
+  return {
+    el: root,
+    update() {},
+    destroy() { if (offTips) offTips(); },
+  };
+}
+
 export const PANEL_BUILDERS = {
   bin: binPanel,
   viewer: viewerPanel,
   timeline: timelinePanel,
   inspector: inspectorPanel,
   tools: toolsPanel,
+  aichat: aiChatPanel,
+  help: helpPanel,
   masking: () => placeholderPanel('Masking', 'Masking is not built yet. It will cut a subject out of a shot.'),
   remote: remotePanel,
 };

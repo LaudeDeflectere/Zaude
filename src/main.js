@@ -8,11 +8,18 @@ import { PANEL_BUILDERS } from './panels.js';
 import { installScrub } from './scrub.js';
 import { createThumbCache } from './thumbs.js';
 import { createWaveformCache } from './waveform.js';
+import { installAgentBridge } from './agent-bridge.js';
 
 const store = createStore(initialState());
 const engine = createEngine(store);
 const actions = createActions(store, engine);
-const thumbs = createThumbCache({ getMediaUrl: engine.getMediaUrl });
+const thumbs = createThumbCache({
+  getMediaUrl: engine.getMediaUrl,
+  isPaused: () => Boolean(store.get().playing),
+});
+store.subscribe((s) => {
+  if (!s.playing) thumbs.resume();
+});
 const waveforms = createWaveformCache({
   fetchWaveform: (filePath) => (window.zaudeProject && window.zaudeProject.waveform ? window.zaudeProject.waveform(filePath) : Promise.resolve(null)),
 });
@@ -32,14 +39,18 @@ const workspace = createWorkspace(workspaceEl, {
   createPanel: (type) => PANEL_BUILDERS[type](ctx),
   onLayoutChange: () => engine.sync(),
 });
+ctx.workspace = workspace;
 workspace.init();
 installScrub(workspaceEl, { store, actions });
+installAgentBridge({ store, actions, workspace });
 
 document.getElementById('windows-open').addEventListener('click', (e) => {
   workspace.openWindowsMenu(e.currentTarget);
 });
 document.getElementById('open-zd').addEventListener('click', () => actions.openZd());
 document.getElementById('save-zd').addEventListener('click', (e) => actions.saveZd(e.shiftKey));
+document.getElementById('aichat-open').addEventListener('click', () => workspace.ensurePanel('aichat'));
+document.getElementById('help-open').addEventListener('click', () => workspace.ensurePanel('help'));
 document.getElementById('export-top').addEventListener('click', () => {
   workspace.ensurePanel('inspector');
   actions.toggleExport();

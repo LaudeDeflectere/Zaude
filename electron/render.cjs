@@ -55,7 +55,7 @@ function detectEncoder(run = spawnSync) {
     encoders = '';
   }
   const nvenc = /\bh264_nvenc\b/.test(encoders);
-  encoderCache = { encoder: nvenc ? 'h264_nvenc' : 'libx264', cuda: nvenc };
+  encoderCache = { encoder: nvenc ? 'h264_nvenc' : 'libx264', cuda: false };
   return encoderCache;
 }
 
@@ -77,15 +77,15 @@ const r3 = (n) => Number(Number(n).toFixed(3));
 function framingFilter(c, size) {
   const z = typeof c.zoom === 'number' && c.zoom > 1 ? Math.min(4, c.zoom) : 1;
   if (!c.fill && z === 1) {
-    return `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black`;
+    return `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd+full_chroma_int,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2:black`;
   }
   const sw = Math.round((size.w * z) / 2) * 2;
   const sh = Math.round((size.h * z) / 2) * 2;
   const fx = r3(0.5 + Math.max(-100, Math.min(100, Number(c.panX) || 0)) / 200);
   const fy = r3(0.5 + Math.max(-100, Math.min(100, Number(c.panY) || 0)) / 200);
-  const mode = c.fill ? 'increase' : 'decrease';
-  return `scale=${sw}:${sh}:force_original_aspect_ratio=${mode}:flags=lanczos,` +
-    `pad=max(iw\\,${size.w}):max(ih\\,${size.h}):(ow-iw)/2:(oh-ih)/2:black,` +
+  // Cover-scale to at least the zoomed box, then crop to the frame. Zoom always covers
+  // (so the box is never smaller than the frame and no padding is needed).
+  return `scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos+accurate_rnd+full_chroma_int,` +
     `crop=${size.w}:${size.h}:(iw-${size.w})*${fx}:(ih-${size.h})*${fy}`;
 }
 

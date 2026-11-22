@@ -2,15 +2,17 @@
 // A local server is used because browsers refuse ES module scripts loaded from file:// URLs.
 const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 
-// Enable hardware GPU rasterization, WebGL, and accelerated video decoding on Linux/Windows,
-// while capping the JS heap so system RAM stays lean on 16 GB laptops.
+// Identify Zaude as its own audio client in PipeWire/PulseAudio (avoids inheriting
+// a stale/low saved stream volume for generic "Chromium" in WirePlumber).
+app.setName('Zaude');
+if (!process.env.PULSE_PROP) process.env.PULSE_PROP = 'application.name=Zaude';
+
+// Enable hardware GPU rasterization and WebGL while capping the JS heap on 16 GB laptops.
+// (Linux VA-API zero-copy decode flags are omitted to avoid hybrid Intel/NVIDIA GPU SIGSEGVs.)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
-if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiVideoDecoder,CanvasOopRasterization');
-}
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,11 +22,94 @@ const media = require('./media.cjs');
 const project = require('./project.cjs');
 const waveform = require('./waveform.cjs');
 const zdFormat = require('./zd-format.cjs');
+const touchpad = require('./touchpad.cjs');
+const tipsStore = require('./tips.cjs');
+const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
 const { spawn } = require('node:child_process');
 const mediaHandler = media.createMediaHandler(() => mediaRoots());
 let serverPort = 0;
+const bridgeToken = crypto.randomBytes(16).toString('hex');
+const pendingBridge = new Map(); // reqId -> { resolve, timer }
+let activeChat = null;
+
+const bridgeFile = () => path.join(app.getPath('userData'), 'bridge.json');
+const tipsFile = () => path.join(app.getPath('userData'), 'ai-tips.json');
+const mcpServerPath = () => path.join(__dirname, 'mcp-server.cjs');
+
+function broadcastTips() {
+  const tips = tipsStore.loadTips(tipsFile());
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.webContents.isDestroyed()) win.webContents.send('tips:updated', tips);
+  }
+  return tips;
+}
+
+function askRenderer(channel, payload, timeoutMs = 10000) {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (!win || win.webContents.isDestroyed()) {
+    return Promise.resolve({ ok: false, error: 'No open Zaude editor window.' });
+  }
+  const reqId = crypto.randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingBridge.delete(reqId);
+      resolve({ ok: false, error: 'Zaude editor did not respond in time.' });
+    }, timeoutMs);
+    pendingBridge.set(reqId, { resolve, timer });
+    win.webContents.send(channel, { reqId, payload });
+  });
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 2 * 1024 * 1024) reject(new Error('Body too large')); });
+    req.on('end', () => {
+      try { resolve(raw ? JSON.parse(raw) : {}); } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function handleApiRequest(req, res) {
+  const sendJson = (status, obj) => {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(obj));
+  };
+  if (req.headers['x-zaude-token'] !== bridgeToken) {
+    return sendJson(401, { ok: false, error: 'Unauthorized' });
+  }
+  const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
+  try {
+    if (req.method === 'GET' && pathname === '/api/state') {
+      return sendJson(200, await askRenderer('bridge:getState', {}));
+    }
+    if (req.method === 'POST' && pathname === '/api/tool') {
+      const body = await readJsonBody(req);
+      return sendJson(200, await askRenderer('bridge:execTool', body));
+    }
+    if (req.method === 'GET' && pathname === '/api/tips') {
+      return sendJson(200, { ok: true, tips: tipsStore.loadTips(tipsFile()) });
+    }
+    if (req.method === 'POST' && pathname === '/api/tips') {
+      const body = await readJsonBody(req);
+      const added = tipsStore.addTip(tipsFile(), body);
+      if (added.ok) broadcastTips();
+      return sendJson(added.ok ? 200 : 400, added);
+    }
+    if (req.method === 'DELETE' && pathname.startsWith('/api/tips/')) {
+      const id = decodeURIComponent(pathname.slice('/api/tips/'.length));
+      const resDel = tipsStore.removeTip(tipsFile(), id);
+      broadcastTips();
+      return sendJson(200, resDel);
+    }
+    return sendJson(404, { ok: false, error: 'Unknown API route' });
+  } catch (err) {
+    return sendJson(500, { ok: false, error: err.message || String(err) });
+  }
+}
 
 const ROOT = path.join(__dirname, '..');
 const ALLOWED = /^(index\.html|styles\.css|src\/.+\.js)$/;
@@ -37,6 +122,7 @@ const TYPES = {
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
+      if (req.url.startsWith('/api/')) return handleApiRequest(req, res);
       if (req.url.startsWith('/media/')) return mediaHandler(req, res);
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -121,6 +207,16 @@ async function createWindow() {
   const server = await startServer();
   const { port } = server.address();
   serverPort = port;
+  try {
+    fs.mkdirSync(path.dirname(bridgeFile()), { recursive: true });
+    fs.writeFileSync(bridgeFile(), JSON.stringify({
+      port,
+      token: bridgeToken,
+      pid: process.pid,
+      mcpServerPath: mcpServerPath(),
+      updatedAt: new Date().toISOString(),
+    }, null, 2), { mode: 0o600 });
+  } catch { /* ignore */ }
 
   const win = new BrowserWindow({
     width: 1280,
@@ -483,12 +579,86 @@ function registerUpdateHandlers() {
   ipcMain.handle('update:install', (event) => installUpdate(event));
 }
 
+let touchpadWatcher = null;
+
+function startTouchpad() {
+  touchpadWatcher = touchpad.startTouchpadWatcher((deltaAngle) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win && !win.webContents.isDestroyed()) {
+      win.webContents.send('touchpad:rotate', { deltaAngle });
+    }
+  });
+  ipcMain.handle('touchpad:status', () => ({
+    available: Boolean(touchpadWatcher && touchpadWatcher.available),
+    device: touchpadWatcher ? touchpadWatcher.device || null : null,
+    reason: touchpadWatcher ? touchpadWatcher.reason || null : null,
+  }));
+}
+
+function registerAgentHandlers() {
+  ipcMain.on('bridge:reply', (_e, { reqId, result }) => {
+    const entry = pendingBridge.get(reqId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pendingBridge.delete(reqId);
+    entry.resolve(result);
+  });
+
+  ipcMain.handle('agent:info', () => ({
+    ...aiChat.detectProviders(),
+    mcpServerPath: mcpServerPath(),
+    bridgePort: serverPort,
+    nodePath: process.execPath,
+  }));
+
+  ipcMain.handle('agent:chat', async (_e, input) => {
+    if (activeChat) return { ok: false, error: 'An AI request is already running. Wait or click Cancel.' };
+    const job = aiChat.runAiChat({
+      provider: input && input.provider,
+      userMessage: String((input && input.message) || '').trim(),
+      state: input && input.state,
+      history: input && input.history,
+      mcpServerPath: mcpServerPath(),
+      cwd: (input && input.projectFolder) || ROOT,
+    });
+    activeChat = job;
+    try {
+      return await job.promise;
+    } finally {
+      activeChat = null;
+    }
+  });
+
+  ipcMain.handle('agent:cancel', () => {
+    if (activeChat) { activeChat.cancel(); return { ok: true }; }
+    return { ok: false };
+  });
+
+  ipcMain.handle('tips:list', () => tipsStore.loadTips(tipsFile()));
+  ipcMain.handle('tips:add', (_e, input) => {
+    const res = tipsStore.addTip(tipsFile(), input);
+    if (res.ok) broadcastTips();
+    return res;
+  });
+  ipcMain.handle('tips:remove', (_e, id) => {
+    const res = tipsStore.removeTip(tipsFile(), id);
+    broadcastTips();
+    return res;
+  });
+}
+
 registerRemoteHandlers();
 registerAiHandlers();
 registerUpdateHandlers();
+registerAgentHandlers();
 app.whenReady().then(async () => {
+  startTouchpad();
   await createWindow();
   setTimeout(() => checkForUpdate(), 15000).unref();
   setInterval(() => checkForUpdate(), UPDATE_EVERY_MS).unref();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => {
+  if (touchpadWatcher) touchpadWatcher.stop();
+  try { fs.unlinkSync(bridgeFile()); } catch { /* ignore */ }
+  app.quit();
+});
