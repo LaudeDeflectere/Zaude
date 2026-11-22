@@ -53,27 +53,13 @@
       <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
     </div>
 
-    <form id="t2v-form" class="t2v-form">
+    <form id="t2v-form" class="t2v-form ai-studio-form">
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
 
       <label class="t2v-wide" data-modes="refmod,auto">RefMod Character
         <select name="refmod" id="ai-refmod-select">
           <option value="">— Loading RefMods… —</option>
         </select>
-      </label>
-
-      <label data-modes="refmod">RefMod Mode
-        <select name="refmodMode">
-          <option value="generate" selected>Generate (new clip)</option>
-          <option value="continue">Continue (extend latent)</option>
-        </select>
-      </label>
-
-      <label data-modes="refmod">Identity / Voice
-        <div class="ai-inline-pair">
-          <input name="identityStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Identity strength (0–1)">
-          <input name="voiceStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Voice strength (0–1)">
-        </div>
       </label>
 
       <label class="t2v-wide" data-modes="refmod" id="ai-latent-wrap" hidden>Saved Latent (for Continue)
@@ -87,14 +73,6 @@
           <input name="video" placeholder="/path/to/source.mp4" autocomplete="off">
           <button type="button" data-pick-file="video">Browse…</button>
         </div>
-      </label>
-
-      <label data-modes="auto">Start (s)
-        <input name="start" type="number" min="0" step="0.1" value="0">
-      </label>
-
-      <label data-modes="auto">End (s)
-        <input name="end" type="number" min="0.5" step="0.1" value="5">
       </label>
 
       <label class="t2v-wide" data-modes="text-render,auto">Reference Image (optional for Text→Video)
@@ -119,69 +97,94 @@
         <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
       </label>
 
-      <label data-modes="text-render,refmod">Length (seconds)
-        <input name="seconds" type="number" min="1" max="60" step="1" value="4">
-      </label>
+      <div class="t2v-wide ai-compact-row">
+        <label class="ai-num" data-modes="text-render,refmod">Length (s)
+          <input name="seconds" type="number" min="1" max="60" step="1" value="4">
+        </label>
 
-      <label data-modes="text-render,refmod,auto">Resolution
-        <select name="resolution">
-          <option value="320">320p</option>
-          <option value="480" selected>480p</option>
-          <option value="640">640p</option>
-          <option value="720">720p</option>
-        </select>
-      </label>
+        <label class="ai-num" data-modes="auto">Start (s)
+          <input name="start" type="number" min="0" step="0.1" value="0">
+        </label>
 
-      <label data-modes="text-render,auto">Preset
-        <select name="quality">
-          <option value="draft">Draft · fastest</option>
-          <option value="normal" selected>Normal</option>
-          <option value="ultra">Ultra</option>
-        </select>
-      </label>
+        <label class="ai-num" data-modes="auto">End (s)
+          <input name="end" type="number" min="0.5" step="0.1" value="5">
+        </label>
 
-      <label data-modes="text-render">Aspect
-        <select name="aspect">
-          <option value="16:9" selected>16:9 Landscape</option>
-          <option value="9:16">9:16 Portrait</option>
-        </select>
-      </label>
+        <label class="ai-sm" data-modes="text-render,refmod,auto">Resolution
+          <select name="resolution">
+            <option value="320">320p</option>
+            <option value="480" selected>480p</option>
+            <option value="640">640p</option>
+            <option value="720">720p</option>
+          </select>
+        </label>
 
-      <label data-modes="refmod">FPS
-        <select name="fps">
-          <option value="24" selected>24 fps</option>
-          <option value="12">12 fps (2× faster)</option>
-          <option value="6">6 fps (4× faster)</option>
-        </select>
-      </label>
+        <label class="ai-sm" data-modes="text-render,auto">Preset
+          <select name="quality">
+            <option value="draft">Draft</option>
+            <option value="normal" selected>Normal</option>
+            <option value="ultra">Ultra</option>
+          </select>
+        </label>
 
-      <label data-modes="auto">Background Mode
-        <select name="backgroundMode">
-          <option value="keep" selected>Keep source room</option>
-          <option value="sheet">Reference sheet backdrop</option>
-          <option value="scene">Described scene</option>
-          <option value="image">Custom background image</option>
-        </select>
-      </label>
+        <label class="ai-sm" data-modes="text-render">Aspect
+          <select name="aspect">
+            <option value="16:9" selected>16:9</option>
+            <option value="9:16">9:16</option>
+          </select>
+        </label>
 
-      <label>Model (auto-routed)
+        <label class="ai-sm" data-modes="refmod">Mode
+          <select name="refmodMode">
+            <option value="generate" selected>Generate</option>
+            <option value="continue">Continue</option>
+          </select>
+        </label>
+
+        <label class="ai-sm" data-modes="refmod">FPS
+          <select name="fps">
+            <option value="24" selected>24 fps</option>
+            <option value="12">12 fps</option>
+            <option value="6">6 fps</option>
+          </select>
+        </label>
+
+        <label class="ai-num" data-modes="refmod">Identity
+          <input name="identityStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Identity strength (0–1)">
+        </label>
+
+        <label class="ai-num" data-modes="refmod">Voice
+          <input name="voiceStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Voice strength (0–1)">
+        </label>
+
+        <label class="ai-md" data-modes="auto">Background
+          <select name="backgroundMode">
+            <option value="keep" selected>Keep room</option>
+            <option value="sheet">Ref sheet</option>
+            <option value="scene">New scene</option>
+            <option value="image">Custom image</option>
+          </select>
+        </label>
+
+        <label class="ai-num">Steps
+          <input name="steps" type="number" min="1" max="100" step="1" value="4" placeholder="auto">
+        </label>
+
+        <label class="ai-sm">Seed
+          <input name="seed" type="number" step="1" placeholder="random">
+        </label>
+      </div>
+
+      <label class="ai-model-col">Model (auto-routed)
         <select name="model" id="ai-model-select">
           <option value="">Auto (Mannimmate default)</option>
         </select>
       </label>
 
-      <label>LoRA
+      <label class="ai-model-col">LoRA
         <select name="lora" id="ai-lora-select">
           <option value="">Auto / None</option>
         </select>
-      </label>
-
-      <label>Steps
-        <input name="steps" type="number" min="1" max="100" step="1" value="4" placeholder="auto">
-      </label>
-
-      <label>Seed (optional)
-        <input name="seed" type="number" step="1" placeholder="random">
       </label>
 
       <label class="t2v-wide">Mannimmate folder
