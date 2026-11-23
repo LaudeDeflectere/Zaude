@@ -25,6 +25,7 @@ const beats = require('./beats.cjs');
 const zdFormat = require('./zd-format.cjs');
 const touchpad = require('./touchpad.cjs');
 const tipsStore = require('./tips.cjs');
+const promptAdvancer = require('./prompt-advancer.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -37,6 +38,7 @@ let activeChat = null;
 
 const bridgeFile = () => path.join(app.getPath('userData'), 'bridge.json');
 const tipsFile = () => path.join(app.getPath('userData'), 'ai-tips.json');
+const promptDbFile = () => path.join(app.getPath('userData'), 'prompt-db.json');
 const mcpServerPath = () => path.join(__dirname, 'mcp-server.cjs');
 
 function broadcastTips() {
@@ -517,6 +519,41 @@ function registerAiHandlers() {
     if (activeInstall) { activeInstall.cancel(); activeInstall = null; }
     return { ok: true };
   });
+
+  // ---------- AI Prompt Advancer & Learning Prompt Database ----------
+  let activePromptAdvance = null;
+
+  ipcMain.handle('prompt:advance', (event, input = {}) => {
+    if (activePromptAdvance) activePromptAdvance.cancel();
+    const send = (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('prompt:event', payload);
+    };
+    const job = promptAdvancer.advancePrompt({
+      draft: input.draft || '',
+      mode: input.mode || 'text-render',
+      context: input.context || {},
+      answers: input.answers || [],
+      provider: input.provider || 'auto',
+      dbFilePath: promptDbFile(),
+      onChunk: send,
+    });
+    activePromptAdvance = job;
+    job.promise.then((res) => {
+      if (activePromptAdvance === job) activePromptAdvance = null;
+      send({ type: 'done', ...res });
+    });
+    return { ok: true };
+  });
+
+  ipcMain.handle('prompt:cancel', () => {
+    if (activePromptAdvance) { activePromptAdvance.cancel(); activePromptAdvance = null; }
+    return { ok: true };
+  });
+
+  ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
+  ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
+  ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));
+  ipcMain.handle('prompt:db:remove', (_e, id) => promptAdvancer.removeExample(promptDbFile(), id));
 
   ipcMain.handle('ai:refmods:add', (_e, input) => {
     const entry = refmodsLib.createRefModFolder(refmodsRoot(), input || {});

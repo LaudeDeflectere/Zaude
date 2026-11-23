@@ -94,9 +94,16 @@
           </div>
         </div>
 
-        <label class="t2v-wide" id="ai-object-prompt-wrap">Object / Scene Addition (e.g. a moving cat, prop, effect)
+        <div class="t2v-wide" id="ai-object-prompt-wrap">
+          <div class="ai-prompt-head">
+            <span>Object / Scene Addition (e.g. a moving cat, prop, effect)</span>
+            <span class="ai-prompt-helpers">
+              <button type="button" class="ai-btn-purple" data-prompt-advance-target="objectPrompt" title="Use a connected AI + Prompt Database to make this prompt more robust">✨ Advance Prompt</button>
+              <button type="button" data-prompt-db-toggle="objectPrompt" title="Browse &amp; learn from saved working prompts">📚 DB</button>
+            </span>
+          </div>
           <textarea name="objectPrompt" rows="2" placeholder="e.g. A fluffy orange and white tabby cat walks playfully across the floor around the dancer's feet, tail raised and swishing"></textarea>
-        </label>
+        </div>
       </div>
 
       <div class="t2v-wide" data-modes="refmod,auto" id="ai-refmod-section">
@@ -174,6 +181,8 @@
         <div class="ai-prompt-head">
           <span>Prompt</span>
           <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and ask clarifying questions if unclear">✨ Advance Prompt</button>
+            <button type="button" id="ai-prompt-db-btn" data-prompt-db-toggle="prompt" title="Open Prompt Database of proven working examples">📚 Prompt DB</button>
             <button type="button" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
             <button type="button" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
             <button type="button" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
@@ -181,6 +190,61 @@
           </span>
         </div>
         <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
+      </div>
+
+      <!-- Inline AI Prompt Advancer Panel -->
+      <div class="t2v-wide pa-panel" id="pa-panel" hidden>
+        <div class="pa-head">
+          <strong>✨ Prompt Advancer</strong>
+          <span class="pa-status muted" id="pa-status">Ready</span>
+          <div class="pa-head-right">
+            <select id="pa-provider" title="Connected AI agent to use">
+              <option value="auto" selected>Auto AI</option>
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <button type="button" id="pa-cancel" hidden>Stop</button>
+            <button type="button" id="pa-close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="pa-matched" id="pa-matched" hidden></div>
+        <div class="pa-questions" id="pa-questions" hidden></div>
+        <div class="pa-result" id="pa-result" hidden>
+          <div class="pa-subhead">Enhanced Prompt <span class="muted">(editable before applying)</span></div>
+          <textarea id="pa-output" rows="4"></textarea>
+          <ul class="pa-improvements" id="pa-improvements"></ul>
+          <div class="pa-save-row">
+            <input type="text" id="pa-title" placeholder="Short title for Prompt DB (optional)">
+            <input type="text" id="pa-notes" placeholder="Why it works / notes for future AI learning (optional)">
+          </div>
+          <div class="pa-actions">
+            <button type="button" class="primary" id="pa-apply">✓ Apply to Prompt</button>
+            <button type="button" class="ai-btn-purple" id="pa-apply-save">⭐ Apply &amp; Save to DB</button>
+            <button type="button" id="pa-rerun">↻ Re-run</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline Learning Prompt Database Drawer -->
+      <div class="t2v-wide pdb-panel" id="pdb-panel" hidden>
+        <div class="pa-head">
+          <strong>📚 Prompt Database <span class="muted" id="pdb-count"></span></strong>
+          <div class="pa-head-right">
+            <input type="search" id="pdb-search" placeholder="Search prompts or tags…">
+            <select id="pdb-filter-mode">
+              <option value="">All modes</option>
+              <option value="refmod">RefMod</option>
+              <option value="fl2v">FL2V</option>
+              <option value="continue">Continue</option>
+              <option value="stylize">Stylize</option>
+              <option value="text-render">Text</option>
+            </select>
+            <button type="button" class="ai-btn-purple" id="pdb-save-current" title="Save your current prompt as a working example so the AI learns from it">+ Save Current</button>
+            <button type="button" id="pdb-close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="pdb-list" id="pdb-list"></div>
       </div>
 
       <div class="t2v-wide ai-compact-row">
@@ -346,6 +410,7 @@
 <script type="module" src="src/main.js"></script>
 <script type="module" src="src/remote-ui.js"></script>
 <script type="module" src="src/ai-ui.js"></script>
+<script type="module" src="src/prompt-advancer-ui.js"></script>
 <script type="module" src="src/advisor-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
 </body>

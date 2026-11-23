@@ -82,6 +82,20 @@ contextBridge.exposeInMainWorld('zaudeAdvisor', {
   },
 });
 
+contextBridge.exposeInMainWorld('zaudePrompt', {
+  advance: (input) => ipcRenderer.invoke('prompt:advance', input),
+  cancel: () => ipcRenderer.invoke('prompt:cancel'),
+  listDb: () => ipcRenderer.invoke('prompt:db:list'),
+  saveDb: (input) => ipcRenderer.invoke('prompt:db:save', input),
+  rateDb: (input) => ipcRenderer.invoke('prompt:db:rate', input),
+  removeDb: (id) => ipcRenderer.invoke('prompt:db:remove', id),
+  onEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('prompt:event', listener);
+    return () => ipcRenderer.removeListener('prompt:event', listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('zaudeTouchpad', {
   status: () => ipcRenderer.invoke('touchpad:status'),
   onRotate: (callback) => {
