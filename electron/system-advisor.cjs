@@ -15,7 +15,7 @@ const DEFAULT_COMFY_DIR = path.join(os.homedir(), 'ComfyUI');
 const MODEL_CATALOG = [
   {
     id: 'ltx-video-2b-gguf',
-    name: 'LTX-Video 2B (0.9.7 Distilled · GGUF Q4/Q8)',
+    name: 'LTX-Video 2B (0.9.8 Distilled · GGUF Q4_K_M)',
     family: 'LTX-Video',
     minVramGb: 6,
     minRamGb: 12,
@@ -24,12 +24,13 @@ const MODEL_CATALOG = [
     supportsRefmod: false,
     maxRes: '480p (768×512)',
     estSpeed8gb: '~30–75s / 4s clip',
-    summary: 'Best lightweight model for 8 GB laptops. Native First & Last Frame (FrameToFrame) + fast distilled sampling.',
+    summary: 'Best lightweight model for 8 GB laptops. Native First & Last Frame (FrameToFrame) + fast 0.9.8 distilled sampling.',
     loras: [
-      { name: 'LTX-Video 0.9.7 Distilled LoRA (8-step)', repo: 'Lightricks/LTX-Video', file: 'ltxv-2b-0.9.6-distilled-04-25.safetensors', dest: 'models/checkpoints' },
+      { name: 'LTX-Video 0.9.8 Distilled (baked-in 8-step)', repo: 'calcuis/ltxv-gguf', file: 'ltxv-2b-0.9.8-distilled-q4_k_m.gguf', dest: 'models/unet' },
     ],
     downloads: [
-      { label: 'LTX-Video 2B Distilled Q4_K_M GGUF', url: 'https://huggingface.co/calcuis/ltxv-gguf/resolve/main/ltxv-2b-0.9.6-distilled-q4_k_m.gguf', dest: 'models/unet/ltxv-2b-0.9.6-distilled-q4_k_m.gguf' },
+      { label: 'LTX-Video 2B 0.9.8 Distilled Q4_K_M GGUF', url: 'https://huggingface.co/calcuis/ltxv-gguf/resolve/main/ltxv-2b-0.9.8-distilled-q4_k_m.gguf', dest: 'models/unet/ltxv-2b-0.9.8-distilled-q4_k_m.gguf' },
+      { label: 'LTX-Video VAE (fp16)', url: 'https://huggingface.co/calcuis/ltxv-gguf/resolve/main/ltxv_0.9.5_vae_fp16.safetensors', dest: 'models/vae/ltxv_0.9.5_vae_fp16.safetensors' },
       { label: 'T5-XXL Encoder Q4_K_M GGUF', url: 'https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-Q4_K_M.gguf', dest: 'models/clip/t5-v1_1-xxl-encoder-Q4_K_M.gguf' },
     ],
     customNodes: [
@@ -41,7 +42,7 @@ const MODEL_CATALOG = [
   },
   {
     id: 'wan21-1.3b-gguf',
-    name: 'Wan 2.1 1.3B T2V / VACE (GGUF Q4_K_M + CausVid LoRA)',
+    name: 'Wan 2.1 1.3B T2V / VACE (GGUF Q8_0 + CausVid LoRA)',
     family: 'Wan 2.1',
     minVramGb: 6,
     minRamGb: 12,
@@ -55,7 +56,7 @@ const MODEL_CATALOG = [
       { name: 'Wan 2.1 CausVid 4–8 Step Turbo LoRA', url: 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors', dest: 'models/loras/Wan21_CausVid_T2V_1_3B_lora_rank32.safetensors' },
     ],
     downloads: [
-      { label: 'Wan 2.1 1.3B T2V Q4_K_M GGUF', url: 'https://huggingface.co/city96/Wan2.1-T2V-1.3B-gguf/resolve/main/wan2.1-t2v-1.3b-Q4_K_M.gguf', dest: 'models/unet/wan2.1-t2v-1.3b-Q4_K_M.gguf' },
+      { label: 'Wan 2.1 1.3B T2V Q8_0 GGUF', url: 'https://huggingface.co/calcuis/wan-gguf/resolve/main/wan2.1_t2v_1.3b-q8_0.gguf', dest: 'models/unet/wan2.1_t2v_1.3b-q8_0.gguf' },
       { label: 'Wan 2.1 Video VAE (fp16)', url: 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors', dest: 'models/vae/wan_2.1_vae.safetensors' },
       { label: 'UMT5-XXL Encoder Q4_K_M GGUF', url: 'https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf', dest: 'models/clip/umt5-xxl-encoder-Q4_K_M.gguf' },
     ],
@@ -388,33 +389,36 @@ function installModel({ modelId, comfyDir = DEFAULT_COMFY_DIR, gpu = null, onLog
       // 2. Ensure Python venv + PyTorch CUDA + requirements
       const venvDir = path.join(comfyDir, '.venv');
       const venvPy = path.join(venvDir, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-      const venvPip = path.join(venvDir, process.platform === 'win32' ? 'Scripts/pip.exe' : 'bin/pip');
+      const pipArgs = (...rest) => ['-m', 'pip', ...rest];
       if (!fs.existsSync(venvPy)) {
         await execStep('Creating Python venv for ComfyUI', 'python3', ['-m', 'venv', venvDir], comfyDir);
-        await execStep('Installing PyTorch CUDA + ComfyUI requirements', venvPip, ['install', '--upgrade', 'pip', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu124'], comfyDir);
-        await execStep('Installing ComfyUI dependencies', venvPip, ['install', '-r', 'requirements.txt'], comfyDir);
+        await execStep('Installing PyTorch CUDA + ComfyUI requirements', venvPy, pipArgs('install', '--upgrade', 'pip', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu124'), comfyDir);
+        await execStep('Installing ComfyUI dependencies', venvPy, pipArgs('install', '-r', 'requirements.txt'), comfyDir);
       }
 
-      // 3. Install GPU-matched optimization packages
+      // 3. Install GPU-matched optimization packages (use --no-deps for xformers so we never downgrade PyTorch CUDA)
       if (opts.pipPackages.length) {
-        await execStep(`Installing GPU optimizations (${opts.pipPackages.join(', ')})`, venvPip, ['install', ...opts.pipPackages], comfyDir).catch((e) => {
+        const extraFlags = opts.pipPackages.includes('xformers') ? ['--no-deps'] : [];
+        await execStep(`Installing GPU optimizations (${opts.pipPackages.join(', ')})`, venvPy, pipArgs('install', ...extraFlags, ...opts.pipPackages), comfyDir).catch((e) => {
           onLog({ type: 'log', text: `Warning: optional optimization install skipped (${e.message})` });
         });
       }
 
-      // 4. Clone custom nodes (GGUF, TeaCache, VideoHelperSuite, model wrapper)
+      // 4. Clone custom nodes (GGUF, TeaCache, VideoHelperSuite, model wrapper) and ensure requirements are installed
       const nodesRoot = path.join(comfyDir, 'custom_nodes');
       fs.mkdirSync(nodesRoot, { recursive: true });
       for (const node of (model.customNodes || [])) {
         const dest = path.join(nodesRoot, node.name);
         if (!fs.existsSync(dest)) {
           await execStep(`Installing node ${node.name}`, 'git', ['clone', '--depth', '1', node.repo, dest], nodesRoot);
-          const reqTxt = path.join(dest, 'requirements.txt');
-          if (fs.existsSync(reqTxt)) {
-            await execStep(`Installing ${node.name} requirements`, venvPip, ['install', '-r', reqTxt], dest).catch(() => {});
-          }
         } else {
           onLog({ type: 'log', text: `Node ${node.name} already installed` });
+        }
+        const reqTxt = path.join(dest, 'requirements.txt');
+        if (fs.existsSync(reqTxt)) {
+          await execStep(`Ensuring ${node.name} requirements`, venvPy, pipArgs('install', '-r', reqTxt), dest).catch((e) => {
+            onLog({ type: 'log', text: `Warning: ${node.name} requirements warning (${e.message})` });
+          });
         }
       }
 
