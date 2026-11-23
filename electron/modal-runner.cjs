@@ -337,6 +337,8 @@ function runModalVideo({
       let unets = [];
       let vaes = [];
       let clips = [];
+      let loras = [];
+      let availableMods = [];
       const fetchList = async (ep, timeoutMs = 30000) => {
         try {
           const r = await fetch(`${base}${ep}`, { headers: authHeaders, signal: AbortSignal.timeout(timeoutMs) });
@@ -351,16 +353,28 @@ function runModalVideo({
         // Wake container first with /system_stats (up to 120s cold start)
         const wake = await fetch(`${base}/system_stats`, { headers: authHeaders, signal: AbortSignal.timeout(120000) });
         if (!wake.ok) throw new Error(`HTTP ${wake.status}`);
-        const [uGguf, uDiff, vList, cGguf, cText] = await Promise.all([
+        const [uGguf, uDiff, vList, cGguf, cText, lList] = await Promise.all([
           fetchList('/models/unet_gguf'),
           fetchList('/models/diffusion_models'),
           fetchList('/models/vae'),
           fetchList('/models/clip_gguf'),
           fetchList('/models/text_encoders'),
+          fetchList('/models/loras'),
         ]);
         unets = [...uGguf, ...uDiff];
         vaes = vList;
         clips = [...cGguf, ...cText];
+        loras = lList;
+        try {
+          const mInfoRes = await fetch(`${base}/object_info/MiniMaxH3RefModsLoader`, { headers: authHeaders, signal: AbortSignal.timeout(15000) });
+          if (mInfoRes.ok) {
+            const mInfo = await mInfoRes.json();
+            const list = mInfo && mInfo.MiniMaxH3RefModsLoader && mInfo.MiniMaxH3RefModsLoader.input
+              && mInfo.MiniMaxH3RefModsLoader.input.required && mInfo.MiniMaxH3RefModsLoader.input.required.mod_1
+              && mInfo.MiniMaxH3RefModsLoader.input.required.mod_1[0];
+            if (Array.isArray(list)) availableMods = list;
+          }
+        } catch { /* ignore */ }
       } catch (e) {
         return { ok: false, error: `Could not reach Modal endpoint (${base}): ${e.message}` };
       }
@@ -400,8 +414,24 @@ function runModalVideo({
       if (h3Model) {
         const { width, height } = frameToFrame.dimsForQuality(resolution, aspect);
         const frames = frameToFrame.snapH3Frames(seconds, 24);
+        const h3Lora = (loras || []).find((l) => /minimax.*h3.*turbo/i.test(l)) || '';
+        const resolveModFile = (rawFile) => {
+          const norm = String(rawFile || '').replace(/\\/g, '/').replace(/\.safetensors$/i, '');
+          if (!norm) return '';
+          if (availableMods.length) {
+            const exact = availableMods.find((m) => m.replace(/\\/g, '/').toLowerCase() === norm.toLowerCase());
+            if (exact) return exact;
+            const partial = availableMods.find((m) => m.replace(/\\/g, '/').toLowerCase().endsWith('/' + norm.toLowerCase()) || m.replace(/\\/g, '/').toLowerCase().includes(norm.toLowerCase()));
+            if (partial) return partial;
+          }
+          return norm;
+        };
+        const resolvedRefmods = (refmods || [])
+          .filter((r) => r && r.file)
+          .map((r) => ({ ...r, file: resolveModFile(r.file) }));
         graph = frameToFrame.buildFl2vGraph({
-          prompt, firstFrameName, lastFrameName, width, height, frames, steps: steps || 8, seed, model: h3Model, refmods,
+          prompt, firstFrameName, lastFrameName, width, height, frames, steps: steps || 6, seed,
+          model: h3Model, lora: h3Lora, refmods: resolvedRefmods,
           prefix: `Zaude/modal_h3_${Date.now()}`,
         });
         modelLabel = 'Modal MiniMax-H3';
