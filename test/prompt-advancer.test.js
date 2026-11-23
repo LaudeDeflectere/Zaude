@@ -42,17 +42,25 @@ test('promptAdvancer stores, ranks, rates, and injects working examples into AI 
   assert.equal(rated.example.rating, 4);
   assert.match(rated.example.notes, /640p/);
 
-  // 4. Prompt builder includes shot context, DB examples, and clarifying answers
+  // 4. Prompt builder includes shot context, DB examples, master directives, and clarifying answers
+  const masters = pa.loadMasterPrompts();
+  assert.ok(masters.length >= 6);
+  const pickedMasters = masters.filter((m) => m.id === 'camera-cinematic' || m.id === 'fight-choreography');
+  assert.equal(pickedMasters.length, 2);
+
   const fullPrompt = pa.buildAdvancerPrompt({
     draft: 'Elias walks into the kitchen',
     mode: 'refmod',
     context: { seconds: 7, resolution: 640, refmods: ['Elias', 'Daniel'], hasFirstFrame: true },
     answers: [{ question: 'What mood?', answer: 'Tense night lighting' }],
     relevantExamples: relevant,
+    selectedMasters: pickedMasters,
   });
   assert.match(fullPrompt, /Subject 1 \(Elias\)/);
   assert.match(fullPrompt, /Dancing Tabby Cat Neon Loft/);
   assert.match(fullPrompt, /Tense night lighting/);
+  assert.match(fullPrompt, /Cinema Camera Rules/);
+  assert.match(fullPrompt, /Better Fights & Action/);
 
   // 5. Response parser extracts clarifying questions + enhancedPrompt from fenced JSON
   const parsed = pa.parseAdvancerResponse([

@@ -287,16 +287,17 @@ function buildResearchPrompt(report) {
 
 // Uses an installed AI CLI agent (Codex / Claude / OpenCode) with web access to scrape/check newest models.
 function runWebResearch({ provider = 'auto', report, onChunk = () => {} }) {
-  const providers = aiChat.detectProviders();
+  const det = aiChat.detectProviders();
+  const list = Array.isArray(det && det.providers) ? det.providers : [];
   let chosen = provider;
   if (!chosen || chosen === 'auto') {
-    const order = ['codex', 'claude', 'opencode'];
-    chosen = order.find((p) => providers[p] && providers[p].available) || 'codex';
+    const order = ['claude', 'codex', 'opencode'];
+    chosen = order.find((id) => list.some((p) => p.id === id && p.available)) || 'claude';
   }
   const prompt = buildResearchPrompt(report);
-  const built = aiChat.buildCliCommand(chosen, { prompt, mcpConfigPath: null, cwd: os.homedir() });
-  if (!built.ok) {
-    return { promise: Promise.resolve({ ok: false, error: built.error }), cancel: () => {} };
+  const built = aiChat.buildCliCommand({ provider: chosen, prompt, mcpConfigPath: null });
+  if (!built || !built.bin) {
+    return { promise: Promise.resolve({ ok: false, error: `No AI CLI available for "${chosen}".` }), cancel: () => {} };
   }
 
   let child;

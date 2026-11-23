@@ -57,9 +57,28 @@ function initPromptAdvancerUi() {
   let currentDraft = '';
   let lastResult = null;
   let dbCache = [];
+  let mastersCache = [];
+  const selectedMasters = new Set();
   let busy = false;
 
   const getTextarea = () => form.elements[activeTarget] || form.elements.prompt;
+
+  async function loadMasters() {
+    const box = $('pa-masters');
+    if (!box || !api.listMasters) return;
+    try {
+      const res = await api.listMasters();
+      mastersCache = (res && Array.isArray(res.masters)) ? res.masters : [];
+    } catch {
+      mastersCache = [];
+    }
+    box.innerHTML = mastersCache.map((m) => `
+      <button type="button" class="pa-master-pill ${selectedMasters.has(m.id) ? 'on' : ''}" data-pa-master="${esc(m.id)}" title="${esc(m.description || m.instructions || '')}">
+        ${esc(m.icon || '✨')} ${esc(m.name)}
+      </button>
+    `).join('');
+  }
+  loadMasters();
 
   function setStatus(text, isErr = false) {
     const el = $('pa-status');
@@ -142,7 +161,14 @@ function initPromptAdvancerUi() {
     $('pa-matched').hidden = true;
     setStatus(answers.length ? 'Refining prompt with your answers…' : 'Analyzing draft & comparing against Prompt Database…');
 
-    const res = await api.advance({ draft, mode, context, answers, provider });
+    const res = await api.advance({
+      draft,
+      mode,
+      context,
+      answers,
+      masterIds: Array.from(selectedMasters),
+      provider,
+    });
     if (!res || !res.ok) {
       busy = false;
       $('pa-cancel').hidden = true;
@@ -186,6 +212,15 @@ function initPromptAdvancerUi() {
         panel.hidden = true;
         refreshDb();
       }
+      return;
+    }
+    // Toggle Master Prompt directive pills
+    const masterBtn = e.target.closest('[data-pa-master]');
+    if (masterBtn) {
+      const id = masterBtn.dataset.paMaster;
+      if (selectedMasters.has(id)) selectedMasters.delete(id);
+      else selectedMasters.add(id);
+      masterBtn.classList.toggle('on', selectedMasters.has(id));
       return;
     }
     // Clickable clarifying question option chips

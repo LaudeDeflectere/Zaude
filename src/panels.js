@@ -2213,21 +2213,26 @@ export function aiChatPanel({ store, actions, workspace }) {
   return { el: root, update() {} };
 }
 
-// ---------- Help & AI Tips Page ----------
+// ---------- Help, Manual & AI Tips Page ----------
 
 export function helpPanel() {
   const api = window.zaudeAgent || null;
+  const aiApi = window.zaudeAI || null;
   const root = el(`<div class="panel help-panel">
     <div class="tabs help-tabs" role="tablist">
-      <button class="on" data-help-tab="tips">AI Tips &amp; Tricks</button>
-      <button data-help-tab="controls">Controls</button>
-      <button data-help-tab="mcp">MCP Setup</button>
+      <button class="on" data-help-tab="guide">📖 Guide</button>
+      <button data-help-tab="ai">🤖 AI &amp; Prompts</button>
+      <button data-help-tab="perf">⚡ Performance</button>
+      <button data-help-tab="folders">📂 Folders</button>
+      <button data-help-tab="controls">⌨️ Controls</button>
+      <button data-help-tab="tips">💡 Tips</button>
+      <button data-help-tab="mcp">🔌 MCP</button>
     </div>
     <div class="help-body"></div>
   </div>`);
 
   const body = root.querySelector('.help-body');
-  let tab = 'tips';
+  let tab = 'guide';
   let tips = [];
   let search = '';
   let agentInfo = null;
@@ -2242,6 +2247,137 @@ export function helpPanel() {
 
   function render() {
     root.querySelectorAll('[data-help-tab]').forEach((b) => b.classList.toggle('on', b.dataset.helpTab === tab));
+
+    if (tab === 'guide') {
+      body.innerHTML = `<div class="help-section help-manual">
+        <div class="help-hero">
+          <h3>🎬 Welcome to Zaude — Complete Editor &amp; AI Studio Guide</h3>
+          <p class="muted">Zaude is a fast, GPU-accelerated desktop video editor built for trackpad editing, beat-synced cutting, multi-color selective HSL grading, and 1-click AI video generation (remote RTX 3090 MiniMax-H3 + local laptop LTX-Video 2B / Wan 2.1).</p>
+        </div>
+
+        <h4>1. Workspace &amp; Panels</h4>
+        <ul class="help-list">
+          <li><b>Media Bin</b>: Open any project folder, preview clips, and drag or insert video/audio onto the timeline.</li>
+          <li><b>Viewer</b>: Hardware-accelerated WebGL preview with Apple Maps-style pinch zoom, Shift+swipe pan, 1-finger screw rotate, live white export-frame overlay, and AI live-render HUD.</li>
+          <li><b>Timeline</b>: Multi-track <code>+V</code> / <code>+A</code> dynamic tracks, AutoCAD Blue (enclosed) &amp; Green (crossing) box selection, editable beat markers with Snap-to-Beat, audio waveforms, fade handles, and piecewise-linear volume keyframes.</li>
+          <li><b>Inspector</b>: Transform (scale/rotation/pan/mirror), Filters, <b>GPU Multi-Color Selective HSL</b> (up to 8 color bands + live video eyedropper), Transitions, and Export Panel.</li>
+          <li><b>Portable <code>.zd</code> Projects</b>: <code>Ctrl+S</code> / <code>Ctrl+O</code> packs your entire timeline + all video &amp; audio bytes into a single self-contained <code>.zd</code> archive you can move anywhere.</li>
+        </ul>
+
+        <h4>2. Right-Click AI Superpowers on Timeline Clips</h4>
+        <ul class="help-list">
+          <li><b>✨ FrameToFrame</b> (select <b>2 clips</b> → right-click): Extracts clip 1's last frame and clip 2's first frame, pre-fills the gap duration, and generates a seamless AI bridge between them.</li>
+          <li><b>✨ FrameContinue</b> (right-click <b>1 clip</b>): Automatically loads that clip's saved <code>.h3latent.safetensors</code> (locking the exact matching resolution so it never mismatches!), previews its ending frame, and continues the action with your new prompt. For external videos without a latent, automatically uses a 2s tail and trims off the prepended source clip.</li>
+          <li><b>✨ Upscale &amp; Fix Faces · 640p</b> (select <b>1 or N clips</b> → right-click): Recovers each clip's RefMods + prompt from its sidecar JSON and runs a MiniMax-H3 2nd-pass refine at 640p, replacing clips in-place.</li>
+          <li><b>⚡ Fast 2× Upscale · RealESRGAN</b> (select <b>1 or N clips</b> → right-click): Runs <code>RealESRGAN_x2plus.pth</code> on Tranklena in seconds per clip while preserving exact original audio.</li>
+        </ul>
+
+        <h4>3. Top Bar Tools</h4>
+        <ul class="help-list">
+          <li><b>✨ AI Studio</b>: Switch in 1 click between <b>🌐 Tranklena · MiniMax-H3</b> (RTX 3090 24 GB) and <b>💻 Rizzar · Local</b> (LTX-Video 2B Distilled / Wan 2.1). Includes Text→Video, RefMod→Video, Stylize &amp; Objects, Coverage, and the <b>✨ Advance Prompt</b> AI + <b>📚 Prompt Database</b>.</li>
+          <li><b>🖥️ Local GPU</b>: Analyzes your laptop's GPU, RAM, and disk, lets an AI agent search the web for the newest local models, and 1-click installs ComfyUI + GGUF models + Turbo LoRAs + GPU optimizations.</li>
+          <li><b>AI Chat</b>: Talk directly to Claude Code, Codex, or OpenCode with live MCP tools that can inspect and edit your timeline.</li>
+        </ul>
+      </div>`;
+      return;
+    }
+
+    if (tab === 'ai') {
+      const sampleRefmod = `Medium two-shot in a warm dimly lit study with wooden bookshelves and a glowing green desk lamp. Subject 1 (Elias, NOT in his default coat, instead wearing a rumpled dark olive crewneck sweater) leans forward over an oak desk. Subject 2 (Daniel, NOT in his default jacket, instead wearing a heather grey hoodie) grips a ceramic mug. The desktop monitor stays brightly ON showing a blue spreadsheet. Slow 50mm push-in, shallow depth of field. Dialogue (0.8s–4.8s): Subject 1 whispers, "If we move tonight, nobody catches us."`;
+      const sampleFight = `One continuous dark fantasy action shot on a 35mm lens. Open behind the blonde woman in the dim stone corridor. She lunges forward from screen-left and lands two quick blows; the monster barely flinches and swats her aside into the left wall. As it rears back, Subject 1 (Tony) rushes in from screen-right, steps between them, and lands one decisive strike. Camera jolts once on impact then steadies as the creature collapses onto the stone floor. overall_soundscape: Echoing footsteps, muted impact thuds, deep creature growl, sharp crack on Tony's strike, heavy floor thump. non_diegetic_music: Low tense drone builds then cuts out on impact.`;
+      const sampleLtx = `Smooth cinematic 35mm dolly-in through a rain-slicked Tokyo alleyway at midnight. Cyan and magenta neon signs shimmer in deep asphalt puddles as light rain falls through mist. A lone silhouette under a clear vinyl umbrella walks steadily down the narrow lane while steam rises from a ramen vent. Consistent moody lighting, natural 24fps motion blur, single continuous shot.`;
+
+      body.innerHTML = `<div class="help-section help-manual">
+        <h4>✨ Prompt Advancer, Master Prompts &amp; Learning DB</h4>
+        <ul class="help-list">
+          <li>Click the purple <b>✨ Advance Prompt</b> button above any prompt box to have your connected AI (Claude / Codex / OpenCode) upgrade your draft and ask clickable clarifying questions when details are ambiguous.</li>
+          <li><b>Directing Master Prompts</b> (saved in <code>prompts/master-prompts.json</code> so everyone with Zaude shares them): toggle pills like <b>🎥 Cinema Camera Rules</b>, <b>🥊 Better Fights &amp; Action</b>, <b>🎭 Dialogue &amp; Acting</b>, <b>🧬 Strict RefMod Lock</b>, <b>🔊 Rich Sound &amp; Foley</b>, or <b>💻 Local LTX 2B Tuned</b> before running!</li>
+          <li><b>📚 Prompt Database</b>: Click <b>⭐ Apply &amp; Save to DB</b> on prompts that rendered well. Zaude ranks your highest-rated working examples and feeds them back into future Prompt Advancer runs so the AI learns your style over time.</li>
+        </ul>
+
+        <h4>Golden Rules for MiniMax-H3 (Tranklena)</h4>
+        <ul class="help-list">
+          <li><b>RefMod Outfit Override</b>: Always negate default clothes first — <code>NOT in default outfit, instead wearing...</code></li>
+          <li><b>Screen Lock</b>: Explicitly state <code>The television/monitor screen stays brightly lit and ON the entire time</code> so screens don't flicker black.</li>
+          <li><b>Verbatim Room Anchors</b>: Repeat exact lighting, wall color, and key props across shots for continuity.</li>
+          <li><b>Draft → Touchup Workflow</b>: Draft fast at <code>480p</code> (or <code>320p</code> for blocking), then right-click your best takes → <b>✨ Upscale &amp; Fix Faces · 640p</b>!</li>
+        </ul>
+
+        <h4>Working Prompt Templates (Click to Copy)</h4>
+        <div class="help-prompt-card">
+          <div class="help-prompt-head"><b>🧬 RefMod Multi-Char Dialogue + Outfit Override</b><button type="button" data-copy="${esc(sampleRefmod)}">Copy</button></div>
+          <pre class="help-code">${esc(sampleRefmod)}</pre>
+        </div>
+        <div class="help-prompt-card">
+          <div class="help-prompt-head"><b>🥊 Action / Fight Choreography + Soundscape</b><button type="button" data-copy="${esc(sampleFight)}">Copy</button></div>
+          <pre class="help-code">${esc(sampleFight)}</pre>
+        </div>
+        <div class="help-prompt-card">
+          <div class="help-prompt-head"><b>💻 Local LTX-Video 2B (8-Step Distilled · 8 GB Laptop)</b><button type="button" data-copy="${esc(sampleLtx)}">Copy</button></div>
+          <pre class="help-code">${esc(sampleLtx)}</pre>
+        </div>
+      </div>`;
+      return;
+    }
+
+    if (tab === 'perf') {
+      body.innerHTML = `<div class="help-section help-manual">
+        <h4>⚡ Expected Performance: Tranklena vs. Rizzar</h4>
+        <table class="help-table">
+          <thead>
+            <tr><th>Engine / Machine</th><th>Model</th><th>Resolution</th><th>Sweet-Spot Length</th><th>Expected Time</th><th>Best Used For</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3 (4-step Turbo)</td><td><b>640p</b> (1120×640)</td><td>7s (6 steps, 24fps)</td><td><b>~5–6.5 min</b></td><td>Production shots, RefMod dialogue, synced audio, FrameContinue</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3</td><td><b>480p</b> (864×480)</td><td>5–7s (6 steps)</td><td><b>~2.5–3.5 min</b></td><td>Fast story blocking &amp; drafts (then right-click Upscale to 640p)</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3 FL2VA</td><td><b>480p–640p</b></td><td>3–5s (8 steps)</td><td><b>~2–4 min</b></td><td>Right-click FrameToFrame bridges between 2 clips</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>RealESRGAN 2×</td><td>2× source</td><td>Any clip</td><td><b>~15–35 sec</b></td><td>Fast crisp multi-clip upscale preserving original audio</td></tr>
+            <tr><td><b>💻 Rizzar (Local)</b><br><span class="muted">RTX 2070S Max-Q · 8 GB</span></td><td>LTX-Video 2B 0.9.8 GGUF</td><td><b>320p–480p</b></td><td>2–4s (8 steps, 24fps)</td><td><b>~35–85 sec</b></td><td>Offline B-roll, quick shot tests, local First/Last Frame (uses ~5 GB VRAM)</td></tr>
+            <tr><td><b>💻 Rizzar (Local)</b><br><span class="muted">RTX 2070S Max-Q · 8 GB</span></td><td>Wan 2.1 1.3B GGUF</td><td><b>480p</b> (832×480)</td><td>3–4s (8 steps, CausVid)</td><td><b>~50–110 sec</b></td><td>Sharp local T2V without needing Tranklena online</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Recommended Production &amp; Export Settings</h4>
+        <ul class="help-list">
+          <li><b>Tranklena Production Sweet Spot</b>: <code>640p</code> · <code>6 steps</code> (<code>7 steps</code> for FrameContinue) · <code>7s</code> · <code>24 fps</code> · 4-step Turbo LoRA.</li>
+          <li><b>Local Rizzar Sweet Spot</b>: <code>480p</code> (768×512) · <code>8 steps</code> · <code>4s</code> · ComfyUI flags <code>--use-pytorch-cross-attention --force-fp16 --lowvram --preview-method auto</code>.</li>
+          <li><b>Final Export</b>: <code>30 fps</code> · <b>Ultra</b> quality · <code>1920×1080</code> (16:9) or <code>1080×1920</code> (9:16) · Fill frame + Sharpen <code>38</code> · NVENC GPU encode.</li>
+          <li><b>Audio Mix Targets</b>: <code>-14.0 LUFS</code> (TP <code>-1.5 dB</code>). Dialogue cut: V1 <code>100%</code> + Music <code>16%</code>. Narrated cut: V1 <code>20%</code> + VO <code>100%</code> + Music <code>16%</code>.</li>
+        </ul>
+      </div>`;
+      return;
+    }
+
+    if (tab === 'folders') {
+      const folders = [
+        { name: 'Master Prompts (Shared in App)', path: '/home/laude/Projects/Zaude/prompts/master-prompts.json', desc: 'Directing directives (Cinema Camera, Better Fights, RefMod Lock, etc.) used by ✨ Advance Prompt.' },
+        { name: 'Visual RefMods Library', path: '/home/laude/Projects/Zaude/refmods', desc: 'Character folders containing headshot.png and walk.mp4 hover previews for the RefMod grid.' },
+        { name: 'Rendered AI Clips & Sidecars', path: '/home/laude/Videos/Zaude', desc: 'All generated MP4 clips plus their .json sidecars (storing saved_latent, RefMods, prompt, resolution).' },
+        { name: 'Local ComfyUI & Models (Rizzar)', path: '/home/laude/ComfyUI', desc: 'Local ComfyUI install: models/unet/ (LTX 0.9.8 GGUF), models/vae/, models/clip/ (T5-XXL GGUF), custom_nodes/.' },
+        { name: 'Zaude User Data & Prompt DB', path: '/home/laude/.config/Zaude', desc: 'Persistent prompt-db.json (learning prompt database), ai-tips.json, latent-names.json, zaude-settings.json, and ai-previews/.' },
+        { name: 'Mannimmate Backend CLI', path: '/home/laude/Documents/MeineProgramme/mannimmate', desc: 'mannimmate_cli.py and refmod_graph.py driving Tranklena MiniMax-H3 workflows.' },
+      ];
+      body.innerHTML = `<div class="help-section help-manual">
+        <h4>📂 Important Folders &amp; Configuration Files</h4>
+        <p class="muted">Everything Zaude reads or writes lives in these predictable folders. Click <b>Open</b> to reveal in your file manager or <b>Copy</b> to copy the exact path.</p>
+        <div class="help-folder-list">
+          ${folders.map((f) => `
+            <div class="help-folder-card">
+              <div class="help-folder-head">
+                <b>${esc(f.name)}</b>
+                <div class="help-folder-btns">
+                  <button type="button" data-copy="${esc(f.path)}">Copy</button>
+                  ${aiApi && aiApi.reveal ? `<button type="button" data-reveal-path="${esc(f.path)}">Open</button>` : ''}
+                </div>
+              </div>
+              <code class="help-path">${esc(f.path)}</code>
+              <div class="muted">${esc(f.desc)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+      return;
+    }
 
     if (tab === 'controls') {
       body.innerHTML = `<div class="help-section">
@@ -2260,7 +2396,7 @@ export function helpPanel() {
           <li><b>Ctrl + vertical swipe</b> over a clip: Adjust clip volume</li>
           <li><b>Drag empty space Left → Right (Blue)</b>: Select fully enclosed clips (AutoCAD Window)</li>
           <li><b>Drag empty space Right → Left (Green)</b>: Select any touched clips (AutoCAD Crossing)</li>
-          <li><b>Right-click a video clip</b>: Separate Audio Track, Mute, Split, Duplicate, Delete</li>
+          <li><b>Right-click 1 or more video clips</b>: ✨ FrameToFrame, ✨ FrameContinue, ✨ Upscale &amp; Fix Faces, ⚡ Fast 2× Upscale, Separate Audio, Mute, Split, Duplicate, Delete</li>
         </ul>
         <h4>Keyboard &amp; Projects</h4>
         <ul class="help-list">
@@ -2368,6 +2504,8 @@ export function helpPanel() {
     if (tBtn) { tab = tBtn.dataset.helpTab; render(); return; }
     const copyBtn = e.target.closest('[data-copy]');
     if (copyBtn) { copyText(copyBtn.dataset.copy, copyBtn); return; }
+    const revBtn = e.target.closest('[data-reveal-path]');
+    if (revBtn && aiApi && aiApi.reveal) { aiApi.reveal(revBtn.dataset.revealPath); return; }
     const rmBtn = e.target.closest('[data-tip-rm]');
     if (rmBtn && api && api.removeTip) {
       api.removeTip(rmBtn.dataset.tipRm).then((res) => {

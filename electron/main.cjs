@@ -595,6 +595,7 @@ function registerAiHandlers() {
       mode: input.mode || 'text-render',
       context: input.context || {},
       answers: input.answers || [],
+      masterIds: input.masterIds || [],
       provider: input.provider || 'auto',
       dbFilePath: promptDbFile(),
       onChunk: send,
@@ -612,6 +613,11 @@ function registerAiHandlers() {
     return { ok: true };
   });
 
+  ipcMain.handle('prompt:masters', () => ({
+    ok: true,
+    masters: promptAdvancer.loadMasterPrompts(),
+    path: promptAdvancer.DEFAULT_MASTER_PROMPTS_PATH,
+  }));
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));

@@ -231,8 +231,40 @@ function removeExample(filePath, id) {
   return { ok: true, examples };
 }
 
-function buildAdvancerPrompt({ draft, mode, context = {}, answers = [], relevantExamples = [] }) {
+const DEFAULT_MASTER_PROMPTS_PATH = path.join(__dirname, '..', 'prompts', 'master-prompts.json');
+
+function loadMasterPrompts(filePath = DEFAULT_MASTER_PROMPTS_PATH) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (Array.isArray(raw.masters)) return raw.masters;
+  } catch { /* missing or invalid */ }
+  return [];
+}
+
+function pickAvailableProvider(requested = 'auto') {
+  const det = aiChat.detectProviders();
+  const list = Array.isArray(det && det.providers) ? det.providers : [];
+  if (requested && requested !== 'auto') {
+    const found = list.find((p) => p.id === requested && p.available);
+    if (found) return found.id;
+  }
+  const order = ['claude', 'codex', 'opencode'];
+  for (const id of order) {
+    if (list.some((p) => p.id === id && p.available)) return id;
+  }
+  return requested && requested !== 'auto' ? requested : 'claude';
+}
+
+function buildAdvancerPrompt({ draft, mode, context = {}, answers = [], relevantExamples = [], selectedMasters = [] }) {
   const lines = [PROMPT_ADVANCER_SYSTEM_PROMPT, ''];
+
+  if (Array.isArray(selectedMasters) && selectedMasters.length) {
+    lines.push('### Selected Master Directing Directives (FOLLOW THESE STRICTLY!)');
+    selectedMasters.forEach((m, i) => {
+      lines.push(`${i + 1}. ${m.icon || ''} ${m.name} [${m.category || 'Directive'}]: ${m.instructions}`);
+    });
+    lines.push('');
+  }
 
   lines.push('### Current Shot Context');
   lines.push(`- Mode: ${mode || 'text-render'}`);
@@ -333,23 +365,23 @@ function advancePrompt({
   mode = 'text-render',
   context = {},
   answers = [],
+  masterIds = [],
   provider = 'auto',
   dbFilePath,
+  mastersFilePath = DEFAULT_MASTER_PROMPTS_PATH,
   onChunk = () => {},
 }) {
-  const providers = aiChat.detectProviders();
-  let chosen = provider;
-  if (!chosen || chosen === 'auto') {
-    const order = ['codex', 'claude', 'opencode'];
-    chosen = order.find((p) => providers[p] && providers[p].available) || 'codex';
-  }
+  const chosen = pickAvailableProvider(provider);
   const examples = dbFilePath ? loadPromptDb(dbFilePath) : STARTER_EXAMPLES;
   const relevantExamples = findRelevantExamples(examples, { draft, mode, limit: 4 });
-  const prompt = buildAdvancerPrompt({ draft, mode, context, answers, relevantExamples });
+  const allMasters = loadMasterPrompts(mastersFilePath);
+  const idSet = new Set(Array.isArray(masterIds) ? masterIds : []);
+  const selectedMasters = allMasters.filter((m) => idSet.has(m.id));
+  const prompt = buildAdvancerPrompt({ draft, mode, context, answers, relevantExamples, selectedMasters });
 
-  const built = aiChat.buildCliCommand(chosen, { prompt, mcpConfigPath: null, cwd: os.homedir() });
-  if (!built.ok) {
-    return { promise: Promise.resolve({ ok: false, error: built.error }), cancel: () => {} };
+  const built = aiChat.buildCliCommand({ provider: chosen, prompt, mcpConfigPath: null });
+  if (!built || !built.bin) {
+    return { promise: Promise.resolve({ ok: false, error: `No connected AI CLI available for "${chosen}". Install claude, codex, or opencode.` }), cancel: () => {} };
   }
 
   let child;
@@ -362,7 +394,13 @@ function advancePrompt({
   let fullOut = '';
   let errOut = '';
   let cancelled = false;
-  onChunk({ type: 'start', provider: chosen, referencedCount: relevantExamples.length, referencedTitles: relevantExamples.map((e) => e.title) });
+  onChunk({
+    type: 'start',
+    provider: chosen,
+    referencedCount: relevantExamples.length,
+    referencedTitles: relevantExamples.map((e) => e.title),
+    appliedMasters: selectedMasters.map((m) => `${m.icon || ''} ${m.name}`.trim()),
+  });
 
   child.stdout.on('data', (c) => {
     const t = String(c);
@@ -398,7 +436,10 @@ function advancePrompt({
 
 module.exports = {
   STARTER_EXAMPLES,
+  DEFAULT_MASTER_PROMPTS_PATH,
   PROMPT_ADVANCER_SYSTEM_PROMPT,
+  loadMasterPrompts,
+  pickAvailableProvider,
   loadPromptDb,
   savePromptDb,
   findRelevantExamples,
