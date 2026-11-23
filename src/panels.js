@@ -901,23 +901,38 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           actions.log(`Upscale failed: ${(res && res.error) || 'unknown error'}`);
         }
       } else if (act === 'frame-continue' && clip.path) {
-        actions.log(`Preparing FrameContinue from ${clip.name}…`);
-        const tEnd = Math.max(0, (Number(clip.srcIn) || 0) + (Number(clip.dur) || 1) * (clip.speed || 1) - 0.05);
-        const [lastFrameRes, latentRes] = await Promise.all([
+        const srcIn = Math.max(0, Number(clip.srcIn) || 0);
+        const clipSpan = (Number(clip.dur) || 1) * (clip.speed || 1);
+        const tEnd = Math.max(srcIn + 0.1, srcIn + clipSpan - 0.05);
+        const srcDur = Number(clip.srcDur) || 0;
+        const isTrimmedEnd = srcDur > 0 && (srcIn + clipSpan < srcDur - 0.18);
+        actions.log(isTrimmedEnd
+          ? `Trimming ${clip.name} to ${(srcIn + clipSpan).toFixed(2)}s for FrameContinue…`
+          : `Preparing FrameContinue from ${clip.name}…`);
+
+        const [lastFrameRes, latentRes, trimmedRes] = await Promise.all([
           window.zaudeAI && window.zaudeAI.extractFrame
             ? window.zaudeAI.extractFrame({ filePath: clip.path, timeSec: tEnd, tag: 'continue_first' })
             : Promise.resolve({ ok: false }),
           window.zaudeAI && window.zaudeAI.clipLatent
             ? window.zaudeAI.clipLatent(clip.path)
             : Promise.resolve({ ok: true, latent: clip.latent || '', label: clip.latentLabel || '', quality: '' }),
+          isTrimmedEnd && window.zaudeAI && window.zaudeAI.trimSeedClip
+            ? window.zaudeAI.trimSeedClip({ filePath: clip.path, startSec: srcIn, endSec: srcIn + clipSpan })
+            : Promise.resolve(null),
         ]);
         if (window.__zaudeOpenFrameContinue) {
+          const useTrimmed = Boolean(isTrimmedEnd && trimmedRes && trimmedRes.ok && trimmedRes.path);
           window.__zaudeOpenFrameContinue({
-            seedVideo: clip.path,
-            latent: (latentRes && latentRes.latent) || clip.latent || '',
-            latentLabel: (latentRes && latentRes.label) || clip.latentLabel || '',
+            seedVideo: useTrimmed ? trimmedRes.path : clip.path,
+            // If user trimmed off the end of the clip, do NOT use the full untrimmed saved latent
+            // (which still contains the cut-off ending) — use the trimmed video tail instead!
+            latent: useTrimmed ? '' : ((latentRes && latentRes.latent) || clip.latent || ''),
+            latentLabel: useTrimmed
+              ? `${clip.name.replace(/\.[^.]+$/, '')} (trimmed @ ${clipSpan.toFixed(1)}s)`
+              : ((latentRes && latentRes.label) || clip.latentLabel || ''),
             quality: (latentRes && latentRes.quality) || '',
-            clipName: clip.name,
+            clipName: useTrimmed ? `${clip.name.replace(/\.[^.]+$/, '')} (trimmed ${clipSpan.toFixed(1)}s)` : clip.name,
             firstFrame: lastFrameRes && lastFrameRes.ok ? lastFrameRes : null,
             insertAt: T.clipEnd(clip),
           });

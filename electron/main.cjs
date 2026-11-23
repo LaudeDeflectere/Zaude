@@ -762,6 +762,30 @@ function registerAiHandlers() {
     return { ok: true, path: res.path, url: mediaUrlFor(res.path) };
   });
 
+  // Trims a shortened timeline clip to its exact [startSec, endSec] range so FrameContinue
+  // continues from the visible timeline cut rather than the cut-off tail of the full file.
+  ipcMain.handle('ai:trimSeedClip', async (_e, { filePath, startSec = 0, endSec = 0 }) => {
+    if (typeof filePath !== 'string' || !media.isAllowedMedia(filePath, mediaRoots())) {
+      return { ok: false, error: 'Not an allowed video file.' };
+    }
+    const s = Math.max(0, Number(startSec) || 0);
+    const e = Math.max(s + 0.25, Number(endSec) || 0);
+    fs.mkdirSync(previewRoot(), { recursive: true });
+    const outMp4 = path.join(previewRoot(), `seed_trimmed_${Date.now()}_${Math.floor(Math.random() * 1000)}.mp4`);
+    const { spawnSync } = require('node:child_process');
+    const r = spawnSync('ffmpeg', [
+      '-y', '-ss', s.toFixed(3), '-to', e.toFixed(3), '-i', filePath,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+      '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
+      outMp4,
+    ], { encoding: 'utf8', timeout: 45000, windowsHide: true });
+    if (r.status !== 0 || !fs.existsSync(outMp4)) {
+      return { ok: false, error: (r.stderr || '').slice(-200) || 'Failed to trim seed clip.' };
+    }
+    pickedMediaDirs.add(path.dirname(outMp4));
+    return { ok: true, path: outMp4 };
+  });
+
   ipcMain.handle('ai:mannimmate:pickFile', async (event, kind) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const filters = kind === 'video'

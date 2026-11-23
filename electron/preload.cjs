@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   upscaleClips: (input) => ipcRenderer.invoke('ai:upscaleClips', input),
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
   extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
+  trimSeedClip: (input) => ipcRenderer.invoke('ai:trimSeedClip', input),
   clipLatent: (filePath) => ipcRenderer.invoke('ai:clipLatent', filePath),
   refmodsList: (dir) => ipcRenderer.invoke('ai:refmods:list', dir),
   refmodsAdd: (input) => ipcRenderer.invoke('ai:refmods:add', input),
