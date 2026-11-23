@@ -832,6 +832,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const canFrameToFrame = selVideoClips.length === 2 && Boolean(window.zaudeAI && window.zaudeAI.extractFrame);
 
     const isVideo = clip.kind === 'video';
+    const canFrameContinue = isVideo && Boolean(clip.path) && Boolean(window.__zaudeOpenFrameContinue);
     const isMedia = isVideo || clip.kind === 'audio';
     const canSeparate = isVideo && clip.hasAudio !== false && !clip.muted;
     const sepReason = !isVideo ? '' : clip.hasAudio === false ? ' (no audio)' : clip.muted ? ' (already separated / muted)' : '';
@@ -841,7 +842,9 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     ctxMenu.setAttribute('role', 'menu');
     ctxMenu.innerHTML = `
       <div class="menu-title">${esc(selVideoClips.length === 2 ? `${selVideoClips[0].name} → ${selVideoClips[1].name}` : clip.name)}</div>
-      ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button><div class="menu-sep"></div>' : ''}
+      ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button>' : ''}
+      ${canFrameContinue ? `<button role="menuitem" data-ctx="frame-continue" class="menu-ai">✨ FrameContinue${clip.latent ? ' (latent)' : ''}</button>` : ''}
+      ${(canFrameToFrame || canFrameContinue) ? '<div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
       ${isMedia ? `<button role="menuitem" data-ctx="mute">${clip.muted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}
       <button role="menuitem" data-ctx="split">Split at playhead</button>
@@ -861,7 +864,16 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (!btn || btn.disabled) return;
       const act = btn.dataset.ctx;
       closeCtxMenu();
-      if (act === 'frame-to-frame' && selVideoClips.length === 2) {
+      if (act === 'frame-continue' && clip.path) {
+        if (window.__zaudeOpenFrameContinue) {
+          window.__zaudeOpenFrameContinue({
+            seedVideo: clip.path,
+            latent: clip.latent || '',
+            clipName: clip.name,
+            insertAt: T.clipEnd(clip),
+          });
+        }
+      } else if (act === 'frame-to-frame' && selVideoClips.length === 2) {
         const [c1, c2] = selVideoClips;
         actions.log('Extracting First & Last frames for FrameToFrame…');
         const t1 = Math.max(0, (Number(c1.srcIn) || 0) + (Number(c1.dur) || 1) * (c1.speed || 1) - 0.05);

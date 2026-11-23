@@ -12,6 +12,7 @@ let currentMode = 'text-render';
 let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
 let pendingInsertAt = null;
+let pendingSeedVideo = '';
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
@@ -257,6 +258,7 @@ function collectRequest() {
     identityStrength: idStrength,
     voiceStrength,
     latent: String(fd.get('latent') || '').trim(),
+    seedVideo: pendingSeedVideo || '',
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
     end: Number(fd.get('end') ?? 7),
@@ -294,7 +296,10 @@ function updateCommandPreview() {
         parts.push('--refmod', `"<refmod>|Subject 1|${req.identityStrength}|${req.voiceStrength}"`);
       }
       parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
-      if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
+      if (req.refmodMode === 'continue') {
+        if (req.latent) parts.push('--latent', req.latent);
+        else if (req.seedVideo) parts.push('--seed-video', req.seedVideo.split(/[\\/]/).pop());
+      }
     }
   } else if (req.mode === 'auto') {
     parts[2] = 'render';
@@ -400,8 +405,11 @@ async function onSubmit() {
   if ((req.mode === 'text-render' || req.mode === 'refmod') && !req.prompt) {
     return setStatus('Write a prompt first.', true);
   }
-  if (req.mode === 'refmod' && !req.refmod && !req.firstFrame && !req.lastFrame) {
+  if (req.mode === 'refmod' && req.refmodMode !== 'continue' && !req.refmod && !req.firstFrame && !req.lastFrame) {
     return setStatus('Click a RefMod character square (or pick First/Last frames) first.', true);
+  }
+  if (req.mode === 'refmod' && req.refmodMode === 'continue' && !req.latent && !req.seedVideo) {
+    return setStatus('Pick a saved latent or right-click a clip → FrameContinue.', true);
   }
   if (req.mode === 'auto' && !req.video) {
     return setStatus('Pick a source video (or click "🎯 Pick from Timeline") first.', true);
@@ -430,6 +438,7 @@ async function onSubmit() {
   trackedJobs.set(result.id, { mode: req.mode, dryRun: req.dryRun, seconds: secs });
   const insertAt = pendingInsertAt;
   pendingInsertAt = null;
+  pendingSeedVideo = '';
   notifyEditor({
     type: 'start',
     id: result.id,
@@ -440,7 +449,9 @@ async function onSubmit() {
     totalSteps: Number(req.steps) || 6,
     label: (req.firstFrame || req.lastFrame)
       ? 'FrameToFrame'
-      : (req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode),
+      : (req.mode === 'refmod' && req.refmodMode === 'continue'
+        ? 'FrameContinue'
+        : (req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode)),
   });
   appendLog('QUEUE', `Queued job #${result.queuePos || 1} (${req.mode}, ~${Math.round((result.etaSec || 60) / 60)}m)`);
 
@@ -806,15 +817,48 @@ function init() {
   window.__zaudeOpenFrameToFrame = async ({ firstFrame, lastFrame, seconds, insertAt = null } = {}) => {
     currentMode = 'refmod';
     pendingInsertAt = insertAt;
+    pendingSeedVideo = '';
     await open();
     const form = $('t2v-form');
+    if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'generate';
     if (seconds && form && form.elements.seconds) {
       form.elements.seconds.value = String(Math.max(2, Math.min(15, Math.round(seconds))));
     }
     if (firstFrame && firstFrame.path) updateSquarePreview('firstFrame', firstFrame.path, firstFrame.url, false);
     if (lastFrame && lastFrame.path) updateSquarePreview('lastFrame', lastFrame.path, lastFrame.url, false);
+    applyModeVisibility();
     updateCommandPreview();
     setStatus(`FrameToFrame ready (${Math.round(seconds || 4)}s) — write your prompt and click Run.`);
+    if (form && form.elements.prompt) form.elements.prompt.focus();
+  };
+
+  window.__zaudeOpenFrameContinue = async ({ seedVideo = '', latent = '', clipName = '', insertAt = null } = {}) => {
+    currentMode = 'refmod';
+    pendingInsertAt = insertAt;
+    pendingSeedVideo = seedVideo || '';
+    await open();
+    const form = $('t2v-form');
+    // Clear First/Last frames so FrameContinue routes through Mannimmate's latent continuation graph
+    updateSquarePreview('firstFrame', '', null, false);
+    updateSquarePreview('lastFrame', '', null, false);
+    if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'continue';
+    if (form && form.elements.steps) form.elements.steps.value = '7';
+    if (latent) {
+      const sel = $('ai-latent-select');
+      if (sel) {
+        if (!Array.from(sel.options).some((o) => o.value === latent)) {
+          const opt = document.createElement('option');
+          opt.value = latent;
+          opt.textContent = latent;
+          sel.appendChild(opt);
+        }
+        sel.value = latent;
+      }
+    }
+    applyModeVisibility();
+    updateCommandPreview();
+    const srcDesc = latent ? `saved latent (${latent})` : `seed video (${clipName || 'clip'})`;
+    setStatus(`FrameContinue ready from ${srcDesc} — write what happens next and click Run.`);
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 

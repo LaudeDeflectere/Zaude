@@ -88,6 +88,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const seconds = Number((input && input.seconds) || 7);
     const fps = [6, 12, 24].includes(Number(input && input.fps)) ? Number(input.fps) : 24;
     const latent = String((input && input.latent) || '').trim();
+    const seedVideo = String((input && input.seedVideo) || '').trim();
 
     // Support repeatable `refmods: [{ file, name, identityStrength?, voiceStrength? }, ...]`
     // as well as legacy `refmod` / `refmod2` fields.
@@ -116,7 +117,12 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       }
     }
 
-    if (!slots.length) return { ok: false, error: 'Pick at least one RefMod character from the grid.' };
+    if (!slots.length && subMode !== 'continue') {
+      return { ok: false, error: 'Pick at least one RefMod character from the grid.' };
+    }
+    if (subMode === 'continue' && !latent && !seedVideo) {
+      return { ok: false, error: 'Continue mode needs a saved latent or a seed video clip.' };
+    }
     if (!prompt) return { ok: false, error: 'Write a scene prompt for the RefMod clip.' };
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > 30) {
       return { ok: false, error: 'Seconds must be between 1 and 30.' };
@@ -130,7 +136,10 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       '--fps', String(fps),
       '--save-latent',
     );
-    if (subMode === 'continue' && latent) args.push('--latent', latent);
+    if (subMode === 'continue') {
+      if (latent) args.push('--latent', latent);
+      else if (seedVideo) args.push('--seed-video', seedVideo);
+    }
     args.push(...commonTail());
     return { ok: true, mode, args };
   }
@@ -359,6 +368,7 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
   let lastStep = 0;
   let activePromptId = null;
   let savedPath = null;
+  let savedLatent = null;
   let cancelled = false;
   let outBuf = '';
   let stderrTail = [];
@@ -419,6 +429,11 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
     const p = ev.path || ev.output || ev.video || ev.contact_sheet || null;
     if ((ev.event === 'saved' || ev.event === 'done' || ev.event === 'refmod_saved' || ev.event === 'coverage_saved') && p) {
       savedPath = p;
+    }
+    if (ev.latent && typeof ev.latent === 'string') {
+      savedLatent = ev.latent;
+    } else if (ev.latent_file && typeof ev.latent_file === 'string') {
+      savedLatent = ev.latent_file;
     }
 
     // Track step progress (either explicit `step` or inferred from `progress`)
@@ -486,7 +501,7 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
       if (outBuf.trim()) handleStdoutLine(outBuf);
       if (cancelled) return resolve({ ok: false, cancelled: true, code, error: 'Cancelled' });
       if (code === 0) {
-        return resolve({ ok: true, code, path: savedPath, dryRun: Boolean(request && request.dryRun) });
+        return resolve({ ok: true, code, path: savedPath, latent: savedLatent, dryRun: Boolean(request && request.dryRun) });
       }
       const errMsg = stderrTail[stderrTail.length - 1] || `Mannimmate exited with code ${code}`;
       resolve({ ok: false, code, error: errMsg });

@@ -398,7 +398,7 @@ function registerAiHandlers() {
     broadcastQueueStatus();
     job.promise.then((result) => {
       activeJob = null;
-      if (result.ok) send({ type: 'done', path: result.path, dryRun: Boolean(result.dryRun), code: result.code });
+      if (result.ok) send({ type: 'done', path: result.path, latent: result.latent || null, dryRun: Boolean(result.dryRun), code: result.code });
       else send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
       pumpJobQueue();
       broadcastQueueStatus();

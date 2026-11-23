@@ -208,3 +208,28 @@ test('frameToFrame.buildFl2vGraph wires first_frame, last_frame, 17k+5 frames, a
   assert.equal(g['30'].class_type, 'MiniMaxH3RefModsLoader');
   assert.deepEqual(g['8'].inputs.conditioning, ['31', 0]);
 });
+
+test('mannimmate.buildCommand supports FrameContinue with saved latent or seedVideo', () => {
+  const withLatent = mannimmate.buildCommand({
+    mode: 'refmod',
+    refmodMode: 'continue',
+    latent: 'Mannimmaterefmod_abc123.h3latent.safetensors',
+    prompt: 'The camera pulls back as everyone cheers',
+    seconds: 5,
+    steps: 7,
+  });
+  assert.equal(withLatent.ok, true);
+  assert.ok(withLatent.args.includes('--mode') && withLatent.args.includes('continue'));
+  assert.ok(withLatent.args.includes('--latent') && withLatent.args.includes('Mannimmaterefmod_abc123.h3latent.safetensors'));
+
+  const withSeed = mannimmate.buildCommand({
+    mode: 'refmod',
+    refmodMode: 'continue',
+    seedVideo: '/tmp/clip1.mp4',
+    prompt: 'Continue the dance smoothly',
+    seconds: 5,
+    steps: 7,
+  });
+  assert.equal(withSeed.ok, true);
+  assert.ok(withSeed.args.includes('--seed-video') && withSeed.args.includes('/tmp/clip1.mp4'));
+});

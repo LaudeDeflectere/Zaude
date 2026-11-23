@@ -822,6 +822,7 @@ export function createActions(store, engine) {
           ...c,
           name,
           path: d.path,
+          latent: d.latent || c.latent || undefined,
           kind: 'video',
           hasAudio: true,
           generating: false,
