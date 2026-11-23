@@ -71,10 +71,13 @@ function findClipLatent(videoPath) {
     if (!fs.existsSync(jsonPath)) continue;
     try {
       const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-      const latent = data.latent || data.latent_file || null;
+      const latent = data.saved_latent || data.latent || data.latent_file || null;
       if (latent) {
+        const refmods = Array.isArray(data.refmods)
+          ? data.refmods
+          : (Array.isArray(data.characters) ? data.characters.map((c) => ({ file: c && c.mod, name: c && c.name })) : []);
         const label = formatLatentLabel({
-          refmods: Array.isArray(data.refmods) ? data.refmods : [],
+          refmods,
           prompt: data.prompt || '',
           fallbackName: parsed.name,
         });

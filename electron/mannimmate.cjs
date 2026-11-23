@@ -430,7 +430,9 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
     if ((ev.event === 'saved' || ev.event === 'done' || ev.event === 'refmod_saved' || ev.event === 'coverage_saved') && p) {
       savedPath = p;
     }
-    if (ev.latent && typeof ev.latent === 'string') {
+    if (ev.saved_latent && typeof ev.saved_latent === 'string') {
+      savedLatent = ev.saved_latent;
+    } else if (ev.latent && typeof ev.latent === 'string') {
       savedLatent = ev.latent;
     } else if (ev.latent_file && typeof ev.latent_file === 'string') {
       savedLatent = ev.latent_file;
@@ -501,6 +503,10 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
       if (outBuf.trim()) handleStdoutLine(outBuf);
       if (cancelled) return resolve({ ok: false, cancelled: true, code, error: 'Cancelled' });
       if (code === 0) {
+        if (!savedLatent && savedPath) {
+          const fromSidecar = require('./latents.cjs').findClipLatent(savedPath);
+          if (fromSidecar && fromSidecar.latent) savedLatent = fromSidecar.latent;
+        }
         return resolve({ ok: true, code, path: savedPath, latent: savedLatent, dryRun: Boolean(request && request.dryRun) });
       }
       const errMsg = stderrTail[stderrTail.length - 1] || `Mannimmate exited with code ${code}`;
