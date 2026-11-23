@@ -918,6 +918,7 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   flex: 1;
   min-width: 200px;
 }
+.ai-coverage-target[hidden] { display: none !important; }
 
 /* ---------- Live Generation Preview & Queue ETA on Timeline Clip & Viewer ---------- */
 .blk-gen-preview {

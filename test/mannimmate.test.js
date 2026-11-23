@@ -233,3 +233,14 @@ test('mannimmate.buildCommand supports FrameContinue with saved latent or seedVi
   assert.equal(withSeed.ok, true);
   assert.ok(withSeed.args.includes('--seed-video') && withSeed.args.includes('/tmp/clip1.mp4'));
 });
+
+test('latents.formatLatentLabel builds character initials + short scene summary and refmods skips pack prefixes', () => {
+  const latents = require('../electron/latents.cjs');
+  const label = latents.formatLatentLabel({
+    refmods: [{ name: 'Elias Varga' }, { name: 'Nadia Krasavica' }],
+    prompt: 'Medium shot of Elias and Nadia laughing around the game night sofa with pizza',
+  });
+  assert.equal(label, 'E+N · Elias Nadia laughing around game');
+  assert.equal(refmods.displayFirstName('Cb Alexander Visual', 1), 'Alexander');
+  assert.equal(refmods.displayFirstName('Changebang Michael 2d V1 Visual', 2), 'Michael');
+});

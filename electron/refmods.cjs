@@ -16,7 +16,10 @@ function slugForRefMod(file) {
     .toLowerCase() || 'subject';
 }
 
-// Extracts only the first name; falls back to "Subject <index>" when no name is present.
+const PACK_PREFIXES = new Set(['cb', 'changebang', 'salabin', 'mannimmate', 'photo', 'cbphoto', 'visual', 'audio', 'bundle', '2d', 'v1', 'v2']);
+
+// Extracts only the first name (skipping pack prefixes like "cb_" or "changebang_");
+// falls back to "Subject <index>" when no name is present.
 function displayFirstName(name, index = 1) {
   const cleaned = String(name || '')
     .replace(/.*[\\/]/, '')
@@ -24,9 +27,10 @@ function displayFirstName(name, index = 1) {
     .replace(/[_-]+/g, ' ')
     .trim();
   if (!cleaned) return `Subject ${index}`;
-  const first = cleaned.split(/\s+/)[0];
-  if (!first || /^\d+$/.test(first)) return `Subject ${index}`;
-  return first.charAt(0).toUpperCase() + first.slice(1);
+  const tokens = cleaned.split(/\s+/).filter((t) => t && !/^\d+$/.test(t));
+  const meaningful = tokens.find((t) => !PACK_PREFIXES.has(t.toLowerCase())) || tokens[0];
+  if (!meaningful || /^\d+$/.test(meaningful)) return `Subject ${index}`;
+  return meaningful.charAt(0).toUpperCase() + meaningful.slice(1).toLowerCase();
 }
 
 function readMeta(dir) {

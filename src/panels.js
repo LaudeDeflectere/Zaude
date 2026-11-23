@@ -865,11 +865,23 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       const act = btn.dataset.ctx;
       closeCtxMenu();
       if (act === 'frame-continue' && clip.path) {
+        actions.log(`Preparing FrameContinue from ${clip.name}…`);
+        const tEnd = Math.max(0, (Number(clip.srcIn) || 0) + (Number(clip.dur) || 1) * (clip.speed || 1) - 0.05);
+        const [lastFrameRes, latentRes] = await Promise.all([
+          window.zaudeAI && window.zaudeAI.extractFrame
+            ? window.zaudeAI.extractFrame({ filePath: clip.path, timeSec: tEnd, tag: 'continue_first' })
+            : Promise.resolve({ ok: false }),
+          !clip.latent && window.zaudeAI && window.zaudeAI.clipLatent
+            ? window.zaudeAI.clipLatent(clip.path)
+            : Promise.resolve({ ok: true, latent: clip.latent || '', label: clip.latentLabel || '' }),
+        ]);
         if (window.__zaudeOpenFrameContinue) {
           window.__zaudeOpenFrameContinue({
             seedVideo: clip.path,
-            latent: clip.latent || '',
+            latent: (latentRes && latentRes.latent) || clip.latent || '',
+            latentLabel: (latentRes && latentRes.label) || clip.latentLabel || '',
             clipName: clip.name,
+            firstFrame: lastFrameRes && lastFrameRes.ok ? lastFrameRes : null,
             insertAt: T.clipEnd(clip),
           });
         }

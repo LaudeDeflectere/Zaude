@@ -823,6 +823,7 @@ export function createActions(store, engine) {
           name,
           path: d.path,
           latent: d.latent || c.latent || undefined,
+          latentLabel: d.latentLabel || c.latentLabel || undefined,
           kind: 'video',
           hasAudio: true,
           generating: false,

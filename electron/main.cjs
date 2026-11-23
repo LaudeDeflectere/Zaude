@@ -251,10 +251,12 @@ const textToVideo = require('./text-to-video.cjs');
 const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
 const frameToFrame = require('./frame-to-frame.cjs');
+const latentsLib = require('./latents.cjs');
 const os = require('node:os');
 
 const refmodsRoot = () => path.join(ROOT, 'refmods');
 const previewRoot = () => path.join(app.getPath('userData'), 'ai-previews');
+const latentNamesFile = () => path.join(app.getPath('userData'), 'latent-names.json');
 const pickedMediaDirs = new Set();
 const mediaUrlFor = (filePath) => (filePath && serverPort
   ? `http://127.0.0.1:${serverPort}/media/${media.encodeMediaPath(filePath)}`
@@ -366,7 +368,7 @@ function registerAiHandlers() {
     if (activeJob || !jobQueue.length) return;
     const next = jobQueue.shift();
     const { id, input, mannimmateDir, settings, send, estSec } = next;
-    const useFl2v = input && input.mode === 'refmod' && (input.firstFrame || input.lastFrame);
+    const useFl2v = input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
     const onEv = (ev) => {
       if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
       if (ev.type === 'preview' && ev.previewPath) {
@@ -398,8 +400,27 @@ function registerAiHandlers() {
     broadcastQueueStatus();
     job.promise.then((result) => {
       activeJob = null;
-      if (result.ok) send({ type: 'done', path: result.path, latent: result.latent || null, dryRun: Boolean(result.dryRun), code: result.code });
-      else send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
+      if (result.ok) {
+        let latentLabel = null;
+        if (result.latent) {
+          latentLabel = latentsLib.formatLatentLabel({
+            refmods: input && input.refmods ? input.refmods : [],
+            prompt: input && input.prompt ? input.prompt : '',
+            fallbackName: result.path ? path.basename(result.path) : result.latent,
+          });
+          latentsLib.saveLatentName(latentNamesFile(), result.latent, latentLabel);
+        }
+        send({
+          type: 'done',
+          path: result.path,
+          latent: result.latent || null,
+          latentLabel,
+          dryRun: Boolean(result.dryRun),
+          code: result.code,
+        });
+      } else {
+        send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
+      }
       pumpJobQueue();
       broadcastQueueStatus();
     });
@@ -435,9 +456,17 @@ function registerAiHandlers() {
       ok: true,
       refmodsDir: refmodsRoot(),
       refmods: entries,
+      latentNames: latentsLib.loadLatentNames(latentNamesFile()),
       options: optRes && optRes.data ? optRes.data : null,
       optionsError: optRes && !optRes.ok ? optRes.error : null,
     };
+  });
+
+  ipcMain.handle('ai:clipLatent', (_e, filePath) => {
+    const found = latentsLib.findClipLatent(filePath);
+    if (!found) return { ok: true, latent: null, label: null };
+    const names = latentsLib.loadLatentNames(latentNamesFile());
+    return { ok: true, latent: found.latent, label: names[found.latent] || found.label };
   });
 
   ipcMain.handle('ai:refmods:add', (_e, input) => {

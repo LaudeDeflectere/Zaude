@@ -13,6 +13,8 @@ let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
 let pendingInsertAt = null;
 let pendingSeedVideo = '';
+let pendingClipLatent = null; // { value, label } pinned for the clip being continued
+let latentNames = {}; // latent filename -> friendly "E+N · short scene desc"
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
@@ -164,9 +166,27 @@ function updateModelRouting() {
     defaultVal: isText ? '' : (cachedOptions.default_lora || ''),
   });
 
-  populateSelect($('ai-latent-select'), (cachedOptions.latents || []).slice(0, 60), {
-    emptyLabel: '— Auto / latest latent —',
+  const latentItems = [];
+  if (pendingClipLatent) {
+    latentItems.push({ value: pendingClipLatent.value, label: pendingClipLatent.label });
+  }
+  for (const lf of (cachedOptions.latents || []).slice(0, 60)) {
+    if (pendingClipLatent && pendingClipLatent.value === lf) continue;
+    const friendly = latentNames[lf];
+    const shortHash = lf.replace(/^Mannimmaterefmod_/i, '').replace(/latent_00001\.h3latent\.safetensors$/i, '');
+    latentItems.push({
+      value: lf,
+      label: friendly ? `${friendly} (${shortHash.slice(0, 8)})` : lf,
+    });
+  }
+  populateSelect($('ai-latent-select'), latentItems, {
+    emptyLabel: pendingClipLatent ? pendingClipLatent.label : '— Select a saved latent —',
+    defaultVal: pendingClipLatent ? pendingClipLatent.value : '',
+    mapItem: (x) => x,
   });
+  if (pendingClipLatent && $('ai-latent-select')) {
+    $('ai-latent-select').value = pendingClipLatent.value;
+  }
 }
 
 function updateStylizeRangeUI() {
@@ -233,6 +253,8 @@ function collectRequest() {
   });
   const first = refmods[0] || null;
   const second = refmods[1] || null;
+  const rawLatent = String(fd.get('latent') || '').trim();
+  const isSeedSentinel = rawLatent === '__seed_video__';
   return {
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
@@ -257,8 +279,8 @@ function collectRequest() {
     refmodMode: String(fd.get('refmodMode') || 'generate'),
     identityStrength: idStrength,
     voiceStrength,
-    latent: String(fd.get('latent') || '').trim(),
-    seedVideo: pendingSeedVideo || '',
+    latent: isSeedSentinel ? '' : rawLatent,
+    seedVideo: (isSeedSentinel || !rawLatent) ? (pendingSeedVideo || '') : '',
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
     end: Number(fd.get('end') ?? 7),
@@ -278,7 +300,7 @@ function updateCommandPreview() {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
     if (req.ref) parts.push('--ref', req.ref);
   } else if (req.mode === 'refmod') {
-    if (req.firstFrame || req.lastFrame) {
+    if (req.refmodMode !== 'continue' && (req.firstFrame || req.lastFrame)) {
       parts.length = 0;
       parts.push('ComfyUI', 'MiniMaxH3ImageToVideo (FL2VA)', `--quality ${req.quality}`, `--seconds ${req.seconds}`);
       if (req.firstFrame) parts.push('--first-frame', req.firstFrame.split(/[\\/]/).pop());
@@ -335,6 +357,9 @@ async function loadOptionsAndRefMods() {
     return;
   }
   refmodEntries = res.refmods || [];
+  if (res.latentNames && typeof res.latentNames === 'object') {
+    latentNames = { ...latentNames, ...res.latentNames };
+  }
   if ($('ai-refmods-dir') && res.refmodsDir) {
     $('ai-refmods-dir').textContent = res.refmodsDir;
   }
@@ -439,6 +464,7 @@ async function onSubmit() {
   const insertAt = pendingInsertAt;
   pendingInsertAt = null;
   pendingSeedVideo = '';
+  pendingClipLatent = null;
   notifyEditor({
     type: 'start',
     id: result.id,
@@ -476,6 +502,12 @@ function onJob(payload) {
   }
   notifyEditor({ ...payload, dryRun: info.dryRun });
   if (payload.type === 'done' || payload.type === 'cancelled' || payload.type === 'error') {
+    if (payload.type === 'done' && payload.latent && payload.latentLabel) {
+      latentNames[payload.latent] = payload.latentLabel;
+      if (!cachedOptions.latents.includes(payload.latent)) {
+        cachedOptions.latents.unshift(payload.latent);
+      }
+    }
     appendLog(payload.type.toUpperCase(), `job=${payload.id.slice(0, 6)} ${payload.path || payload.message || ''}`);
     trackedJobs.delete(payload.id);
   }
@@ -818,6 +850,7 @@ function init() {
     currentMode = 'refmod';
     pendingInsertAt = insertAt;
     pendingSeedVideo = '';
+    pendingClipLatent = null;
     await open();
     const form = $('t2v-form');
     if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'generate';
@@ -832,33 +865,32 @@ function init() {
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 
-  window.__zaudeOpenFrameContinue = async ({ seedVideo = '', latent = '', clipName = '', insertAt = null } = {}) => {
+  window.__zaudeOpenFrameContinue = async ({ seedVideo = '', latent = '', latentLabel = '', clipName = '', firstFrame = null, insertAt = null } = {}) => {
     currentMode = 'refmod';
     pendingInsertAt = insertAt;
     pendingSeedVideo = seedVideo || '';
+    const cleanClipName = (clipName || 'clip').replace(/\.[^.]+$/, '');
+    if (latent) {
+      const friendly = latentLabel || latentNames[latent] || `${cleanClipName} (saved latent)`;
+      latentNames[latent] = friendly;
+      pendingClipLatent = { value: latent, label: `This clip · ${friendly}` };
+    } else {
+      pendingClipLatent = { value: '__seed_video__', label: `This clip · ${cleanClipName} (from video)` };
+    }
     await open();
     const form = $('t2v-form');
-    // Clear First/Last frames so FrameContinue routes through Mannimmate's latent continuation graph
-    updateSquarePreview('firstFrame', '', null, false);
+    // Show the clip's exact ending frame inside the First Frame preview square!
+    if (firstFrame && firstFrame.path) {
+      updateSquarePreview('firstFrame', firstFrame.path, firstFrame.url, false);
+    } else {
+      updateSquarePreview('firstFrame', '', null, false);
+    }
     updateSquarePreview('lastFrame', '', null, false);
     if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'continue';
     if (form && form.elements.steps) form.elements.steps.value = '7';
-    if (latent) {
-      const sel = $('ai-latent-select');
-      if (sel) {
-        if (!Array.from(sel.options).some((o) => o.value === latent)) {
-          const opt = document.createElement('option');
-          opt.value = latent;
-          opt.textContent = latent;
-          sel.appendChild(opt);
-        }
-        sel.value = latent;
-      }
-    }
     applyModeVisibility();
     updateCommandPreview();
-    const srcDesc = latent ? `saved latent (${latent})` : `seed video (${clipName || 'clip'})`;
-    setStatus(`FrameContinue ready from ${srcDesc} — write what happens next and click Run.`);
+    setStatus(`FrameContinue ready (${pendingClipLatent.label}) — write what happens next and click Run.`);
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 
