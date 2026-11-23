@@ -43,6 +43,7 @@ export function createEngine(store) {
 
   const urlCache = new Map();
   let videoClipId = null;
+  let loadedVideoPath = null;
   let videoClipNeedsSeek = false;
   let videoToken = 0;
   let audioCtx = null;
@@ -147,12 +148,26 @@ export function createEngine(store) {
       if (videoClipId !== vc.id) {
         videoClipId = vc.id;
         videoClipNeedsSeek = true;
-        const token = ++videoToken;
-        urlFor(vc.path).then((url) => {
-          if (token !== videoToken || !url) return;
-          if (video.src !== url) video.src = url;
-          else sync();
-        });
+        const cachedUrl = urlCache.get(vc.path);
+        if (cachedUrl) {
+          if (video.src !== cachedUrl) {
+            video.src = cachedUrl;
+            video.load();
+          }
+          loadedVideoPath = vc.path;
+        } else {
+          loadedVideoPath = null;
+          const token = ++videoToken;
+          urlFor(vc.path).then((url) => {
+            if (token !== videoToken || !url) return;
+            if (video.src !== url) {
+              video.src = url;
+              video.load();
+            }
+            loadedVideoPath = vc.path;
+            sync();
+          });
+        }
       }
       const tr = T.transitionState(vc, t);
       const opStr = String(T.propValue(vc, 'opacity') * tr.opacityMul);
@@ -199,11 +214,16 @@ export function createEngine(store) {
       }
       setGain(videoGain, video, vc, t);
       setRate(video, vc);
-      if (video.readyState >= 1) {
-        seek(video, srcTime(vc, t), playing, true, videoClipNeedsSeek);
+      if (loadedVideoPath === vc.path && video.readyState >= 1) {
+        const want = srcTime(vc, t);
+        seek(video, want, playing, true, videoClipNeedsSeek);
         videoClipNeedsSeek = false;
+        // Never call play() on an ended element at the tail of its clip (Chromium would rewind & loop it!)
+        const nearClipEnd = t >= vc.start + vc.dur - 0.06;
+        if (playing && video.paused && !(video.ended && nearClipEnd)) {
+          video.play().catch(() => {});
+        }
       }
-      if (playing && video.paused) video.play().catch(() => {});
       if (!playing && !video.paused) video.pause();
     }
 
@@ -268,18 +288,21 @@ export function createEngine(store) {
     const vc = T.clipAt(s.clips.filter((c) => c.path && c.kind === 'video'), s.playhead);
     let nextT = s.playhead + dt;
     if (vc && videoClipId === vc.id) {
-      if (video.seeking || video.readyState < 2) {
-        // Wait for the seek/buffer to finish before advancing the playhead.
+      if (loadedVideoPath !== vc.path || video.seeking || video.readyState < 2) {
+        // Wait for the new clip / seek / buffer to be ready before advancing the playhead.
         rafId = requestAnimationFrame(tick);
         return;
       }
-      if (!video.paused) {
+      if (video.ended) {
+        // Source file reached EOF at the clip seam: step cleanly across the cut into the next clip.
+        nextT = vc.start + vc.dur + 0.005;
+      } else if (!video.paused) {
         const rate = vc.speed || 1;
         const mediaT = vc.start + (video.currentTime - vc.srcIn) / rate;
         if (Number.isFinite(mediaT) && mediaT >= vc.start - 0.15 && mediaT <= vc.start + vc.dur + 0.5) {
           nextT = Math.max(s.playhead, mediaT);
-          if (nextT >= vc.start + vc.dur - 0.015) {
-            nextT = vc.start + vc.dur + 0.002;
+          if (nextT >= vc.start + vc.dur - 0.025) {
+            nextT = vc.start + vc.dur + 0.005;
           }
         }
       }
