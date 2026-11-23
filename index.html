@@ -50,10 +50,26 @@
     <div class="ai-backend-bar" id="ai-backend-bar">
       <span class="muted">Engine:</span>
       <div class="ai-backend-switch" role="group" aria-label="Generation Engine">
-        <button type="button" class="on" data-ai-backend="remote" id="ai-backend-remote" title="Generate on remote Tranklena RTX 3090 (MiniMax-H3 · RefMod + Audio)">🌐 Tranklena · MiniMax-H3</button>
-        <button type="button" data-ai-backend="local" id="ai-backend-local" title="Generate locally on this laptop GPU using your installed ComfyUI model">💻 Local · Detecting…</button>
+        <button type="button" class="on" data-ai-backend="remote" id="ai-backend-remote" title="Draft on remote Tranklena RTX 3090 (MiniMax-H3 · RefMod + Audio)">🌐 Tranklena · Draft</button>
+        <button type="button" data-ai-backend="local" id="ai-backend-local" title="Sketch locally on this laptop GPU using your installed ComfyUI model">💻 Local · Detecting…</button>
+        <button type="button" data-ai-backend="modal" id="ai-backend-modal" title="Cloud Final Pass on Modal.com serverless GPUs (L40S / A100 / H100) with AI auto-picked GPU &amp; settings">☁️ Modal · Cloud Final</button>
       </div>
       <select id="ai-local-model" class="ai-local-model-sel" hidden title="Choose installed local video model"></select>
+    </div>
+
+    <div class="ai-modal-bar" id="ai-modal-bar" hidden>
+      <div class="ai-modal-row">
+        <select id="ai-modal-gpu" title="Modal GPU tier (Auto lets Zaude's AI pick the optimal GPU for your shot)">
+          <option value="auto" selected>🤖 Auto GPU (AI Pick)</option>
+          <option value="L40S">L40S · 48 GB (~$1.95/hr)</option>
+          <option value="A100-80GB">A100 · 80 GB (~$2.50/hr)</option>
+          <option value="H100">H100 · 80 GB (~$3.95/hr)</option>
+        </select>
+        <button type="button" class="ai-btn-purple" id="ai-modal-ai-pick" title="Ask Zaude's connected AI to pick the optimal Modal GPU, resolution, and steps for this final pass">🤖 AI Pick GPU &amp; Settings</button>
+        <input type="url" id="ai-modal-url" placeholder="https://<workspace>--zaude-comfy-comfy-web.modal.run" autocomplete="off">
+        <button type="button" id="ai-modal-deploy" title="Deploy modal/comfy_server.py to Modal with the selected GPU">🚀 Deploy</button>
+      </div>
+      <div class="ai-modal-plan muted" id="ai-modal-plan">Draft on Rizzar/Tranklena → switch here for 720p Modal final pass ($0 when idle).</div>
     </div>
 
     <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">

@@ -100,6 +100,18 @@ contextBridge.exposeInMainWorld('zaudePrompt', {
   },
 });
 
+contextBridge.exposeInMainWorld('zaudeModal', {
+  status: () => ipcRenderer.invoke('modal:status'),
+  saveConfig: (input) => ipcRenderer.invoke('modal:saveConfig', input),
+  plan: (input) => ipcRenderer.invoke('modal:plan', input),
+  deploy: (input) => ipcRenderer.invoke('modal:deploy', input),
+  onEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('modal:event', listener);
+    return () => ipcRenderer.removeListener('modal:event', listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('zaudeTouchpad', {
   status: () => ipcRenderer.invoke('touchpad:status'),
   onRotate: (callback) => {

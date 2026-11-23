@@ -254,6 +254,7 @@ const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
 const frameToFrame = require('./frame-to-frame.cjs');
 const localRunner = require('./local-runner.cjs');
+const modalRunner = require('./modal-runner.cjs');
 const upscaleLib = require('./upscale.cjs');
 const latentsLib = require('./latents.cjs');
 const systemAdvisor = require('./system-advisor.cjs');
@@ -283,6 +284,9 @@ function loadSettings() {
     python: saved.python || (process.platform === 'win32' ? 'python' : 'python3'),
     outDir: saved.outDir || defaultOutDir(),
     projectFolders: Array.isArray(saved.projectFolders) ? saved.projectFolders : [],
+    modalEndpoint: String(saved.modalEndpoint || '').trim(),
+    modalGpu: String(saved.modalGpu || 'auto').trim() || 'auto',
+    modalToken: String(saved.modalToken || '').trim(),
   };
 }
 
@@ -374,9 +378,10 @@ function registerAiHandlers() {
     const next = jobQueue.shift();
     const { id, input, mannimmateDir, settings, send, estSec } = next;
     const useLocal = Boolean(input && input.backend === 'local');
+    const useModal = Boolean(input && input.backend === 'modal');
     const useEsrgan = Boolean(input && input.mode === 'upscale-esrgan');
     const useRefmodUpscale = Boolean(input && input.mode === 'upscale-refmod');
-    const useFl2v = !useLocal && !useEsrgan && !useRefmodUpscale && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
+    const useFl2v = !useLocal && !useModal && !useEsrgan && !useRefmodUpscale && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
     const onEv = (ev) => {
       if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
       const extra = input && input.replaceClipId ? { replaceClipId: input.replaceClipId } : {};
@@ -422,6 +427,24 @@ function registerAiHandlers() {
         previewDir: previewRoot(),
         jobId: id,
         outDir: settings.outDir,
+        onEvent: onEv,
+      });
+    } else if (useModal) {
+      job = modalRunner.runModalVideo({
+        endpointUrl: input.modalEndpoint || settings.modalEndpoint || '',
+        token: input.modalToken || settings.modalToken || '',
+        prompt: input.prompt || input.objectPrompt || '',
+        firstFrame: input.firstFrame || '',
+        lastFrame: input.lastFrame || '',
+        refmods: input.refmods || [],
+        seconds: input.seconds || 7,
+        resolution: input.resolution || 720,
+        aspect: input.aspect || '16:9',
+        steps: input.steps || 8,
+        seed: input.seed || 1001,
+        outDir: settings.outDir,
+        previewDir: previewRoot(),
+        jobId: id,
         onEvent: onEv,
       });
     } else if (useLocal) {
@@ -622,6 +645,54 @@ function registerAiHandlers() {
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:remove', (_e, id) => promptAdvancer.removeExample(promptDbFile(), id));
+
+  // ---------- Modal.com Serverless Cloud GPU Final-Pass Backend ----------
+  let activeModalDeploy = null;
+
+  ipcMain.handle('modal:status', async () => {
+    const settings = loadSettings();
+    const status = await modalRunner.checkModalStatus({
+      endpointUrl: settings.modalEndpoint,
+      token: settings.modalToken,
+    });
+    return { ...status, savedGpu: settings.modalGpu || 'auto' };
+  });
+
+  ipcMain.handle('modal:saveConfig', (_e, input = {}) => {
+    const current = loadSettings();
+    const next = {
+      ...current,
+      modalEndpoint: typeof input.endpointUrl === 'string' ? input.endpointUrl.trim() : current.modalEndpoint,
+      modalGpu: typeof input.gpu === 'string' && input.gpu.trim() ? input.gpu.trim() : current.modalGpu,
+      modalToken: typeof input.token === 'string' ? input.token.trim() : current.modalToken,
+    };
+    saveSettings(next);
+    return { ok: true, modalEndpoint: next.modalEndpoint, modalGpu: next.modalGpu };
+  });
+
+  ipcMain.handle('modal:plan', async (_e, { request = {}, useAi = false, provider = 'auto' } = {}) => {
+    if (!useAi) return modalRunner.recommendModalPlan(request);
+    const { promise } = modalRunner.askAiForModalPlan({ request, provider });
+    return promise;
+  });
+
+  ipcMain.handle('modal:deploy', (event, { gpu = 'L40S' } = {}) => {
+    if (activeModalDeploy) return { ok: false, error: 'A Modal deploy is already running.' };
+    const send = (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('modal:event', payload);
+    };
+    const job = modalRunner.deployModalServer({ gpu, onLog: send });
+    activeModalDeploy = job;
+    job.promise.then((res) => {
+      if (activeModalDeploy === job) activeModalDeploy = null;
+      if (res && res.ok && res.endpointUrl) {
+        const cur = loadSettings();
+        saveSettings({ ...cur, modalEndpoint: res.endpointUrl, modalGpu: res.gpu || cur.modalGpu });
+      }
+      send({ type: 'finished', ...res });
+    });
+    return { ok: true };
+  });
 
   ipcMain.handle('ai:refmods:add', (_e, input) => {
     const entry = refmodsLib.createRefModFolder(refmodsRoot(), input || {});

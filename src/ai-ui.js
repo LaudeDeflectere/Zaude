@@ -5,12 +5,15 @@
 // - Full Debug Console (command preview, stdout, stderr, dry-run, doctor)
 
 const api = window.zaudeAI || null;
+const modalApi = window.zaudeModal || null;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 let currentMode = 'text-render';
-let currentBackend = 'remote'; // 'remote' (Tranklena MiniMax-H3) | 'local' (this laptop's ComfyUI)
+let currentBackend = 'remote'; // 'remote' (Tranklena) | 'local' (Rizzar) | 'modal' (Modal Cloud Final)
 let localSetup = null;
+let modalStatus = null;
+let lastModalPlan = null;
 let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
 let pendingInsertAt = null;
@@ -267,6 +270,8 @@ function collectRequest() {
   return {
     backend: currentBackend,
     localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
+    modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
+    modalGpu: ($('ai-modal-gpu') && $('ai-modal-gpu').value) || 'auto',
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
     prompt: String(fd.get('prompt') || '').trim(),
@@ -307,6 +312,20 @@ function collectRequest() {
 
 function updateCommandPreview() {
   const req = collectRequest();
+  if (req.backend === 'modal') {
+    const gpuTxt = req.modalGpu === 'auto'
+      ? (lastModalPlan ? `AI Pick: ${lastModalPlan.gpuLabel}` : 'Auto GPU')
+      : req.modalGpu;
+    const badge = $('ai-route-badge');
+    if (badge) {
+      badge.textContent = `Route: ☁️ Modal Cloud Final · ${gpuTxt} · ${req.resolution}p · ${req.steps || 8} steps${req.modalEndpoint ? ' · Endpoint ready' : ' · Click 🚀 Deploy or paste URL'}`;
+    }
+    const el = $('ai-cmd-preview');
+    if (el) {
+      el.textContent = `Modal ComfyUI (${gpuTxt}) ${req.modalEndpoint || '<modal-endpoint>'} --res ${req.resolution}p --seconds ${req.seconds} --steps ${req.steps || 8}`;
+    }
+    return;
+  }
   if (req.backend === 'local') {
     const host = (localSetup && localSetup.hostname) || 'Local';
     const selId = req.localModelId;
@@ -394,17 +413,61 @@ async function refreshLocalInfo() {
   if (currentBackend === 'local') updateCommandPreview();
 }
 
+async function refreshModalInfo() {
+  if (!modalApi || !modalApi.status) return;
+  try {
+    modalStatus = await modalApi.status();
+  } catch {
+    modalStatus = null;
+  }
+  const urlEl = $('ai-modal-url');
+  const gpuEl = $('ai-modal-gpu');
+  if (urlEl && modalStatus && modalStatus.endpointUrl && !urlEl.value) {
+    urlEl.value = modalStatus.endpointUrl;
+  }
+  if (gpuEl && modalStatus && modalStatus.savedGpu) {
+    gpuEl.value = modalStatus.savedGpu;
+  }
+  if (currentBackend === 'modal') updateCommandPreview();
+}
+
+async function applyModalPlan(useAi = false) {
+  if (!modalApi || !modalApi.plan) return;
+  const planEl = $('ai-modal-plan');
+  const form = $('t2v-form');
+  if (useAi && planEl) planEl.textContent = '🤖 Asking connected AI to pick the optimal Modal GPU & final-pass settings…';
+  const req = collectRequest();
+  const plan = await modalApi.plan({ request: req, useAi });
+  if (!plan || !plan.ok) return;
+  lastModalPlan = plan;
+  if (form) {
+    if (form.elements.resolution) form.elements.resolution.value = String(plan.resolution || 720);
+    if (form.elements.steps) form.elements.steps.value = String(plan.steps || 8);
+  }
+  if (planEl) {
+    const srcTag = plan.source && plan.source !== 'heuristic' ? `AI (${plan.source})` : 'Auto';
+    planEl.textContent = `🤖 ${srcTag} Pick: ${plan.gpuLabel} · ${plan.resolution}p · ${plan.steps} steps · ~${plan.estSec}s (~$${plan.estCostUsd.toFixed(3)}) — ${plan.reason}`;
+  }
+  updateCommandPreview();
+}
+
 function setBackend(next) {
-  currentBackend = next === 'local' ? 'local' : 'remote';
+  currentBackend = next === 'local' ? 'local' : (next === 'modal' ? 'modal' : 'remote');
   document.querySelectorAll('[data-ai-backend]').forEach((b) => {
     b.classList.toggle('on', b.dataset.aiBackend === currentBackend);
   });
   const form = $('t2v-form');
   const sel = $('ai-local-model');
+  const modalBar = $('ai-modal-bar');
   const readyModels = (localSetup && localSetup.models ? localSetup.models.filter((m) => m.ready) : []);
   if (sel) sel.hidden = currentBackend !== 'local' || readyModels.length <= 1;
+  if (modalBar) modalBar.hidden = currentBackend !== 'modal';
 
-  if (currentBackend === 'local') {
+  if (currentBackend === 'modal') {
+    refreshModalInfo();
+    applyModalPlan(false);
+    setStatus('Switched to ☁️ Modal Cloud Final Pass — click "🤖 AI Pick GPU & Settings" or run at 720p.');
+  } else if (currentBackend === 'local') {
     const def = (localSetup && localSetup.defaultModel);
     if (form) {
       form.elements.resolution.value = '480';
@@ -421,13 +484,14 @@ function setBackend(next) {
       form.elements.seconds.value = '7';
       form.elements.steps.value = '6';
     }
-    setStatus('Switched to 🌐 Tranklena · MiniMax-H3 (640p · 7s · 6 steps).');
+    setStatus('Switched to 🌐 Tranklena · Draft (640p · 7s · 6 steps).');
   }
   updateCommandPreview();
 }
 
 async function loadOptionsAndRefMods() {
   refreshLocalInfo();
+  refreshModalInfo();
   if (!api || !api.refmodsList) return;
   const dir = $('t2v-form').elements.mannimmateDir.value.trim();
   setStatus('Loading RefMods & Mannimmate models…');
@@ -510,7 +574,17 @@ async function onSubmit() {
   if (req.mannimmateDir) await api.setSettings({ mannimmateDir: req.mannimmateDir });
 
   // Basic client-side check before closing so errors show right inside the popup
-  if (req.backend === 'local') {
+  if (req.backend === 'modal') {
+    if (!req.prompt && !req.objectPrompt) {
+      return setStatus('Write a prompt first.', true);
+    }
+    if (!req.modalEndpoint) {
+      return setStatus('Paste your Modal https://...modal.run endpoint URL or click "🚀 Deploy" first.', true);
+    }
+    if (modalApi && modalApi.saveConfig) {
+      await modalApi.saveConfig({ endpointUrl: req.modalEndpoint, gpu: req.modalGpu });
+    }
+  } else if (req.backend === 'local') {
     if (!req.prompt && !req.objectPrompt) {
       return setStatus('Write a prompt first.', true);
     }
@@ -850,10 +924,33 @@ function init() {
       return;
     }
 
-    // 1-click Remote (Tranklena MiniMax) ↔ Local (Rizzar LTX/Wan) backend toggle
+    // 1-click Remote (Tranklena) ↔ Local (Rizzar) ↔ Cloud (Modal) backend toggle
     const backendBtn = e.target.closest('[data-ai-backend]');
     if (backendBtn) {
       setBackend(backendBtn.dataset.aiBackend);
+      return;
+    }
+
+    // Modal AI GPU & Settings Picker
+    if (e.target.closest('#ai-modal-ai-pick')) {
+      applyModalPlan(true);
+      return;
+    }
+
+    // Modal 1-click Deploy
+    if (e.target.closest('#ai-modal-deploy')) {
+      if (!modalApi || !modalApi.deploy) return;
+      const picked = ($('ai-modal-gpu') && $('ai-modal-gpu').value) || 'auto';
+      const gpu = picked === 'auto' ? ((lastModalPlan && lastModalPlan.gpu) || 'L40S') : picked;
+      const planEl = $('ai-modal-plan');
+      if (planEl) planEl.textContent = `🚀 Deploying modal/comfy_server.py on ${gpu}… (check Debug Console for live logs)`;
+      appendLog('MODAL', `Starting modal deploy (${gpu})…`);
+      const res = await modalApi.deploy({ gpu });
+      if (!res || !res.ok) {
+        const err = (res && res.error) || 'Failed to start Modal deploy';
+        if (planEl) planEl.textContent = err;
+        setStatus(err, true);
+      }
       return;
     }
 
@@ -932,6 +1029,25 @@ function init() {
   });
 
   api.onJob(onJob);
+  if (modalApi && modalApi.onEvent) {
+    modalApi.onEvent((ev) => {
+      if (!ev) return;
+      if (ev.text) appendLog('MODAL', ev.text);
+      if (ev.type === 'finished') {
+        const planEl = $('ai-modal-plan');
+        if (ev.ok && ev.endpointUrl) {
+          const urlEl = $('ai-modal-url');
+          if (urlEl) urlEl.value = ev.endpointUrl;
+          if (planEl) planEl.textContent = `✅ Deployed on Modal (${ev.gpu})! Endpoint saved: ${ev.endpointUrl}`;
+          setStatus(`Modal deployed on ${ev.gpu}!`);
+          updateCommandPreview();
+        } else if (!ev.ok) {
+          if (planEl) planEl.textContent = `Deploy failed: ${ev.error || 'Run "pip install modal && modal setup" first.'}`;
+          setStatus(ev.error || 'Modal deploy failed', true);
+        }
+      }
+    });
+  }
   if (api.onRefmodProgress) {
     api.onRefmodProgress((ev) => {
       if (ev.type === 'queue') {

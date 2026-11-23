@@ -1454,6 +1454,43 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   background: linear-gradient(135deg, #059669, #0ea5e9) !important;
   color: #ffffff !important;
 }
+.ai-backend-switch button.on[data-ai-backend="modal"] {
+  background: linear-gradient(135deg, #0284c7, #9333ea) !important;
+  color: #ffffff !important;
+}
+.ai-modal-bar {
+  background: #101524;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-modal-bar[hidden] { display: none; }
+.ai-modal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ai-modal-row select,
+.ai-modal-row input {
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #2e3852;
+  background: #090c14;
+  color: #e2e8f0;
+  font-size: 11px;
+}
+.ai-modal-row input {
+  flex: 1 1 210px;
+}
+.ai-modal-plan {
+  font-size: 11px;
+  color: #93c5fd;
+}
 .ai-local-model-sel {
   padding: 4px 8px;
   border-radius: 6px;
