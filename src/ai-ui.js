@@ -608,7 +608,20 @@ function init() {
     openBtn.title = 'Mannimmate AI Studio is available in the desktop app';
     return;
   }
-  openBtn.addEventListener('click', open);
+  openBtn.addEventListener('click', async () => {
+    // Opening AI Studio normally always starts fresh for a NEW clip (not stuck in FrameContinue / FL2V)
+    pendingInsertAt = null;
+    pendingSeedVideo = '';
+    pendingClipLatent = null;
+    const form = $('t2v-form');
+    if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'generate';
+    if (form && form.elements.steps) form.elements.steps.value = currentBackend === 'local' ? '8' : '6';
+    updateSquarePreview('firstFrame', '', null, false);
+    updateSquarePreview('lastFrame', '', null, false);
+    await open();
+    applyModeVisibility();
+    updateCommandPreview();
+  });
   $('t2v-close').addEventListener('click', close);
   $('ai-refresh').addEventListener('click', loadOptionsAndRefMods);
   $('ai-doctor').addEventListener('click', runDoctor);
