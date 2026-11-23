@@ -113,7 +113,12 @@ function updateModelRouting() {
   });
 
   populateSelect($('ai-refmod-select'), cachedOptions.mods || [], {
-    emptyLabel: cachedOptions.mods.length ? '— Pick a RefMod character —' : '— No RefMods loaded (click ↻ Models) —',
+    emptyLabel: cachedOptions.mods.length ? '— Pick RefMod Character 1 —' : '— No RefMods loaded (click ↻ Models) —',
+    mapItem: (m) => ({ value: m.file, label: `${m.name} (${m.file})` }),
+  });
+
+  populateSelect($('ai-refmod2-select'), cachedOptions.mods || [], {
+    emptyLabel: '— None (single character) —',
     mapItem: (m) => ({ value: m.file, label: `${m.name} (${m.file})` }),
   });
 
@@ -144,12 +149,14 @@ function collectRequest() {
   const refmodSel = $('ai-refmod-select');
   const refmodFile = String(fd.get('refmod') || '').trim();
   const matchedMod = (cachedOptions.mods || []).find((m) => m.file === refmodFile);
+  const refmod2File = String(fd.get('refmod2') || '').trim();
+  const matchedMod2 = (cachedOptions.mods || []).find((m) => m.file === refmod2File);
   return {
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
     prompt: String(fd.get('prompt') || '').trim(),
-    seconds: Number(fd.get('seconds') || 4),
-    quality: String(fd.get('resolution') || '480'),
+    seconds: Number(fd.get('seconds') || 7),
+    quality: String(fd.get('resolution') || '640'),
     preset: String(fd.get('quality') || 'normal'),
     aspect: String(fd.get('aspect') || '16:9'),
     fps: Number(fd.get('fps') || 24),
@@ -160,13 +167,15 @@ function collectRequest() {
     ref: String(fd.get('ref') || '').trim(),
     refmod: refmodFile,
     refmodName: matchedMod ? matchedMod.name : (refmodSel && refmodSel.selectedOptions[0] ? refmodSel.selectedOptions[0].textContent : ''),
+    refmod2: refmod2File,
+    refmod2Name: matchedMod2 ? matchedMod2.name : '',
     refmodMode: String(fd.get('refmodMode') || 'generate'),
     identityStrength: fd.get('identityStrength') !== '' ? Number(fd.get('identityStrength')) : 1.0,
     voiceStrength: fd.get('voiceStrength') !== '' ? Number(fd.get('voiceStrength')) : 1.0,
     latent: String(fd.get('latent') || '').trim(),
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
-    end: Number(fd.get('end') ?? 5),
+    end: Number(fd.get('end') ?? 7),
     backgroundMode: String(fd.get('backgroundMode') || 'keep'),
     image: String(fd.get('image') || '').trim(),
     coverageTarget: String(fd.get('coverageTarget') || '').trim(),
@@ -181,7 +190,9 @@ function updateCommandPreview() {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
     if (req.ref) parts.push('--ref', req.ref);
   } else if (req.mode === 'refmod') {
-    parts.push('--mode', req.refmodMode, '--refmod', `"${req.refmod || '<refmod>'}|${req.refmodName || 'Subject'}|${req.identityStrength}|${req.voiceStrength}"`, '--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
+    parts.push('--mode', req.refmodMode, '--refmod', `"${req.refmod || '<refmod>'}|${req.refmodName || 'Subject'}|${req.identityStrength}|${req.voiceStrength}"`);
+    if (req.refmod2) parts.push('--refmod', `"${req.refmod2}|${req.refmod2Name || 'Subject 2'}|1|1"`);
+    parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
     if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
   } else if (req.mode === 'auto') {
     parts.push('--video', req.video || '<video>', '--start', String(req.start), '--end', String(req.end), '--quality', req.quality, '--preset', req.preset, '--background-mode', req.backgroundMode);
@@ -385,6 +396,61 @@ function init() {
     if (e.target.id === 't2v-dialog') return close();
     const reveal = e.target.closest('[data-reveal]');
     if (reveal) return api.reveal(reveal.dataset.reveal);
+
+    const presetBtn = e.target.closest('[data-ai-preset]');
+    if (presetBtn) {
+      const form = $('t2v-form');
+      const id = presetBtn.dataset.aiPreset;
+      if (id === 'prod-16x9') {
+        form.elements.resolution.value = '640';
+        form.elements.steps.value = '6';
+        form.elements.seconds.value = '7';
+        form.elements.quality.value = 'normal';
+        form.elements.aspect.value = '16:9';
+        form.elements.fps.value = '24';
+        setStatus('Applied Production 16:9 preset (640p · 6 steps · 7s · 24fps).');
+      } else if (id === 'prod-9x16') {
+        form.elements.resolution.value = '640';
+        form.elements.steps.value = '6';
+        form.elements.seconds.value = '7';
+        form.elements.quality.value = 'normal';
+        form.elements.aspect.value = '9:16';
+        form.elements.fps.value = '24';
+        setStatus('Applied Portrait Short preset (9:16 · 640p · 6 steps · 7s).');
+      } else if (id === 'fast-draft') {
+        form.elements.resolution.value = '480';
+        form.elements.steps.value = '4';
+        form.elements.seconds.value = '4';
+        form.elements.quality.value = 'draft';
+        form.elements.fps.value = '12';
+        setStatus('Applied Fast Draft preset (480p · 4 steps · 4s · 12fps).');
+      }
+      updateCommandPreview();
+      return;
+    }
+
+    const snipBtn = e.target.closest('[data-prompt-snip]');
+    if (snipBtn) {
+      const ta = $('t2v-form').elements.prompt;
+      const req = collectRequest();
+      const s1 = req.refmodName || 'Subject 1';
+      const s2 = req.refmod2Name || '';
+      const vis = s2 ? `${s1}, ${s2}` : s1;
+      const snips = {
+        dialogue: `\nDialogue window [0.5-3.5s] ${s1} says: "..."\nRefMod usage: visible=${vis}; speaking=${s1}`,
+        outfit: `\nNOT in default outfit, instead wearing `,
+        screen: `\nThe television screen stays brightly lit and ON the entire time showing the live program, never turning dark or off.`,
+        room: `\nConsistent room anchor: `,
+      };
+      const text = snips[snipBtn.dataset.promptSnip] || '';
+      if (ta && text) {
+        ta.value = (ta.value.trimEnd() + text).trimStart();
+        ta.focus();
+        updateCommandPreview();
+      }
+      return;
+    }
+
     const pick = e.target.closest('[data-pick-file]');
     if (pick && api.mannimmatePickFile) {
       const kind = pick.dataset.pickFile;

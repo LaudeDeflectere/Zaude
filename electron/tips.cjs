@@ -30,6 +30,22 @@ const STARTER_TIPS = [
     body: 'Open Inspector → HSL to control up to 8 colors independently on your GPU. Click "+💧 New" to sample a color directly from the Viewer video frame and isolate its Hue, Saturation, Lightness, and Range.',
     createdAt: '2026-11-22T00:00:02.000Z',
   },
+  {
+    id: 'tip-mannimmate-sweetspot',
+    title: 'Mannimmate AI Video Sweet Spot (640p · 6 Steps)',
+    category: 'AI Video',
+    author: 'Zaude',
+    body: 'Use 640p with the 4-step Turbo LoRA at 6 steps (7 steps for RefMod continue) and 7–8s clips (~5.5–6.5 min/clip on RTX 3090). Always keep RefMod clothing negated when overriding outfits ("NOT in default outfit, instead wearing..."), repeat room/prop anchors verbatim, and lock TV/monitor screens brightly ON.',
+    createdAt: '2026-11-23T00:00:00.000Z',
+  },
+  {
+    id: 'tip-export-loudness',
+    title: 'Production Export & Audio Mix Rules',
+    category: 'Export',
+    author: 'Zaude',
+    body: 'Export at 30 fps, Ultra quality, 1920×1080 (16:9) or 1080×1920 (9:16) with Fill frame + Sharpen 38. Target -14.0 LUFS (TP -1.5). For story cuts: Version A (dialogue) uses V1 100% + Music 16%; Version B (narrated) uses V1 20% + VO 100% + Music 16%. Keep breathing zooms between 1.0× and 2.0× in 0.2× steps.',
+    createdAt: '2026-11-23T00:00:01.000Z',
+  },
 ];
 
 function loadTips(filePath) {

@@ -56,8 +56,8 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
 
   if (mode === 'text-render') {
     const prompt = String((input && input.prompt) || '').trim();
-    const seconds = Number((input && input.seconds) || 4);
-    const quality = String((input && input.quality) || '480');
+    const seconds = Number((input && input.seconds) || 7);
+    const quality = String((input && input.quality) || '640');
     const preset = String((input && input.preset) || 'normal');
     const aspect = input && input.aspect === '9:16' ? '9:16' : '16:9';
     const ref = String((input && input.ref) || '').trim();
@@ -84,9 +84,13 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const refmodName = String((input && input.refmodName) || refmodFile.split(/[\\/]/).pop() || 'Subject').trim();
     const idStrength = input && input.identityStrength != null && input.identityStrength !== '' ? Number(input.identityStrength) : 1.0;
     const voiceStrength = input && input.voiceStrength != null && input.voiceStrength !== '' ? Number(input.voiceStrength) : 1.0;
+    const refmod2File = String((input && input.refmod2) || '').trim();
+    const refmod2Name = String((input && input.refmod2Name) || refmod2File.split(/[\\/]/).pop() || 'Subject 2').trim();
+    const id2Strength = input && input.identity2Strength != null && input.identity2Strength !== '' ? Number(input.identity2Strength) : 1.0;
+    const voice2Strength = input && input.voice2Strength != null && input.voice2Strength !== '' ? Number(input.voice2Strength) : 1.0;
     const subMode = input && input.refmodMode === 'continue' ? 'continue' : 'generate';
-    const quality = String((input && input.quality) || '480');
-    const seconds = Number((input && input.seconds) || 5);
+    const quality = String((input && input.quality) || '640');
+    const seconds = Number((input && input.seconds) || 7);
     const fps = [6, 12, 24].includes(Number(input && input.fps)) ? Number(input.fps) : 24;
     const latent = String((input && input.latent) || '').trim();
 
@@ -95,17 +99,23 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > 30) {
       return { ok: false, error: 'Seconds must be between 1 and 30.' };
     }
-    const slot = `${refmodFile}|${refmodName}|${Math.max(0, Math.min(1, idStrength))}|${Math.max(0, Math.min(1, voiceStrength))}`;
+    const slot1 = `${refmodFile}|${refmodName}|${Math.max(0, Math.min(1, idStrength))}|${Math.max(0, Math.min(1, voiceStrength))}`;
     const args = [
       'refmod',
       '--mode', subMode,
-      '--refmod', slot,
+      '--refmod', slot1,
+    ];
+    if (refmod2File) {
+      const slot2 = `${refmod2File}|${refmod2Name}|${Math.max(0, Math.min(1, id2Strength))}|${Math.max(0, Math.min(1, voice2Strength))}`;
+      args.push('--refmod', slot2);
+    }
+    args.push(
       '--prompt', prompt,
       '--quality', quality,
       '--seconds', String(seconds),
       '--fps', String(fps),
       '--save-latent',
-    ];
+    );
     if (subMode === 'continue' && latent) args.push('--latent', latent);
     args.push(...commonTail());
     return { ok: true, mode, args };
@@ -117,8 +127,8 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const refmodFile = String((input && input.refmod) || '').trim();
     const refmodName = String((input && input.refmodName) || refmodFile.split(/[\\/]/).pop() || 'Subject').trim();
     const start = Number((input && input.start) ?? 0);
-    const end = Number((input && input.end) ?? 5);
-    const quality = String((input && input.quality) || '480');
+    const end = Number((input && input.end) ?? 7);
+    const quality = String((input && input.quality) || '640');
     const preset = String((input && input.preset) || 'normal');
     const bgMode = ['keep', 'sheet', 'scene', 'image'].includes(input && input.backgroundMode) ? input.backgroundMode : 'keep';
 

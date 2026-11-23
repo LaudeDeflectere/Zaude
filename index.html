@@ -54,11 +54,23 @@
     </div>
 
     <form id="t2v-form" class="t2v-form ai-studio-form">
+      <div class="t2v-wide ai-preset-bar" id="ai-preset-bar">
+        <span class="muted">Presets:</span>
+        <button type="button" data-ai-preset="prod-16x9" title="RTX 3090 production sweet spot: 640p, 6 steps, 4-step Turbo LoRA, 7s, 24fps">🚀 Production (640p · 6 steps · 7s)</button>
+        <button type="button" data-ai-preset="prod-9x16" title="Portrait Short: 9:16, 640p, 6 steps, 7s">📱 Portrait Short (9:16 · 640p · 6 steps)</button>
+        <button type="button" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
+      </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
 
-      <label class="t2v-wide" data-modes="refmod,auto">RefMod Character
+      <label class="ai-model-col" data-modes="refmod,auto">RefMod Character 1 (&lt;Subject 1&gt;)
         <select name="refmod" id="ai-refmod-select">
           <option value="">— Loading RefMods… —</option>
+        </select>
+      </label>
+
+      <label class="ai-model-col" data-modes="refmod">RefMod Character 2 (&lt;Subject 2&gt;, optional)
+        <select name="refmod2" id="ai-refmod2-select">
+          <option value="">— None (single character) —</option>
         </select>
       </label>
 
@@ -93,13 +105,22 @@
         <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
       </label>
 
-      <label class="t2v-wide" data-modes="text-render,refmod">Prompt
+      <div class="t2v-wide" data-modes="text-render,refmod">
+        <div class="ai-prompt-head">
+          <span>Prompt</span>
+          <span class="ai-prompt-helpers">
+            <button type="button" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
+            <button type="button" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
+            <button type="button" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
+            <button type="button" data-prompt-snip="room" title="Insert verbatim room/prop anchor">+ Room anchor</button>
+          </span>
+        </div>
         <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
-      </label>
+      </div>
 
       <div class="t2v-wide ai-compact-row">
         <label class="ai-num" data-modes="text-render,refmod">Length (s)
-          <input name="seconds" type="number" min="1" max="60" step="1" value="4">
+          <input name="seconds" type="number" min="1" max="60" step="1" value="7">
         </label>
 
         <label class="ai-num" data-modes="auto">Start (s)
@@ -107,14 +128,14 @@
         </label>
 
         <label class="ai-num" data-modes="auto">End (s)
-          <input name="end" type="number" min="0.5" step="0.1" value="5">
+          <input name="end" type="number" min="0.5" step="0.1" value="7">
         </label>
 
         <label class="ai-sm" data-modes="text-render,refmod,auto">Resolution
           <select name="resolution">
             <option value="320">320p</option>
-            <option value="480" selected>480p</option>
-            <option value="640">640p</option>
+            <option value="480">480p</option>
+            <option value="640" selected>640p</option>
             <option value="720">720p</option>
           </select>
         </label>
@@ -167,7 +188,7 @@
         </label>
 
         <label class="ai-num">Steps
-          <input name="steps" type="number" min="1" max="100" step="1" value="4" placeholder="auto">
+          <input name="steps" type="number" min="1" max="100" step="1" value="6" placeholder="auto">
         </label>
 
         <label class="ai-sm">Seed

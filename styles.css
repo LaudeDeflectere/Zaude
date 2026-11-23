@@ -658,3 +658,33 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.ai-preset-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ai-preset-bar button {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.ai-prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: #A4A4B8;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+.ai-prompt-helpers {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ai-prompt-helpers button {
+  font-size: 11px;
+  padding: 2px 7px;
+}

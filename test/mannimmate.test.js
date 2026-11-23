@@ -30,16 +30,20 @@ test('mannimmate.buildCommand routes text-render, refmod, auto, and coverage wit
     refmodName: 'Elias Varga',
     identityStrength: 0.9,
     voiceStrength: 0.8,
+    refmod2: 'nadia_krasavica',
+    refmod2Name: 'Nadia Krasavica',
     prompt: 'Elias walks into the studio',
-    seconds: 4,
-    quality: '480',
-    fps: 12,
+    seconds: 7,
+    quality: '640',
+    fps: 24,
+    steps: 6,
     model: 'H3\\Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors',
     dryRun: true,
   }, { outDir: '/tmp/out' });
   assert.equal(rm.ok, true);
   assert.equal(rm.args[0], 'refmod');
   assert.ok(rm.args.includes('elias_varga|Elias Varga|0.9|0.8'));
+  assert.ok(rm.args.includes('nadia_krasavica|Nadia Krasavica|1|1'));
   assert.ok(rm.args.includes('--save-latent'));
 
   const auto = mannimmate.buildCommand({
