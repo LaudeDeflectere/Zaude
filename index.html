@@ -47,6 +47,15 @@
       </div>
     </div>
 
+    <div class="ai-backend-bar" id="ai-backend-bar">
+      <span class="muted">Engine:</span>
+      <div class="ai-backend-switch" role="group" aria-label="Generation Engine">
+        <button type="button" class="on" data-ai-backend="remote" id="ai-backend-remote" title="Generate on remote Tranklena RTX 3090 (MiniMax-H3 · RefMod + Audio)">🌐 Tranklena · MiniMax-H3</button>
+        <button type="button" data-ai-backend="local" id="ai-backend-local" title="Generate locally on this laptop GPU using your installed ComfyUI model">💻 Local · Detecting…</button>
+      </div>
+      <select id="ai-local-model" class="ai-local-model-sel" hidden title="Choose installed local video model"></select>
+    </div>
+
     <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">
       <button type="button" class="on" data-ai-mode="text-render">Text → Video</button>
       <button type="button" data-ai-mode="refmod">RefMod → Video</button>

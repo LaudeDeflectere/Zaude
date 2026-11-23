@@ -9,6 +9,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 let currentMode = 'text-render';
+let currentBackend = 'remote'; // 'remote' (Tranklena MiniMax-H3) | 'local' (this laptop's ComfyUI)
+let localSetup = null;
 let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
 let pendingInsertAt = null;
@@ -256,11 +258,14 @@ function collectRequest() {
   const rawLatent = String(fd.get('latent') || '').trim();
   const isSeedSentinel = rawLatent === '__seed_video__';
   return {
+    backend: currentBackend,
+    localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
     prompt: String(fd.get('prompt') || '').trim(),
-    seconds: Number(fd.get('seconds') || 7),
-    quality: String(fd.get('resolution') || '640'),
+    seconds: Number(fd.get('seconds') || (currentBackend === 'local' ? 4 : 7)),
+    resolution: Number(fd.get('resolution') || (currentBackend === 'local' ? 480 : 640)),
+    quality: String(fd.get('resolution') || (currentBackend === 'local' ? '480' : '640')),
     preset: String(fd.get('quality') || 'normal'),
     aspect: String(fd.get('aspect') || '16:9'),
     fps: Number(fd.get('fps') || 24),
@@ -295,6 +300,23 @@ function collectRequest() {
 
 function updateCommandPreview() {
   const req = collectRequest();
+  if (req.backend === 'local') {
+    const host = (localSetup && localSetup.hostname) || 'Local';
+    const selId = req.localModelId;
+    const mod = (localSetup && localSetup.models && localSetup.models.find((m) => m.id === selId)) || (localSetup && localSetup.defaultModel);
+    const modLabel = mod ? `${mod.label} (${mod.unet})` : 'No local model installed';
+    const badge = $('ai-route-badge');
+    if (badge) {
+      const fl2vNote = (req.firstFrame || req.lastFrame) ? ' · First/Last Frame' : '';
+      badge.textContent = `Route: 💻 ${host} Local · ${modLabel}${fl2vNote}${localSetup && localSetup.comfyRunning ? ' · ComfyUI running' : ' · auto-starts ComfyUI'}`;
+    }
+    const parts = [`ComfyUI (${host} Local)`, mod ? mod.unet : '<install-local-model>', `--res ${req.resolution}p`, `--seconds ${req.seconds}`, `--steps ${req.steps || (mod ? mod.defaultSteps : 8)}`];
+    if (req.firstFrame) parts.push('--first-frame', req.firstFrame.split(/[\\/]/).pop());
+    if (req.lastFrame) parts.push('--last-frame', req.lastFrame.split(/[\\/]/).pop());
+    const el = $('ai-cmd-preview');
+    if (el) el.textContent = parts.join(' ');
+    return;
+  }
   const parts = ['python3', 'mannimmate_cli.py', req.mode];
   if (req.mode === 'text-render') {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
@@ -344,7 +366,61 @@ function updateCommandPreview() {
   if (el) el.textContent = parts.join(' ');
 }
 
+async function refreshLocalInfo() {
+  if (!api || !api.localInfo) return;
+  try {
+    localSetup = await api.localInfo();
+  } catch {
+    localSetup = null;
+  }
+  const btn = $('ai-backend-local');
+  const sel = $('ai-local-model');
+  if (!btn) return;
+  const host = (localSetup && localSetup.hostname) || 'Local';
+  const def = localSetup && localSetup.defaultModel;
+  btn.textContent = def ? `💻 ${host} · ${def.label}` : `💻 ${host} · No Local Model`;
+  if (sel) {
+    const readyModels = (localSetup && localSetup.models ? localSetup.models.filter((m) => m.ready) : []);
+    sel.innerHTML = readyModels.map((m) => `<option value="${esc(m.id)}">${esc(m.label)} (${esc(m.unet)})</option>`).join('');
+    sel.hidden = currentBackend !== 'local' || readyModels.length <= 1;
+  }
+  if (currentBackend === 'local') updateCommandPreview();
+}
+
+function setBackend(next) {
+  currentBackend = next === 'local' ? 'local' : 'remote';
+  document.querySelectorAll('[data-ai-backend]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.aiBackend === currentBackend);
+  });
+  const form = $('t2v-form');
+  const sel = $('ai-local-model');
+  const readyModels = (localSetup && localSetup.models ? localSetup.models.filter((m) => m.ready) : []);
+  if (sel) sel.hidden = currentBackend !== 'local' || readyModels.length <= 1;
+
+  if (currentBackend === 'local') {
+    const def = (localSetup && localSetup.defaultModel);
+    if (form) {
+      form.elements.resolution.value = '480';
+      form.elements.seconds.value = '4';
+      form.elements.steps.value = String(def ? def.defaultSteps : 8);
+    }
+    const host = (localSetup && localSetup.hostname) || 'Local';
+    setStatus(def
+      ? `Switched to 💻 ${host} Local (${def.label}) — 480p · 4s · ${def.defaultSteps} steps.`
+      : `No local model detected on ${host}. Click "🖥️ Local GPU" to install one.`, !def);
+  } else {
+    if (form) {
+      form.elements.resolution.value = '640';
+      form.elements.seconds.value = '7';
+      form.elements.steps.value = '6';
+    }
+    setStatus('Switched to 🌐 Tranklena · MiniMax-H3 (640p · 7s · 6 steps).');
+  }
+  updateCommandPreview();
+}
+
 async function loadOptionsAndRefMods() {
+  refreshLocalInfo();
   if (!api || !api.refmodsList) return;
   const dir = $('t2v-form').elements.mannimmateDir.value.trim();
   setStatus('Loading RefMods & Mannimmate models…');
@@ -427,26 +503,35 @@ async function onSubmit() {
   if (req.mannimmateDir) await api.setSettings({ mannimmateDir: req.mannimmateDir });
 
   // Basic client-side check before closing so errors show right inside the popup
-  if ((req.mode === 'text-render' || req.mode === 'refmod') && !req.prompt) {
-    return setStatus('Write a prompt first.', true);
-  }
-  if (req.mode === 'refmod' && req.refmodMode !== 'continue' && !req.refmod && !req.firstFrame && !req.lastFrame) {
-    return setStatus('Click a RefMod character square (or pick First/Last frames) first.', true);
-  }
-  if (req.mode === 'refmod' && req.refmodMode === 'continue' && !req.latent && !req.seedVideo) {
-    return setStatus('Pick a saved latent or right-click a clip → FrameContinue.', true);
-  }
-  if (req.mode === 'auto' && !req.video) {
-    return setStatus('Pick a source video (or click "🎯 Pick from Timeline") first.', true);
-  }
-  if (req.mode === 'auto' && (req.stylizeAction === 'replace' || req.stylizeAction === 'both') && !req.refmod && !req.ref) {
-    return setStatus('Select a RefMod character square (or reference image) to replace the character.', true);
-  }
-  if (req.mode === 'auto' && (req.stylizeAction === 'object' || req.stylizeAction === 'both') && !req.objectPrompt && !req.ref) {
-    return setStatus('Describe the object or scene change you want to add.', true);
-  }
-  if (req.mode === 'coverage' && !req.image) {
-    return setStatus('Pick a scene reference image first.', true);
+  if (req.backend === 'local') {
+    if (!req.prompt && !req.objectPrompt) {
+      return setStatus('Write a prompt first.', true);
+    }
+    if (!localSetup || !localSetup.defaultModel || !localSetup.defaultModel.ready) {
+      return setStatus('No local video model installed yet. Click "🖥️ Local GPU" in the top bar to install LTX-Video 2B.', true);
+    }
+  } else {
+    if ((req.mode === 'text-render' || req.mode === 'refmod') && !req.prompt) {
+      return setStatus('Write a prompt first.', true);
+    }
+    if (req.mode === 'refmod' && req.refmodMode !== 'continue' && !req.refmod && !req.firstFrame && !req.lastFrame) {
+      return setStatus('Click a RefMod character square (or pick First/Last frames) first.', true);
+    }
+    if (req.mode === 'refmod' && req.refmodMode === 'continue' && !req.latent && !req.seedVideo) {
+      return setStatus('Pick a saved latent or right-click a clip → FrameContinue.', true);
+    }
+    if (req.mode === 'auto' && !req.video) {
+      return setStatus('Pick a source video (or click "🎯 Pick from Timeline") first.', true);
+    }
+    if (req.mode === 'auto' && (req.stylizeAction === 'replace' || req.stylizeAction === 'both') && !req.refmod && !req.ref) {
+      return setStatus('Select a RefMod character square (or reference image) to replace the character.', true);
+    }
+    if (req.mode === 'auto' && (req.stylizeAction === 'object' || req.stylizeAction === 'both') && !req.objectPrompt && !req.ref) {
+      return setStatus('Describe the object or scene change you want to add.', true);
+    }
+    if (req.mode === 'coverage' && !req.image) {
+      return setStatus('Pick a scene reference image first.', true);
+    }
   }
 
   const result = await api.mannimmateStart(req);
@@ -739,6 +824,13 @@ function init() {
       e.stopPropagation();
       updateSquarePreview(clearBtn.dataset.clearSlot, '', null);
       updateCommandPreview();
+      return;
+    }
+
+    // 1-click Remote (Tranklena MiniMax) ↔ Local (Rizzar LTX/Wan) backend toggle
+    const backendBtn = e.target.closest('[data-ai-backend]');
+    if (backendBtn) {
+      setBackend(backendBtn.dataset.aiBackend);
       return;
     }
 

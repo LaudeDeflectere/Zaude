@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   startTextToVideo: (input) => ipcRenderer.invoke('ai:textToVideo:start', input),
   cancelTextToVideo: (id) => ipcRenderer.invoke('ai:textToVideo:cancel', id),
   mannimmateOptions: (dir) => ipcRenderer.invoke('ai:mannimmate:options', dir),
+  localInfo: () => ipcRenderer.invoke('ai:local:info'),
   mannimmateDoctor: (dir) => ipcRenderer.invoke('ai:mannimmate:doctor', dir),
   mannimmateStart: (input) => ipcRenderer.invoke('ai:mannimmate:start', input),
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),

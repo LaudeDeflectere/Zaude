@@ -1419,3 +1419,46 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   font-size: 10px;
   color: #93c5fd;
 }
+
+/* 1-Click Remote (Tranklena) ↔ Local (Rizzar) Engine Switcher */
+.ai-backend-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ai-backend-switch {
+  display: inline-flex;
+  background: #0d0f18;
+  border: 1px solid #2e334a;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 3px;
+}
+.ai-backend-switch button {
+  border: none !important;
+  background: transparent !important;
+  color: #a5acc4;
+  padding: 5px 11px !important;
+  border-radius: 6px !important;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ai-backend-switch button.on[data-ai-backend="remote"] {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+  color: #ffffff !important;
+}
+.ai-backend-switch button.on[data-ai-backend="local"] {
+  background: linear-gradient(135deg, #059669, #0ea5e9) !important;
+  color: #ffffff !important;
+}
+.ai-local-model-sel {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #2e334a;
+  background: #101320;
+  color: #e2e8f0;
+  font-size: 11px;
+}

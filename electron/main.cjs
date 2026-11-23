@@ -253,6 +253,7 @@ const textToVideo = require('./text-to-video.cjs');
 const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
 const frameToFrame = require('./frame-to-frame.cjs');
+const localRunner = require('./local-runner.cjs');
 const latentsLib = require('./latents.cjs');
 const systemAdvisor = require('./system-advisor.cjs');
 const os = require('node:os');
@@ -371,7 +372,8 @@ function registerAiHandlers() {
     if (activeJob || !jobQueue.length) return;
     const next = jobQueue.shift();
     const { id, input, mannimmateDir, settings, send, estSec } = next;
-    const useFl2v = input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
+    const useLocal = Boolean(input && input.backend === 'local');
+    const useFl2v = !useLocal && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
     const onEv = (ev) => {
       if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
       if (ev.type === 'preview' && ev.previewPath) {
@@ -381,7 +383,23 @@ function registerAiHandlers() {
         send(ev);
       }
     };
-    const job = useFl2v
+    const job = useLocal
+      ? localRunner.runLocalVideo({
+          modelId: input.localModelId || '',
+          prompt: input.prompt || input.objectPrompt || '',
+          firstFrame: input.firstFrame || '',
+          lastFrame: input.lastFrame || '',
+          seconds: input.seconds || 4,
+          resolution: input.resolution || 480,
+          aspect: input.aspect || '16:9',
+          steps: input.steps || 0,
+          seed: input.seed || 1001,
+          outDir: settings.outDir,
+          previewDir: previewRoot(),
+          jobId: id,
+          onEvent: onEv,
+        })
+      : useFl2v
       ? frameToFrame.runFrameToFrame({
           request: input,
           previewDir: previewRoot(),
@@ -673,6 +691,8 @@ function registerAiHandlers() {
     const mannimmateDir = String(dirOverride || '').trim() || settings.mannimmateDir;
     return mannimmate.fetchOptions({ mannimmateDir, python: settings.python });
   });
+
+  ipcMain.handle('ai:local:info', () => localRunner.detectLocalSetup());
 
   ipcMain.handle('ai:mannimmate:doctor', async (_e, dirOverride) => {
     const settings = loadSettings();
