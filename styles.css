@@ -725,6 +725,14 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   border-color: #a78bfa;
   box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.55);
 }
+.refmod-tile.sel-3 {
+  border-color: #34d399;
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.55);
+}
+.refmod-tile.sel-4 {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.55);
+}
 .refmod-headshot,
 .refmod-walk {
   position: absolute;
@@ -782,6 +790,12 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 }
 .refmod-tile.sel-2 .refmod-slot-badge {
   background: #a78bfa;
+}
+.refmod-tile.sel-3 .refmod-slot-badge {
+  background: #34d399;
+}
+.refmod-tile.sel-4 .refmod-slot-badge {
+  background: #fbbf24;
 }
 .refmod-gen-btn {
   position: absolute;

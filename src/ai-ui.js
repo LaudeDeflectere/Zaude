@@ -88,7 +88,7 @@ function renderRefModGrid() {
 
   const cards = refmodEntries.map((item, idx) => {
     const selIdx = selectedRefmods.indexOf(item.file);
-    const selCls = selIdx === 0 ? ' sel-1' : selIdx === 1 ? ' sel-2' : '';
+    const selCls = selIdx >= 0 ? ` sel-any sel-${(selIdx % 4) + 1}` : '';
     const badge = selIdx >= 0 ? `<span class="refmod-slot-badge">${selIdx + 1}</span>` : '';
     const label = item.firstName || `Subject ${idx + 1}`;
     const qPos = queuedRefmodSlugs.indexOf(item.slug);
@@ -178,10 +178,19 @@ function applyModeVisibility() {
 function collectRequest() {
   const form = $('t2v-form');
   const fd = new FormData(form);
-  const refmodFile = selectedRefmods[0] || '';
-  const refmod2File = selectedRefmods[1] || '';
-  const m1 = refmodEntries.find((m) => m.file === refmodFile);
-  const m2 = refmodEntries.find((m) => m.file === refmod2File);
+  const idStrength = fd.get('identityStrength') !== '' ? Number(fd.get('identityStrength')) : 1.0;
+  const voiceStrength = fd.get('voiceStrength') !== '' ? Number(fd.get('voiceStrength')) : 1.0;
+  const refmods = selectedRefmods.map((file, idx) => {
+    const m = refmodEntries.find((x) => x.file === file);
+    return {
+      file,
+      name: m ? (m.name || m.firstName) : `Subject ${idx + 1}`,
+      identityStrength: idStrength,
+      voiceStrength,
+    };
+  });
+  const first = refmods[0] || null;
+  const second = refmods[1] || null;
   return {
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
@@ -196,13 +205,14 @@ function collectRequest() {
     model: String(fd.get('model') || '').trim(),
     lora: String(fd.get('lora') || '').trim(),
     ref: String(fd.get('ref') || '').trim(),
-    refmod: refmodFile,
-    refmodName: m1 ? (m1.name || m1.firstName) : '',
-    refmod2: refmod2File,
-    refmod2Name: m2 ? (m2.name || m2.firstName) : '',
+    refmods,
+    refmod: first ? first.file : '',
+    refmodName: first ? first.name : '',
+    refmod2: second ? second.file : '',
+    refmod2Name: second ? second.name : '',
     refmodMode: String(fd.get('refmodMode') || 'generate'),
-    identityStrength: fd.get('identityStrength') !== '' ? Number(fd.get('identityStrength')) : 1.0,
-    voiceStrength: fd.get('voiceStrength') !== '' ? Number(fd.get('voiceStrength')) : 1.0,
+    identityStrength: idStrength,
+    voiceStrength,
     latent: String(fd.get('latent') || '').trim(),
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
@@ -221,8 +231,14 @@ function updateCommandPreview() {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
     if (req.ref) parts.push('--ref', req.ref);
   } else if (req.mode === 'refmod') {
-    parts.push('--mode', req.refmodMode, '--refmod', `"${req.refmod || '<refmod>'}|${req.refmodName || 'Subject 1'}|${req.identityStrength}|${req.voiceStrength}"`);
-    if (req.refmod2) parts.push('--refmod', `"${req.refmod2}|${req.refmod2Name || 'Subject 2'}|1|1"`);
+    parts.push('--mode', req.refmodMode);
+    if (req.refmods && req.refmods.length) {
+      for (const r of req.refmods) {
+        parts.push('--refmod', `"${r.file}|${r.name}|${r.identityStrength}|${r.voiceStrength}"`);
+      }
+    } else {
+      parts.push('--refmod', `"<refmod>|Subject 1|${req.identityStrength}|${req.voiceStrength}"`);
+    }
     parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
     if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
   } else if (req.mode === 'auto') {
@@ -506,7 +522,7 @@ function init() {
       return;
     }
 
-    // RefMod square tile selection (Subject 1 / Subject 2)
+    // RefMod square tile selection (unlimited <Subject 1..N> in refmod mode, 1 in auto mode)
     const refTile = e.target.closest('.refmod-tile[data-refmod-tile]');
     if (refTile) {
       const file = refTile.dataset.refmodTile;
@@ -516,7 +532,6 @@ function init() {
       } else if (currentMode === 'auto') {
         selectedRefmods = [file];
       } else {
-        if (selectedRefmods.length >= 2) selectedRefmods.shift();
         selectedRefmods.push(file);
       }
       renderRefModGrid();
@@ -571,9 +586,9 @@ function init() {
     if (snipBtn) {
       const ta = $('t2v-form').elements.prompt;
       const req = collectRequest();
-      const s1 = req.refmodName || 'Subject 1';
-      const s2 = req.refmod2Name || '';
-      const vis = s2 ? `${s1}, ${s2}` : s1;
+      const names = (req.refmods && req.refmods.length ? req.refmods.map((r) => r.name) : ['Subject 1']);
+      const s1 = names[0];
+      const vis = names.join(', ');
       const snips = {
         dialogue: `\nDialogue window [0.5-3.5s] ${s1} says: "..."\nRefMod usage: visible=${vis}; speaking=${s1}`,
         outfit: `\nNOT in default outfit, instead wearing `,

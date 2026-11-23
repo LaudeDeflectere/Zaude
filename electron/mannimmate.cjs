@@ -80,35 +80,48 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
 
   if (mode === 'refmod') {
     const prompt = String((input && input.prompt) || '').trim();
-    const refmodFile = String((input && input.refmod) || '').trim();
-    const refmodName = String((input && input.refmodName) || refmodFile.split(/[\\/]/).pop() || 'Subject').trim();
     const idStrength = input && input.identityStrength != null && input.identityStrength !== '' ? Number(input.identityStrength) : 1.0;
     const voiceStrength = input && input.voiceStrength != null && input.voiceStrength !== '' ? Number(input.voiceStrength) : 1.0;
-    const refmod2File = String((input && input.refmod2) || '').trim();
-    const refmod2Name = String((input && input.refmod2Name) || refmod2File.split(/[\\/]/).pop() || 'Subject 2').trim();
-    const id2Strength = input && input.identity2Strength != null && input.identity2Strength !== '' ? Number(input.identity2Strength) : 1.0;
-    const voice2Strength = input && input.voice2Strength != null && input.voice2Strength !== '' ? Number(input.voice2Strength) : 1.0;
     const subMode = input && input.refmodMode === 'continue' ? 'continue' : 'generate';
     const quality = String((input && input.quality) || '640');
     const seconds = Number((input && input.seconds) || 7);
     const fps = [6, 12, 24].includes(Number(input && input.fps)) ? Number(input.fps) : 24;
     const latent = String((input && input.latent) || '').trim();
 
-    if (!refmodFile) return { ok: false, error: 'Pick a RefMod character from the list.' };
+    // Support repeatable `refmods: [{ file, name, identityStrength?, voiceStrength? }, ...]`
+    // as well as legacy `refmod` / `refmod2` fields.
+    const slots = [];
+    if (Array.isArray(input && input.refmods) && input.refmods.length) {
+      input.refmods.forEach((r, idx) => {
+        const f = String((r && r.file) || '').trim();
+        if (!f) return;
+        const n = String((r && r.name) || f.split(/[\\/]/).pop() || `Subject ${idx + 1}`).trim();
+        const idS = r && r.identityStrength != null ? Number(r.identityStrength) : idStrength;
+        const vS = r && r.voiceStrength != null ? Number(r.voiceStrength) : voiceStrength;
+        slots.push(`${f}|${n}|${Math.max(0, Math.min(1, idS))}|${Math.max(0, Math.min(1, vS))}`);
+      });
+    } else {
+      const f1 = String((input && input.refmod) || '').trim();
+      if (f1) {
+        const n1 = String((input && input.refmodName) || f1.split(/[\\/]/).pop() || 'Subject 1').trim();
+        slots.push(`${f1}|${n1}|${Math.max(0, Math.min(1, idStrength))}|${Math.max(0, Math.min(1, voiceStrength))}`);
+      }
+      const f2 = String((input && input.refmod2) || '').trim();
+      if (f2) {
+        const n2 = String((input && input.refmod2Name) || f2.split(/[\\/]/).pop() || 'Subject 2').trim();
+        const id2 = input && input.identity2Strength != null && input.identity2Strength !== '' ? Number(input.identity2Strength) : idStrength;
+        const v2 = input && input.voice2Strength != null && input.voice2Strength !== '' ? Number(input.voice2Strength) : voiceStrength;
+        slots.push(`${f2}|${n2}|${Math.max(0, Math.min(1, id2))}|${Math.max(0, Math.min(1, v2))}`);
+      }
+    }
+
+    if (!slots.length) return { ok: false, error: 'Pick at least one RefMod character from the grid.' };
     if (!prompt) return { ok: false, error: 'Write a scene prompt for the RefMod clip.' };
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > 30) {
       return { ok: false, error: 'Seconds must be between 1 and 30.' };
     }
-    const slot1 = `${refmodFile}|${refmodName}|${Math.max(0, Math.min(1, idStrength))}|${Math.max(0, Math.min(1, voiceStrength))}`;
-    const args = [
-      'refmod',
-      '--mode', subMode,
-      '--refmod', slot1,
-    ];
-    if (refmod2File) {
-      const slot2 = `${refmod2File}|${refmod2Name}|${Math.max(0, Math.min(1, id2Strength))}|${Math.max(0, Math.min(1, voice2Strength))}`;
-      args.push('--refmod', slot2);
-    }
+    const args = ['refmod', '--mode', subMode];
+    for (const slot of slots) args.push('--refmod', slot);
     args.push(
       '--prompt', prompt,
       '--quality', quality,

@@ -30,13 +30,12 @@ test('mannimmate.buildCommand routes text-render, refmod, auto, and coverage wit
 
   const rm = mannimmate.buildCommand({
     mode: 'refmod',
-    refmod: 'elias_varga',
-    refmodName: 'Elias Varga',
-    identityStrength: 0.9,
-    voiceStrength: 0.8,
-    refmod2: 'nadia_krasavica',
-    refmod2Name: 'Nadia Krasavica',
-    prompt: 'Elias walks into the studio',
+    refmods: [
+      { file: 'elias_varga', name: 'Elias Varga', identityStrength: 0.9, voiceStrength: 0.8 },
+      { file: 'nadia_krasavica', name: 'Nadia Krasavica', identityStrength: 1, voiceStrength: 1 },
+      { file: 'tony_sheen', name: 'Tony Sheen', identityStrength: 0.95, voiceStrength: 0.9 },
+    ],
+    prompt: 'Elias, Nadia, and Tony walk into the studio',
     seconds: 7,
     quality: '640',
     fps: 24,
@@ -48,6 +47,7 @@ test('mannimmate.buildCommand routes text-render, refmod, auto, and coverage wit
   assert.equal(rm.args[0], 'refmod');
   assert.ok(rm.args.includes('elias_varga|Elias Varga|0.9|0.8'));
   assert.ok(rm.args.includes('nadia_krasavica|Nadia Krasavica|1|1'));
+  assert.ok(rm.args.includes('tony_sheen|Tony Sheen|0.95|0.9'));
   assert.ok(rm.args.includes('--save-latent'));
 
   const auto = mannimmate.buildCommand({
