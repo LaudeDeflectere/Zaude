@@ -5,7 +5,7 @@
 //   - auto        (Video Restyle, H3 Ref2VA models + driving source video + ref image/RefMod)
 //   - coverage    (Multishot Coverage, H3 Ref2VA models + single reference image -> 8 views)
 // Plus live option discovery (`refmod-options --json`) and diagnostics (`doctor --json`).
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildPromptFile } = require('./text-to-video.cjs');
@@ -138,7 +138,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     );
     if (subMode === 'continue') {
       if (latent) args.push('--latent', latent);
-      else if (seedVideo) args.push('--seed-video', seedVideo);
+      else if (seedVideo) args.push('--seed-video', seedVideo, '--tail-seconds', '2.0');
     }
     args.push(...commonTail());
     return { ok: true, mode, args };
@@ -506,6 +506,41 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
         if (!savedLatent && savedPath) {
           const fromSidecar = require('./latents.cjs').findClipLatent(savedPath);
           if (fromSidecar && fromSidecar.latent) savedLatent = fromSidecar.latent;
+        }
+        // When continuing from --seed-video (no saved H3 latent), Mannimmate stitches the entire
+        // original source clip onto the front of the output MP4. Trim off the prepended source
+        // duration so Zaude only inserts the brand-new continuation segment onto the timeline.
+        const usedSeedVideo = Boolean(
+          request && request.mode === 'refmod' && request.refmodMode === 'continue'
+          && !request.latent && request.seedVideo && !request.dryRun && savedPath && fs.existsSync(savedPath)
+        );
+        if (usedSeedVideo && fs.existsSync(request.seedVideo)) {
+          try {
+            const probeDur = (p) => {
+              const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', p], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+              return Number(String(r.stdout || '').trim()) || 0;
+            };
+            const srcDur = probeDur(request.seedVideo);
+            const outDur = probeDur(savedPath);
+            if (srcDur > 0.5 && outDur > srcDur + 0.5) {
+              const parsed = path.parse(savedPath);
+              const trimmedPath = path.join(parsed.dir, `${parsed.name}_next.mp4`);
+              const trimRes = spawnSync('ffmpeg', [
+                '-y', '-ss', srcDur.toFixed(3), '-i', savedPath,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+                '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
+                trimmedPath,
+              ], { encoding: 'utf8', timeout: 60000, windowsHide: true });
+              if (trimRes.status === 0 && fs.existsSync(trimmedPath) && fs.statSync(trimmedPath).size > 1024) {
+                const origSidecar = path.join(parsed.dir, `${parsed.name}.json`);
+                const nextSidecar = path.join(parsed.dir, `${parsed.name}_next.json`);
+                if (fs.existsSync(origSidecar)) {
+                  try { fs.copyFileSync(origSidecar, nextSidecar); } catch { /* ignore */ }
+                }
+                savedPath = trimmedPath;
+              }
+            }
+          } catch { /* keep stitched output if trim fails */ }
         }
         return resolve({ ok: true, code, path: savedPath, latent: savedLatent, dryRun: Boolean(request && request.dryRun) });
       }
