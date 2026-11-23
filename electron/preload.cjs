@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   localInfo: () => ipcRenderer.invoke('ai:local:info'),
   mannimmateDoctor: (dir) => ipcRenderer.invoke('ai:mannimmate:doctor', dir),
   mannimmateStart: (input) => ipcRenderer.invoke('ai:mannimmate:start', input),
+  upscaleClips: (input) => ipcRenderer.invoke('ai:upscaleClips', input),
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
   extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
   clipLatent: (filePath) => ipcRenderer.invoke('ai:clipLatent', filePath),

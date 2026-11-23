@@ -738,6 +738,54 @@ export function createActions(store, engine) {
   // ---------- AI: text to video placeholder on the timeline ----------
 
   function generationEvent(d) {
+    // In-place multi-clip Upscale & Face-Fix updates an existing timeline clip without moving it
+    if (d && d.replaceClipId) {
+      const targetId = d.replaceClipId;
+      const s = get();
+      if (d.type === 'start' || d.type === 'progress' || d.type === 'preview' || d.type === 'queue') {
+        store.set({
+          clips: s.clips.map((c) => (c.id === targetId ? {
+            ...c,
+            upscaling: true,
+            upscaleJobId: d.id || c.upscaleJobId,
+            progress: typeof d.progress === 'number' ? d.progress : c.progress,
+            queuePos: d.queuePos ?? c.queuePos,
+          } : c)),
+          log: d.label || s.log,
+        });
+      } else if (d.type === 'done' && d.path) {
+        const upName = d.path.split(/[\\/]/).pop();
+        store.set({
+          clips: s.clips.map((c) => (c.id === targetId ? {
+            ...c,
+            path: d.path,
+            name: c.name.includes('✨') ? c.name : `${c.name} ✨`,
+            latent: d.latent || c.latent || undefined,
+            latentLabel: d.latentLabel || c.latentLabel || undefined,
+            upscaling: false,
+            upscaleJobId: undefined,
+            progress: undefined,
+            queuePos: undefined,
+          } : c)),
+          log: `Upscaled clip → ${upName}`,
+        });
+        scheduleSave();
+        if (engine && typeof engine.sync === 'function') engine.sync();
+      } else if (d.type === 'error' || d.type === 'cancelled') {
+        store.set({
+          clips: s.clips.map((c) => (c.id === targetId ? {
+            ...c,
+            upscaling: false,
+            upscaleJobId: undefined,
+            progress: undefined,
+            queuePos: undefined,
+          } : c)),
+          log: d.type === 'cancelled' ? 'Upscale cancelled' : `Upscale failed: ${d.message || 'unknown error'}`,
+        });
+      }
+      return;
+    }
+
     const id = 'gen-' + d.id;
     if (d.type === 'start') {
       const s = get();

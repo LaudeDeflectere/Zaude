@@ -254,6 +254,7 @@ const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
 const frameToFrame = require('./frame-to-frame.cjs');
 const localRunner = require('./local-runner.cjs');
+const upscaleLib = require('./upscale.cjs');
 const latentsLib = require('./latents.cjs');
 const systemAdvisor = require('./system-advisor.cjs');
 const os = require('node:os');
@@ -373,50 +374,92 @@ function registerAiHandlers() {
     const next = jobQueue.shift();
     const { id, input, mannimmateDir, settings, send, estSec } = next;
     const useLocal = Boolean(input && input.backend === 'local');
-    const useFl2v = !useLocal && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
+    const useEsrgan = Boolean(input && input.mode === 'upscale-esrgan');
+    const useRefmodUpscale = Boolean(input && input.mode === 'upscale-refmod');
+    const useFl2v = !useLocal && !useEsrgan && !useRefmodUpscale && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
     const onEv = (ev) => {
       if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
+      const extra = input && input.replaceClipId ? { replaceClipId: input.replaceClipId } : {};
       if (ev.type === 'preview' && ev.previewPath) {
         pickedMediaDirs.add(path.dirname(ev.previewPath));
-        send({ ...ev, previewUrl: mediaUrlFor(ev.previewPath) });
+        send({ ...ev, ...extra, previewUrl: mediaUrlFor(ev.previewPath) });
       } else {
-        send(ev);
+        send({ ...ev, ...extra });
       }
     };
-    const job = useLocal
-      ? localRunner.runLocalVideo({
-          modelId: input.localModelId || '',
-          prompt: input.prompt || input.objectPrompt || '',
-          firstFrame: input.firstFrame || '',
-          lastFrame: input.lastFrame || '',
-          seconds: input.seconds || 4,
-          resolution: input.resolution || 480,
-          aspect: input.aspect || '16:9',
-          steps: input.steps || 0,
-          seed: input.seed || 1001,
-          outDir: settings.outDir,
-          previewDir: previewRoot(),
-          jobId: id,
-          onEvent: onEv,
-        })
-      : useFl2v
-      ? frameToFrame.runFrameToFrame({
-          request: input,
-          previewDir: previewRoot(),
-          jobId: id,
-          outDir: settings.outDir,
-          onEvent: onEv,
-        })
-      : mannimmate.runJob({
-          mannimmateDir,
-          python: settings.python,
-          request: input,
-          promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
-          previewDir: previewRoot(),
-          jobId: id,
-          outDir: settings.outDir,
-          onEvent: onEv,
-        });
+    let job;
+    if (useEsrgan) {
+      job = upscaleLib.runEsrganUpscale({
+        videoPath: input.video,
+        outDir: settings.outDir,
+        previewDir: previewRoot(),
+        jobId: id,
+        onEvent: onEv,
+      });
+    } else if (useRefmodUpscale) {
+      const meta = upscaleLib.readClipMeta(input.video);
+      const startSec = Math.max(0, Number(input.start) || 0);
+      const endSec = Math.max(startSec + 0.5, Number(input.end) || meta.duration || 5);
+      const refineReq = {
+        mode: 'auto',
+        video: input.video,
+        start: startSec,
+        end: endSec,
+        quality: String(input.quality || '640'),
+        preset: 'normal',
+        stylizeAction: meta.refmods.length ? 'both' : 'object',
+        refmods: meta.refmods,
+        refmod: meta.refmods[0] ? meta.refmods[0].file : '',
+        refmodName: meta.refmods[0] ? meta.refmods[0].name : '',
+        objectPrompt: upscaleLib.buildRefinePrompt(meta),
+        backgroundMode: 'keep',
+      };
+      job = mannimmate.runJob({
+        mannimmateDir,
+        python: settings.python,
+        request: refineReq,
+        promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+        previewDir: previewRoot(),
+        jobId: id,
+        outDir: settings.outDir,
+        onEvent: onEv,
+      });
+    } else if (useLocal) {
+      job = localRunner.runLocalVideo({
+        modelId: input.localModelId || '',
+        prompt: input.prompt || input.objectPrompt || '',
+        firstFrame: input.firstFrame || '',
+        lastFrame: input.lastFrame || '',
+        seconds: input.seconds || 4,
+        resolution: input.resolution || 480,
+        aspect: input.aspect || '16:9',
+        steps: input.steps || 0,
+        seed: input.seed || 1001,
+        outDir: settings.outDir,
+        previewDir: previewRoot(),
+        jobId: id,
+        onEvent: onEv,
+      });
+    } else if (useFl2v) {
+      job = frameToFrame.runFrameToFrame({
+        request: input,
+        previewDir: previewRoot(),
+        jobId: id,
+        outDir: settings.outDir,
+        onEvent: onEv,
+      });
+    } else {
+      job = mannimmate.runJob({
+        mannimmateDir,
+        python: settings.python,
+        request: input,
+        promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+        previewDir: previewRoot(),
+        jobId: id,
+        outDir: settings.outDir,
+        onEvent: onEv,
+      });
+    }
     activeJob = { id, cancel: job.cancel, send, estSec, remainingEta: estSec };
     broadcastQueueStatus();
     job.promise.then((result) => {
@@ -434,13 +477,14 @@ function registerAiHandlers() {
         send({
           type: 'done',
           path: result.path,
+          replaceClipId: (input && input.replaceClipId) || null,
           latent: result.latent || null,
           latentLabel,
           dryRun: Boolean(result.dryRun),
           code: result.code,
         });
       } else {
-        send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
+        send({ type: result.cancelled ? 'cancelled' : 'error', replaceClipId: (input && input.replaceClipId) || null, message: result.error, code: result.code });
       }
       pumpJobQueue();
       broadcastQueueStatus();
@@ -744,6 +788,37 @@ function registerAiHandlers() {
     pumpJobQueue();
     broadcastQueueStatus();
     return { ok: true, id, queuePos, etaSec: estSec };
+  });
+
+  // Queue 1 or more selected timeline clips for Upscale & Face-Fix (RefMod 2nd Pass or Fast RealESRGAN 2×).
+  ipcMain.handle('ai:upscaleClips', (event, { clips = [], method = 'refmod-refine', quality = '640' } = {}) => {
+    const settings = loadSettings();
+    const mannimmateDir = settings.mannimmateDir;
+    const valid = (Array.isArray(clips) ? clips : []).filter((c) => c && c.clipId && c.path && fs.existsSync(c.path));
+    if (!valid.length) return { ok: false, error: 'No valid video clips selected to upscale.' };
+    const mode = method === 'esrgan-2x' ? 'upscale-esrgan' : 'upscale-refmod';
+    const jobs = [];
+    for (const c of valid) {
+      const id = crypto.randomUUID();
+      const send = (payload) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:job', { id, ...payload });
+      };
+      const input = {
+        mode,
+        video: c.path,
+        start: Number(c.start) || 0,
+        end: Number(c.end) || 0,
+        quality: String(quality || '640'),
+        replaceClipId: c.clipId,
+      };
+      const estSec = method === 'esrgan-2x' ? 25 : 240;
+      const queuePos = (activeJob ? 1 : 0) + jobQueue.length + 1;
+      jobQueue.push({ id, input, mannimmateDir, settings, send, estSec });
+      jobs.push({ id, clipId: c.clipId, queuePos, etaSec: estSec });
+    }
+    pumpJobQueue();
+    broadcastQueueStatus();
+    return { ok: true, jobs };
   });
 
   // Gives the editor a URL it can play. Only files inside the output folders are allowed.

@@ -575,7 +575,7 @@ async function onSubmit() {
 
 function onJob(payload) {
   const info = trackedJobs.get(payload.id);
-  if (!info) return;
+  if (!info && !payload.replaceClipId) return;
   if (payload.type === 'cmd') {
     appendLog('CMD', payload.cmd);
     return;
@@ -588,7 +588,7 @@ function onJob(payload) {
     appendLog('ERR', payload.text);
     return;
   }
-  notifyEditor({ ...payload, dryRun: info.dryRun });
+  notifyEditor({ ...payload, dryRun: Boolean(info && info.dryRun) });
   if (payload.type === 'done' || payload.type === 'cancelled' || payload.type === 'error') {
     if (payload.type === 'done' && payload.latent && payload.latentLabel) {
       latentNames[payload.latent] = payload.latentLabel;

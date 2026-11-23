@@ -840,6 +840,9 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
     const isVideo = clip.kind === 'video';
     const canFrameContinue = isVideo && Boolean(clip.path) && Boolean(window.__zaudeOpenFrameContinue);
+    const upscaleTargets = selVideoClips.length ? selVideoClips : (isVideo && clip.path ? [clip] : []);
+    const canUpscale = upscaleTargets.length > 0 && Boolean(window.zaudeAI && window.zaudeAI.upscaleClips);
+    const upSuffix = upscaleTargets.length > 1 ? ` (${upscaleTargets.length} clips)` : '';
     const isMedia = isVideo || clip.kind === 'audio';
     const canSeparate = isVideo && clip.hasAudio !== false && !clip.muted;
     const sepReason = !isVideo ? '' : clip.hasAudio === false ? ' (no audio)' : clip.muted ? ' (already separated / muted)' : '';
@@ -848,10 +851,12 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     ctxMenu.className = 'menu clip-ctx-menu';
     ctxMenu.setAttribute('role', 'menu');
     ctxMenu.innerHTML = `
-      <div class="menu-title">${esc(selVideoClips.length === 2 ? `${selVideoClips[0].name} → ${selVideoClips[1].name}` : clip.name)}</div>
+      <div class="menu-title">${esc(selVideoClips.length >= 2 ? `${selVideoClips.length} video clips selected` : clip.name)}</div>
       ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button>' : ''}
       ${canFrameContinue ? `<button role="menuitem" data-ctx="frame-continue" class="menu-ai">✨ FrameContinue${clip.latent ? ' (latent)' : ''}</button>` : ''}
-      ${(canFrameToFrame || canFrameContinue) ? '<div class="menu-sep"></div>' : ''}
+      ${canUpscale ? `<button role="menuitem" data-ctx="upscale-refmod" class="menu-ai">✨ Upscale &amp; Fix Faces · 640p${upSuffix}</button>` : ''}
+      ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">⚡ Fast 2× Upscale · RealESRGAN${upSuffix}</button>` : ''}
+      ${(canFrameToFrame || canFrameContinue || canUpscale) ? '<div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
       ${isMedia ? `<button role="menuitem" data-ctx="mute">${clip.muted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}
       <button role="menuitem" data-ctx="split">Split at playhead</button>
@@ -871,7 +876,31 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (!btn || btn.disabled) return;
       const act = btn.dataset.ctx;
       closeCtxMenu();
-      if (act === 'frame-continue' && clip.path) {
+      if ((act === 'upscale-refmod' || act === 'upscale-esrgan') && upscaleTargets.length) {
+        const method = act === 'upscale-esrgan' ? 'esrgan-2x' : 'refmod-refine';
+        const payloadClips = upscaleTargets.map((c) => ({
+          clipId: c.id,
+          path: c.path,
+          start: Number(c.srcIn) || 0,
+          end: (Number(c.srcIn) || 0) + (Number(c.dur) || 5) * (c.speed || 1),
+        }));
+        actions.log(`Queueing ${payloadClips.length} clip(s) for ${method === 'esrgan-2x' ? 'Fast 2× Upscale' : 'RefMod Face-Fix & Upscale (640p)'}…`);
+        const res = await window.zaudeAI.upscaleClips({ clips: payloadClips, method, quality: '640' });
+        if (res && res.ok && Array.isArray(res.jobs)) {
+          for (const j of res.jobs) {
+            actions.generationEvent({
+              type: 'start',
+              id: j.id,
+              replaceClipId: j.clipId,
+              queuePos: j.queuePos,
+              progress: 0.05,
+              label: `Queued #${j.queuePos}: ${method === 'esrgan-2x' ? 'Fast 2× Upscale' : 'RefMod Face-Fix 640p'}…`,
+            });
+          }
+        } else {
+          actions.log(`Upscale failed: ${(res && res.error) || 'unknown error'}`);
+        }
+      } else if (act === 'frame-continue' && clip.path) {
         actions.log(`Preparing FrameContinue from ${clip.name}…`);
         const tEnd = Math.max(0, (Number(clip.srcIn) || 0) + (Number(clip.dur) || 1) * (clip.speed || 1) - 0.05);
         const [lastFrameRes, latentRes] = await Promise.all([
@@ -1132,7 +1161,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const beatsKey = `${b.enabled}:${b.snap}:${b.bpm}:${b.offset}:${b.beatsPerBar}:${b.subdivisions}:` +
       (Array.isArray(b.markers) ? b.markers.map((m) => `${m.id}@${m.time}`).join(',') : '');
     const timelineKey = `${s.pps}|${s.snap}|${selKey}|${tracksKey}|${beatsKey}|` + s.clips.map((c) =>
-      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.progress}:${c.queuePos || 0}:${c.etaSec || 0}:${c.step || 0}:${c.previewUrl || ''}:${c.name}:${c.path}`
+      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.upscaling ? 1 : 0}:${c.progress}:${c.queuePos || 0}:${c.etaSec || 0}:${c.step || 0}:${c.previewUrl || ''}:${c.name}:${c.path}`
     ).join(';');
     if (timelineKey === lastTimelineKey) {
       updateTime(s);
@@ -1219,8 +1248,11 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           const etaTxt = c.etaSec ? ` · ${fmtEta(c.etaSec)}` : '';
           const metaText = clipPx >= 95 ? `${qBadge}${stepTxt}${etaTxt}` : (clipPx >= 46 ? qBadge : '');
           if (metaText) genMeta = `<span class="blk-gen-meta">${esc(metaText)}</span>`;
+        } else if (c.upscaling) {
+          const metaText = clipPx >= 75 ? `✨ Upscaling ${pct}%` : '✨';
+          genMeta = `<span class="blk-gen-meta">${esc(metaText)}</span>`;
         }
-        const fill = c.generating ? `<span class="gen-fill${c.progress == null ? ' pulse' : ''}" style="width:${pct}%"></span>` : '';
+        const fill = (c.generating || c.upscaling) ? `<span class="gen-fill${c.progress == null ? ' pulse' : ''}" style="width:${pct}%"></span>` : '';
         const dissolve = c.transition ? '<span class="tr" title="Cross dissolve"></span>' : '';
 
         let strip = '';
