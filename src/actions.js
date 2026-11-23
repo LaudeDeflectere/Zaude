@@ -216,16 +216,37 @@ export function createActions(store, engine) {
     commit(next, 'Trimmed the end of ' + sel.name);
   }
 
+  function cancelGeneratingClips(clipList) {
+    const api = window.zaudeAI;
+    if (!api || !api.cancelTextToVideo) return 0;
+    let cancelled = 0;
+    for (const c of clipList) {
+      if (c && c.generating && String(c.id).startsWith('gen-')) {
+        api.cancelTextToVideo(String(c.id).slice(4)).catch(() => {});
+        cancelled++;
+      }
+    }
+    return cancelled;
+  }
+
   function deleteSelected() {
     const s = get();
     const ids = (s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : []))
       .filter((id) => T.findClip(s.clips, id));
     if (!ids.length) return needSelection();
+    const removing = ids.map((id) => T.findClip(s.clips, id)).filter(Boolean);
+    const cancelledCount = cancelGeneratingClips(removing);
     if (ids.length > 1) {
-      commit(T.deleteClips(s.clips, ids), `Deleted ${ids.length} clips`);
+      const msg = cancelledCount
+        ? `Deleted ${ids.length} clips (cancelled ${cancelledCount} generation${cancelledCount === 1 ? '' : 's'})`
+        : `Deleted ${ids.length} clips`;
+      commit(T.deleteClips(s.clips, ids), msg);
     } else {
-      const sel = T.findClip(s.clips, ids[0]);
-      commit(T.deleteClip(s.clips, sel.id), 'Deleted ' + sel.name);
+      const sel = removing[0];
+      const msg = cancelledCount
+        ? `Cancelled generation & deleted ${sel.name}`
+        : 'Deleted ' + sel.name;
+      commit(T.deleteClip(s.clips, sel.id), msg);
     }
     store.set({ selected: null, selectedIds: [] });
   }
@@ -239,7 +260,8 @@ export function createActions(store, engine) {
   function ripple() {
     const sel = selectedClip();
     if (!sel) return needSelection();
-    commit(T.rippleDelete(get().clips, sel.id), 'Ripple deleted ' + sel.name);
+    const cancelled = cancelGeneratingClips([sel]);
+    commit(T.rippleDelete(get().clips, sel.id), cancelled ? 'Cancelled generation & ripple deleted ' + sel.name : 'Ripple deleted ' + sel.name);
     store.set({ selected: null, selectedIds: [] });
   }
 

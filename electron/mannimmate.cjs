@@ -9,6 +9,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildPromptFile } = require('./text-to-video.cjs');
+const comfyLive = require('./comfy-live.cjs');
 
 const MODES = ['text-render', 'refmod', 'auto', 'coverage'];
 
@@ -295,8 +296,9 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
 
   const startedAt = Date.now();
   const baseEstSec = estimateJobSeconds(request);
-  const totalSteps = Math.max(1, Number(request && request.steps) || 6);
+  let totalSteps = Math.max(1, Number(request && request.steps) || 6);
   let lastStep = 0;
+  let activePromptId = null;
   let savedPath = null;
   let cancelled = false;
   let outBuf = '';
@@ -310,12 +312,50 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
     return Math.max(1, Math.round(baseEstSec - elapsed));
   };
 
+  // Connect to ComfyUI's live WebSocket so every denoising step streams its preview image & progress
+  const comfyWatcher = !(request && request.dryRun)
+    ? comfyLive.watchComfyJob({
+        previewDir,
+        jobId,
+        onStep: ({ step, totalSteps: ts, progress }) => {
+          if (ts > 0) totalSteps = ts;
+          if (step > lastStep) lastStep = step;
+          onEvent({
+            type: 'progress',
+            progress,
+            step: lastStep,
+            totalSteps,
+            etaSec: calcEta(progress),
+            label: `Step ${lastStep}/${totalSteps} (denoising…)`,
+          });
+        },
+        onPreview: ({ previewPath, step, totalSteps: ts }) => {
+          if (ts > 0) totalSteps = ts;
+          if (step > lastStep) lastStep = step;
+          const prog = totalSteps > 0 ? Math.min(0.99, lastStep / totalSteps) : null;
+          onEvent({
+            type: 'preview',
+            previewPath,
+            step: Math.max(1, lastStep),
+            totalSteps,
+            progress: prog,
+            etaSec: calcEta(prog),
+          });
+        },
+      })
+    : { setPromptId() {}, close() {} };
+
   const handleStdoutLine = (line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
     onEvent({ type: 'stdout', text: trimmed });
     const ev = parseJsonLine(trimmed);
     if (!ev) return;
+
+    if (ev.prompt_id && typeof ev.prompt_id === 'string') {
+      activePromptId = ev.prompt_id;
+      comfyWatcher.setPromptId(ev.prompt_id);
+    }
 
     const p = ev.path || ev.output || ev.video || ev.contact_sheet || null;
     if ((ev.event === 'saved' || ev.event === 'done' || ev.event === 'refmod_saved' || ev.event === 'coverage_saved') && p) {
@@ -378,8 +418,12 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
   });
 
   const promise = new Promise((resolve) => {
-    child.on('error', (e) => resolve({ ok: false, error: e.message }));
+    child.on('error', (e) => {
+      comfyWatcher.close();
+      resolve({ ok: false, error: e.message });
+    });
     child.on('close', (code) => {
+      comfyWatcher.close();
       if (outBuf.trim()) handleStdoutLine(outBuf);
       if (cancelled) return resolve({ ok: false, cancelled: true, code, error: 'Cancelled' });
       if (code === 0) {
@@ -394,7 +438,11 @@ function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId =
     promise,
     cancel() {
       cancelled = true;
+      comfyWatcher.close();
       try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      if (!(request && request.dryRun)) {
+        comfyLive.cancelComfyPrompt({ promptId: activePromptId }).catch(() => {});
+      }
     },
   };
 }

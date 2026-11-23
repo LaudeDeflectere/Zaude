@@ -139,3 +139,31 @@ test('estimateJobSeconds scales with quality, steps, length, and dryRun', () => 
   const draft = mannimmate.estimateJobSeconds({ quality: '480', steps: 4, seconds: 4 });
   assert.ok(prod > draft && prod >= 300);
 });
+
+test('parseComfyBinaryPreview decodes ComfyUI JPEG (type 1) and metadata PNG (type 4) preview frames', () => {
+  const comfyLive = require('../electron/comfy-live.cjs');
+
+  // Event type 1 = PREVIEW_IMAGE, format 1 = JPEG
+  const jpgBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  const frame1 = Buffer.alloc(8 + jpgBytes.length);
+  frame1.writeUInt32BE(1, 0);
+  frame1.writeUInt32BE(1, 4);
+  jpgBytes.copy(frame1, 8);
+  const p1 = comfyLive.parseComfyBinaryPreview(frame1);
+  assert.ok(p1);
+  assert.equal(p1.ext, 'jpg');
+  assert.deepEqual(p1.data, jpgBytes);
+
+  // Event type 4 = PREVIEW_IMAGE_WITH_METADATA + PNG magic bytes
+  const meta = Buffer.from(JSON.stringify({ node: '14' }));
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+  const frame4 = Buffer.alloc(8 + meta.length + pngBytes.length);
+  frame4.writeUInt32BE(4, 0);
+  frame4.writeUInt32BE(meta.length, 4);
+  meta.copy(frame4, 8);
+  pngBytes.copy(frame4, 8 + meta.length);
+  const p4 = comfyLive.parseComfyBinaryPreview(frame4);
+  assert.ok(p4);
+  assert.equal(p4.ext, 'png');
+  assert.deepEqual(p4.data, pngBytes);
+});
