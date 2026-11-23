@@ -53,14 +53,31 @@ test('mannimmate.buildCommand routes text-render, refmod, auto, and coverage wit
   const auto = mannimmate.buildCommand({
     mode: 'auto',
     video: '/tmp/src.mp4',
-    ref: '/tmp/ref.png',
-    start: 1,
-    end: 6,
-    backgroundMode: 'sheet',
-  });
+    refmods: [{ file: 'elias_cbphoto_v1_visual', name: 'Elias' }],
+    stylizeAction: 'both',
+    objectPrompt: 'A fluffy orange tabby cat walking across the floor',
+    start: 2,
+    end: 7,
+  }, { promptFile: '/tmp/stylize.txt' });
   assert.equal(auto.ok, true);
-  assert.equal(auto.args[0], 'auto');
-  assert.ok(auto.args.includes('--background-mode') && auto.args.includes('sheet'));
+  assert.equal(auto.args[0], 'render');
+  assert.ok(auto.args.includes('--refmod') && auto.args.includes('elias_cbphoto_v1_visual|Elias|1.0|0.0'));
+  assert.ok(auto.args.includes('--prompt-file') && auto.args.includes('/tmp/stylize.txt'));
+  assert.ok(auto.promptContent.includes('Replace the original performer completely'));
+  assert.ok(auto.promptContent.includes('fluffy orange tabby cat'));
+
+  const objOnly = mannimmate.buildCommand({
+    mode: 'auto',
+    video: '/tmp/src.mp4',
+    stylizeAction: 'object',
+    objectPrompt: 'A glowing neon hoverboard floating in the background',
+    start: 1,
+    end: 5,
+  }, { promptFile: '/tmp/obj.txt' });
+  assert.equal(objOnly.ok, true);
+  assert.equal(objOnly.args[0], 'render');
+  assert.ok(!objOnly.args.includes('--refmod'));
+  assert.ok(objOnly.promptContent.includes('neon hoverboard'));
 
   const cov = mannimmate.buildCommand({
     mode: 'coverage',

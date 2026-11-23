@@ -49,7 +49,7 @@
     <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">
       <button type="button" class="on" data-ai-mode="text-render">Text → Video</button>
       <button type="button" data-ai-mode="refmod">RefMod → Video</button>
-      <button type="button" data-ai-mode="auto">Video Restyle</button>
+      <button type="button" data-ai-mode="auto">🎨 Stylize &amp; Objects</button>
       <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
     </div>
 
@@ -62,7 +62,43 @@
       </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
 
-      <div class="t2v-wide" data-modes="refmod,auto">
+      <div class="t2v-wide ai-stylize-panel" data-modes="auto">
+        <div class="ai-prompt-head">
+          <span>1. Pick Timeline Segment &amp; Trim Timing</span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="ai-pick-timeline" class="ai" title="Load the selected or playhead video clip from the timeline">🎯 Pick from Timeline</button>
+            <button type="button" data-seg-nudge="start:-0.5" title="Extend segment start earlier by 0.5s">Start −0.5s</button>
+            <button type="button" data-seg-nudge="start:0.5" title="Shorten segment start by 0.5s">Start +0.5s</button>
+            <button type="button" data-seg-nudge="end:-0.5" title="Shorten segment end by 0.5s">End −0.5s</button>
+            <button type="button" data-seg-nudge="end:0.5" title="Extend segment end by 0.5s">End +0.5s</button>
+          </span>
+        </div>
+        <div class="stylize-range-wrap" id="ai-stylize-range-wrap">
+          <div class="stylize-range-track" id="ai-stylize-track" title="Drag handles to extend or shorten the segment">
+            <div class="stylize-range-fill" id="ai-stylize-fill">
+              <span class="stylize-handle left" data-seg-drag="start" title="Drag to adjust start"></span>
+              <span class="stylize-range-label" id="ai-stylize-label">0.00s – 5.00s (5.00s)</span>
+              <span class="stylize-handle right" data-seg-drag="end" title="Drag to adjust end"></span>
+            </div>
+          </div>
+          <div class="stylize-range-meta muted" id="ai-stylize-meta">Click "🎯 Pick from Timeline" or browse a video below.</div>
+        </div>
+
+        <div class="ai-prompt-head" style="margin-top:8px">
+          <span>2. What to Change</span>
+          <div class="ai-stylize-pills" id="ai-stylize-pills">
+            <button type="button" data-stylize-act="replace">🧑 Replace Character</button>
+            <button type="button" data-stylize-act="object">🐱 Add Object</button>
+            <button type="button" class="on" data-stylize-act="both">✨ Both (Swap + Object)</button>
+          </div>
+        </div>
+
+        <label class="t2v-wide" id="ai-object-prompt-wrap">Object / Scene Addition (e.g. a moving cat, prop, effect)
+          <textarea name="objectPrompt" rows="2" placeholder="e.g. A fluffy orange and white tabby cat walks playfully across the floor around the dancer's feet, tail raised and swishing"></textarea>
+        </label>
+      </div>
+
+      <div class="t2v-wide" data-modes="refmod,auto" id="ai-refmod-section">
         <div class="ai-prompt-head">
           <span>Characters (RefMod) <span class="muted">· Hover to preview walk · Click to cast Subject 1..N</span></span>
           <span class="ai-prompt-helpers">

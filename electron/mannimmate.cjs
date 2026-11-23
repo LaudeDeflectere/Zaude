@@ -135,35 +135,94 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     return { ok: true, mode, args };
   }
 
-  if (mode === 'auto') {
+  if (mode === 'auto' || mode === 'stylize') {
     const video = String((input && input.video) || '').trim();
     const ref = String((input && input.ref) || '').trim();
-    const refmodFile = String((input && input.refmod) || '').trim();
-    const refmodName = String((input && input.refmodName) || refmodFile.split(/[\\/]/).pop() || 'Subject').trim();
     const start = Number((input && input.start) ?? 0);
     const end = Number((input && input.end) ?? 7);
-    const quality = String((input && input.quality) || '640');
-    const preset = String((input && input.preset) || 'normal');
+    const quality = String((input && input.quality) || '480');
+    const preset = String((input && input.preset) || 'draft');
+    const action = ['replace', 'object', 'both'].includes(input && input.stylizeAction)
+      ? input.stylizeAction
+      : ((input && input.objectPrompt) ? ((input && (input.refmod || (input.refmods && input.refmods.length))) ? 'both' : 'object') : 'replace');
+    const objectPrompt = String((input && input.objectPrompt) || '').trim();
     const bgMode = ['keep', 'sheet', 'scene', 'image'].includes(input && input.backgroundMode) ? input.backgroundMode : 'keep';
 
-    if (!video) return { ok: false, error: 'Pick a source driving video.' };
-    if (!ref && !refmodFile) return { ok: false, error: 'Provide either a reference image or a RefMod.' };
+    // Collect repeatable RefMods (supports both `refmods: [...]` and single `refmod`)
+    const rmList = [];
+    if (Array.isArray(input && input.refmods) && input.refmods.length) {
+      input.refmods.forEach((r, idx) => {
+        const f = String((r && r.file) || '').trim();
+        if (!f) return;
+        const n = String((r && r.name) || f.split(/[\\/]/).pop() || `Subject ${idx + 1}`).trim();
+        rmList.push({ file: f, name: n });
+      });
+    } else if (input && input.refmod) {
+      const f = String(input.refmod).trim();
+      const n = String(input.refmodName || f.split(/[\\/]/).pop() || 'Subject 1').trim();
+      rmList.push({ file: f, name: n });
+    }
+
+    if (!video) return { ok: false, error: 'Pick a source video (or click "Pick from Timeline").' };
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       return { ok: false, error: 'End time must be greater than Start time.' };
     }
+    if ((action === 'replace' || action === 'both') && !rmList.length && !ref) {
+      return { ok: false, error: 'Select a RefMod character (or reference image) to replace the character.' };
+    }
+    if ((action === 'object' || action === 'both') && !objectPrompt && !ref) {
+      return { ok: false, error: 'Describe the object or scene change you want to add.' };
+    }
+
+    // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement
+    // and object/scene insertion work together cleanly without `--scene-mode keep` suppressing new objects.
+    const promptLines = [];
+    if (rmList.length && (action === 'replace' || action === 'both')) {
+      promptLines.push('subject_definitions:');
+      rmList.forEach((r, i) => {
+        promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, hair, and clothing of <Subject ${i + 1}>'s reference.`);
+      });
+      promptLines.push('');
+    }
+    const baseKeep = 'Edit <Video 1> frame by frame: preserve the camera framing, lighting, room/background, and exact choreography, poses, and timing of <Video 1>.';
+    const parts = [baseKeep];
+    if (action === 'replace' || action === 'both') {
+      const subjectNames = rmList.length
+        ? rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ')
+        : '<Picture 1>';
+      parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face, hair, and clothing; the original performer of <Video 1> does not appear.`);
+    }
+    if (action === 'object' || action === 'both') {
+      parts.push(`ALSO add and animate in the scene: ${objectPrompt || 'the added element from the reference image'}. Keep the added element naturally lit, physically grounded, and casting realistic shadows throughout the clip.`);
+    }
+    if (bgMode === 'sheet') {
+      parts.push('Adopt the visual style and backdrop of the reference.');
+    }
+    promptLines.push(parts.join(' '));
+    const promptContent = promptLines.join('\n') + '\n';
+
     const args = [
-      'auto',
+      'render',
       '--video', video,
       '--start', String(start),
       '--end', String(end),
       '--quality', quality,
       '--preset', preset,
-      '--background-mode', bgMode,
+      '--prompt-file', promptFile || '<stylize_prompt.txt>',
     ];
-    if (ref) args.push('--ref', ref);
-    if (refmodFile) args.push('--refmod', `${refmodFile}|${refmodName}|1.0|1.0`);
+    if (action === 'replace' || action === 'both') {
+      for (const r of rmList) {
+        args.push('--refmod', `${r.file}|${r.name}|1.0|0.0`);
+      }
+    }
+    if (ref) {
+      args.push('--ref', ref);
+      if ((action === 'object' || action === 'both') && objectPrompt) {
+        args.push('--subject', objectPrompt);
+      }
+    }
     args.push(...commonTail());
-    return { ok: true, mode, args };
+    return { ok: true, mode: 'auto', args, promptContent };
   }
 
   // coverage

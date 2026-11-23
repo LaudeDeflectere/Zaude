@@ -9,6 +9,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 let currentMode = 'text-render';
+let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
+let stylizeSrcDur = 15;
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
@@ -159,6 +161,36 @@ function updateModelRouting() {
   });
 }
 
+function updateStylizeRangeUI() {
+  const form = $('t2v-form');
+  const fill = $('ai-stylize-fill');
+  const lbl = $('ai-stylize-label');
+  if (!form || !fill || !lbl) return;
+  const maxDur = Math.max(1, stylizeSrcDur || 15);
+  let start = Math.max(0, Math.min(maxDur - 0.5, Number(form.elements.start.value) || 0));
+  let end = Math.max(start + 0.5, Math.min(maxDur, Number(form.elements.end.value) || 5));
+  const leftPct = (start / maxDur) * 100;
+  const widthPct = Math.max(2, ((end - start) / maxDur) * 100);
+  fill.style.left = `${leftPct}%`;
+  fill.style.width = `${widthPct}%`;
+  lbl.textContent = `${start.toFixed(2)}s – ${end.toFixed(2)}s (${(end - start).toFixed(2)}s)`;
+}
+
+function applyStylizeActionVisibility() {
+  const pills = $('ai-stylize-pills');
+  if (pills) {
+    pills.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.stylizeAct === stylizeAction);
+    });
+  }
+  const objWrap = $('ai-object-prompt-wrap');
+  if (objWrap) objWrap.hidden = stylizeAction === 'replace';
+  const refmodSec = $('ai-refmod-section');
+  if (refmodSec && currentMode === 'auto') {
+    refmodSec.hidden = stylizeAction === 'object';
+  }
+}
+
 function applyModeVisibility() {
   const form = $('t2v-form');
   $('ai-mode-tabs').querySelectorAll('button').forEach((btn) => {
@@ -171,6 +203,8 @@ function applyModeVisibility() {
   const refmodMode = form.elements.refmodMode ? form.elements.refmodMode.value : 'generate';
   const latentWrap = $('ai-latent-wrap');
   if (latentWrap) latentWrap.hidden = !(currentMode === 'refmod' && refmodMode === 'continue');
+  applyStylizeActionVisibility();
+  updateStylizeRangeUI();
   updateModelRouting();
   updateCommandPreview();
 }
@@ -217,6 +251,8 @@ function collectRequest() {
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
     end: Number(fd.get('end') ?? 7),
+    stylizeAction,
+    objectPrompt: String(fd.get('objectPrompt') || '').trim(),
     backgroundMode: String(fd.get('backgroundMode') || 'keep'),
     image: String(fd.get('image') || '').trim(),
     coverageTarget: String(fd.get('coverageTarget') || '').trim(),
@@ -242,9 +278,12 @@ function updateCommandPreview() {
     parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
     if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
   } else if (req.mode === 'auto') {
-    parts.push('--video', req.video || '<video>', '--start', String(req.start), '--end', String(req.end), '--quality', req.quality, '--preset', req.preset, '--background-mode', req.backgroundMode);
+    parts[2] = 'render';
+    parts.push('--video', req.video || '<video>', '--start', String(req.start), '--end', String(req.end), '--quality', req.quality, '--preset', req.preset, '--prompt-file', '<stylize_prompt.txt>');
+    if ((req.stylizeAction === 'replace' || req.stylizeAction === 'both') && req.refmods && req.refmods.length) {
+      for (const r of req.refmods) parts.push('--refmod', `"${r.file}|${r.name}|1.0|0.0"`);
+    }
     if (req.ref) parts.push('--ref', req.ref);
-    if (req.refmod) parts.push('--refmod', `"${req.refmod}|${req.refmodName}|1.0|1.0"`);
   } else if (req.mode === 'coverage') {
     parts.push('--image', req.image || '<image>');
     if (req.coverageTarget) parts.push('--coverage-target', `"${req.coverageTarget}"`);
@@ -346,7 +385,13 @@ async function onSubmit() {
     return setStatus('Click a RefMod character square first.', true);
   }
   if (req.mode === 'auto' && !req.video) {
-    return setStatus('Pick a source video first.', true);
+    return setStatus('Pick a source video (or click "🎯 Pick from Timeline") first.', true);
+  }
+  if (req.mode === 'auto' && (req.stylizeAction === 'replace' || req.stylizeAction === 'both') && !req.refmod && !req.ref) {
+    return setStatus('Select a RefMod character square (or reference image) to replace the character.', true);
+  }
+  if (req.mode === 'auto' && (req.stylizeAction === 'object' || req.stylizeAction === 'both') && !req.objectPrompt && !req.ref) {
+    return setStatus('Describe the object or scene change you want to add.', true);
   }
   if (req.mode === 'coverage' && !req.image) {
     return setStatus('Pick a scene reference image first.', true);
@@ -457,11 +502,47 @@ function init() {
     }
   });
 
+  // Interactive dragging of segment start/end handles in Stylize tab
+  const stylizeTrack = $('ai-stylize-track');
+  if (stylizeTrack) {
+    stylizeTrack.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('[data-seg-drag]');
+      if (!handle) return;
+      e.preventDefault();
+      const edge = handle.dataset.segDrag;
+      const form = $('t2v-form');
+      const rect = stylizeTrack.getBoundingClientRect();
+      const maxDur = Math.max(1, stylizeSrcDur || 15);
+      const move = (ev) => {
+        const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+        const t = Math.round(frac * maxDur * 10) / 10;
+        const curStart = Number(form.elements.start.value) || 0;
+        const curEnd = Number(form.elements.end.value) || 5;
+        if (edge === 'start') {
+          form.elements.start.value = String(Math.max(0, Math.min(curEnd - 0.5, t)).toFixed(1));
+        } else {
+          form.elements.end.value = String(Math.min(maxDur, Math.max(curStart + 0.5, t)).toFixed(1));
+        }
+        updateStylizeRangeUI();
+        updateCommandPreview();
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+  }
+
   $('t2v-form').addEventListener('input', () => {
     if ($('t2v-form').elements.refmodMode) {
       const latentWrap = $('ai-latent-wrap');
       if (latentWrap) latentWrap.hidden = !(currentMode === 'refmod' && $('t2v-form').elements.refmodMode.value === 'continue');
     }
+    updateStylizeRangeUI();
     updateCommandPreview();
   });
   $('t2v-form').addEventListener('change', () => {
@@ -469,6 +550,7 @@ function init() {
       const latentWrap = $('ai-latent-wrap');
       if (latentWrap) latentWrap.hidden = !(currentMode === 'refmod' && $('t2v-form').elements.refmodMode.value === 'continue');
     }
+    updateStylizeRangeUI();
     updateCommandPreview();
   });
 
@@ -476,6 +558,51 @@ function init() {
     if (e.target.id === 't2v-dialog') return close();
     const reveal = e.target.closest('[data-reveal]');
     if (reveal) return api.reveal(reveal.dataset.reveal);
+
+    // Pick segment directly from the active timeline clip
+    if (e.target.closest('#ai-pick-timeline')) {
+      const src = window.__zaudeGetStylizeSource ? await window.__zaudeGetStylizeSource() : null;
+      if (!src) return setStatus('No video clip found on the timeline. Import or select a video clip first.', true);
+      const form = $('t2v-form');
+      stylizeSrcDur = src.srcDur || 15;
+      form.elements.start.value = String(src.start.toFixed(1));
+      form.elements.end.value = String(src.end.toFixed(1));
+      updateSquarePreview('video', src.path, src.url, true);
+      const meta = $('ai-stylize-meta');
+      if (meta) meta.textContent = `Loaded "${src.name}" (${stylizeSrcDur.toFixed(1)}s total). Drag handles or click ±0.5s to trim.`;
+      updateStylizeRangeUI();
+      updateCommandPreview();
+      setStatus(`Loaded segment from timeline clip "${src.name}".`);
+      return;
+    }
+
+    // Extend / shorten segment start or end by ±0.5s
+    const nudgeBtn = e.target.closest('[data-seg-nudge]');
+    if (nudgeBtn) {
+      const [edge, deltaStr] = nudgeBtn.dataset.segNudge.split(':');
+      const delta = Number(deltaStr) || 0;
+      const form = $('t2v-form');
+      const maxDur = Math.max(1, stylizeSrcDur || 60);
+      const curStart = Number(form.elements.start.value) || 0;
+      const curEnd = Number(form.elements.end.value) || 5;
+      if (edge === 'start') {
+        form.elements.start.value = String(Math.max(0, Math.min(curEnd - 0.5, curStart + delta)).toFixed(1));
+      } else {
+        form.elements.end.value = String(Math.min(maxDur, Math.max(curStart + 0.5, curEnd + delta)).toFixed(1));
+      }
+      updateStylizeRangeUI();
+      updateCommandPreview();
+      return;
+    }
+
+    // Stylize action pill: Replace Character | Add Object | Both
+    const styAct = e.target.closest('[data-stylize-act]');
+    if (styAct) {
+      stylizeAction = styAct.dataset.stylizeAct;
+      applyStylizeActionVisibility();
+      updateCommandPreview();
+      return;
+    }
 
     // "+" add RefMod button
     if (e.target.closest('#ai-refmod-add-btn')) {

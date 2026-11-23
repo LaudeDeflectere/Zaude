@@ -56,6 +56,29 @@ document.getElementById('export-top').addEventListener('click', () => {
   actions.toggleExport();
 });
 
+// Expose active timeline clip info for AI Studio's Stylize segment picker
+window.__zaudeGetStylizeSource = async () => {
+  const s = store.get();
+  const sel = s.selected ? T.findClip(s.clips, s.selected) : null;
+  const atHead = T.clipAt(s.clips.filter((c) => c.kind === 'video' && c.path), s.playhead);
+  const clip = (sel && sel.kind === 'video' && sel.path) ? sel : (atHead || s.clips.find((c) => c.kind === 'video' && c.path));
+  if (!clip) return null;
+  const url = await engine.getMediaUrl(clip.path);
+  const srcDur = Number(clip.srcDur) || Number(clip.dur) || 10;
+  const segStart = Math.max(0, Math.round((Number(clip.srcIn) || 0) * 100) / 100);
+  const segEnd = Math.min(srcDur, Math.round((segStart + Math.min(clip.dur || 5, 7)) * 100) / 100);
+  return {
+    clipId: clip.id,
+    name: clip.name,
+    path: clip.path,
+    url,
+    srcDur,
+    clipStart: clip.start,
+    start: segStart,
+    end: Math.max(segStart + 0.5, segEnd),
+  };
+};
+
 // AI render events come from the text to video dialog (ai-ui.js)
 window.addEventListener('zaude:t2v', (e) => actions.generationEvent(e.detail));
 
