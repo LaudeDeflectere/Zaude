@@ -1,0 +1,283 @@
+{
+  "prompt_id": "637deb5d-8a25-4f40-a484-853e0aeb479c",
+  "mode": "generate",
+  "seed": "2428052731",
+  "model": "H3\\Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+  "lora": "H3\\minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+  "quality": "480",
+  "seconds": 3.0,
+  "steps": 4,
+  "latent": null,
+  "seed_video": null,
+  "characters": [
+    {
+      "mod": "britney_photo_v1_visual",
+      "name": "Britney Photo V1 Visual",
+      "strength": 1.0
+    }
+  ],
+  "prompt": "subject_definitions:\n<Subject 1> is Britney Photo V1 Visual, using the stable identity, face, hair and distinguishing features of <Subject 1>'s reference. Their reference wardrobe is the default only; follow the explicit clothing state in each shot when it changes.\n\nsummary:\n[reference generation] Medium-full studio shot of Britney Photo V1 Visual walking naturally forward toward the camera on a clean neutral dark studio floor, soft key light, clear face, smooth relaxed walking loop.\n",
+  "elapsed_seconds": 49.2,
+  "graph": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "H3\\Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "type": "minimax",
+        "device": "default"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "H3\\minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "10": {
+      "class_type": "MiniMaxH3RefModsLoader",
+      "inputs": {
+        "show_info": false,
+        "mod_1": "britney_photo_v1_visual",
+        "strength_1": 1.0,
+        "copies_1": 1,
+        "audio_strength_1": 1.0,
+        "mod_2": "(none)",
+        "strength_2": 1.0,
+        "copies_2": 1,
+        "mod_3": "(none)",
+        "strength_3": 1.0,
+        "copies_3": 1,
+        "mod_4": "(none)",
+        "strength_4": 1.0,
+        "copies_4": 1,
+        "mod_5": "(none)",
+        "strength_5": 1.0,
+        "copies_5": 1,
+        "mod_6": "(none)",
+        "strength_6": 1.0,
+        "copies_6": 1,
+        "mod_7": "(none)",
+        "strength_7": 1.0,
+        "copies_7": 1,
+        "mod_8": "(none)",
+        "strength_8": 1.0,
+        "copies_8": 1
+      }
+    },
+    "11": {
+      "class_type": "MiniMaxH3RefModContinuumBridge",
+      "inputs": {
+        "model": [
+          "5",
+          0
+        ],
+        "mods": [
+          "10",
+          0
+        ],
+        "enable": true,
+        "retention": 1.0,
+        "curve_direction": "constant",
+        "curve_shape": "linear",
+        "curve_value": 1.0,
+        "scramble_seed": -1
+      }
+    },
+    "12": {
+      "class_type": "MiniMaxH3EasyModelAdapter_SatoDive",
+      "inputs": {
+        "text_encoder": [
+          "2",
+          0
+        ],
+        "video_vae": [
+          "3",
+          0
+        ],
+        "audio_vae": [
+          "4",
+          0
+        ],
+        "ref2va_model": [
+          "11",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "MiniMaxH3Easy_SatoDive",
+      "inputs": {
+        "h3_bundle": [
+          "12",
+          0
+        ],
+        "mode": "reference",
+        "prompt": "subject_definitions:\n<Subject 1> is Britney Photo V1 Visual, using the stable identity, face, hair and distinguishing features of <Subject 1>'s reference. Their reference wardrobe is the default only; follow the explicit clothing state in each shot when it changes.\n\nsummary:\n[reference generation] Medium-full studio shot of Britney Photo V1 Visual walking naturally forward toward the camera on a clean neutral dark studio floor, soft key light, clear face, smooth relaxed walking loop.\n",
+        "resolution": "480P",
+        "aspect_ratio": "16:9",
+        "custom_ratio": "16:9",
+        "width": 864,
+        "height": 480,
+        "seconds": 3.0,
+        "advanced": false,
+        "fps": 24.0,
+        "keyframe_role": "first",
+        "ref_image_size": "match",
+        "reference_mention_mode": "index",
+        "prompt_optimizer_settings": false,
+        "prompt_optimizer_scene_guide": "none",
+        "enable_detail_daemon": false,
+        "detail_strength": 0.0
+      }
+    },
+    "14": {
+      "class_type": "MiniMaxH3EasyOutput_SatoDive",
+      "inputs": {
+        "h3_context": [
+          "13",
+          1
+        ]
+      }
+    },
+    "15": {
+      "class_type": "MiniMaxH3DualClockSamplerT8",
+      "inputs": {
+        "model": [
+          "13",
+          0
+        ],
+        "av_latent": [
+          "14",
+          1
+        ],
+        "steps": 4,
+        "shift_video": 12.0,
+        "shift_audio": 3.0,
+        "sampler_name": "dual_clock_euler",
+        "scheduler": "beta"
+      }
+    },
+    "16": {
+      "class_type": "RandomNoise",
+      "inputs": {
+        "noise_seed": 2428052731
+      }
+    },
+    "17": {
+      "class_type": "BasicGuider",
+      "inputs": {
+        "model": [
+          "15",
+          0
+        ],
+        "conditioning": [
+          "14",
+          0
+        ]
+      }
+    },
+    "18": {
+      "class_type": "SamplerCustomAdvanced",
+      "inputs": {
+        "noise": [
+          "16",
+          0
+        ],
+        "guider": [
+          "17",
+          0
+        ],
+        "sampler": [
+          "15",
+          1
+        ],
+        "sigmas": [
+          "15",
+          2
+        ],
+        "latent_image": [
+          "14",
+          1
+        ]
+      }
+    },
+    "19": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "18",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      }
+    },
+    "20": {
+      "class_type": "VAEDecodeAudio",
+      "inputs": {
+        "samples": [
+          "18",
+          1
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "21": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "19",
+          0
+        ],
+        "audio": [
+          "20",
+          0
+        ],
+        "fps": 24.0
+      }
+    },
+    "22": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "21",
+          0
+        ],
+        "filename_prefix": "Mannimmate/refmod_c2c07ddce828",
+        "format": "auto",
+        "codec": "auto"
+      }
+    }
+  },
+  "raw_path": null,
+  "saved_latent": null
+}

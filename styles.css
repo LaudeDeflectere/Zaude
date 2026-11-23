@@ -798,8 +798,18 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   z-index: 3;
   transition: opacity 0.12s ease;
 }
-.refmod-tile:hover .refmod-gen-btn {
+.refmod-tile:hover .refmod-gen-btn,
+.refmod-gen-btn.busy {
   opacity: 1;
+}
+.refmod-gen-btn.busy {
+  background: rgba(139, 92, 246, 0.85);
+  color: #fff;
+  min-width: 22px;
+  width: auto;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
 }
 .refmod-add-tile {
   border-style: dashed;

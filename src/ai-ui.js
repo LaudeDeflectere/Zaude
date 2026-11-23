@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', 
 let currentMode = 'text-render';
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
-let generatingRefmodSlug = null;
+let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
 const trackedJobs = new Map(); // jobId -> { mode, dryRun, seconds }
 let cachedOptions = {
   mods: [],
@@ -65,24 +65,41 @@ function syncHiddenRefmodInputs() {
   if (f2) f2.value = selectedRefmods[1] || '';
 }
 
+function updateMissingPreviewsButton() {
+  const btn = $('ai-refmods-gen-missing');
+  const stopBtn = $('ai-refmods-stop-queue');
+  const missing = refmodEntries.filter((m) => !m.hasHeadshot || !m.hasWalk).length;
+  if (btn) {
+    btn.textContent = queuedRefmodSlugs.length
+      ? `✨ Preview queue (${queuedRefmodSlugs.length} left)`
+      : `✨ Generate missing (${missing})`;
+    btn.disabled = missing === 0;
+  }
+  if (stopBtn) {
+    stopBtn.hidden = queuedRefmodSlugs.length === 0;
+  }
+}
+
 function renderRefModGrid() {
   const grid = $('ai-refmod-grid');
   if (!grid) return;
   syncHiddenRefmodInputs();
+  updateMissingPreviewsButton();
 
   const cards = refmodEntries.map((item, idx) => {
     const selIdx = selectedRefmods.indexOf(item.file);
     const selCls = selIdx === 0 ? ' sel-1' : selIdx === 1 ? ' sel-2' : '';
     const badge = selIdx >= 0 ? `<span class="refmod-slot-badge">${selIdx + 1}</span>` : '';
     const label = item.firstName || `Subject ${idx + 1}`;
-    const isGen = generatingRefmodSlug === item.slug;
+    const qPos = queuedRefmodSlugs.indexOf(item.slug);
+    const genLabel = qPos === 0 ? '…' : (qPos > 0 ? `Q${qPos + 1}` : '✨');
     const avatarHtml = item.headshotUrl
       ? `<img class="refmod-headshot" src="${esc(item.headshotUrl)}" alt="${esc(label)}" loading="lazy">`
       : `<span class="refmod-monogram">${esc(label.slice(0, 2).toUpperCase())}</span>`;
     const walkHtml = item.walkUrl
       ? `<video class="refmod-walk" src="${esc(item.walkUrl)}" muted loop playsinline preload="none"></video>`
       : '';
-    const genBtn = `<button type="button" class="refmod-gen-btn" data-gen-refmod="${esc(item.slug)}" title="${item.hasWalk ? 'Regenerate headshot & walk preview' : 'Generate headshot & walk preview with RefMod'}">${isGen ? '…' : '✨'}</button>`;
+    const genBtn = `<button type="button" class="refmod-gen-btn${qPos >= 0 ? ' busy' : ''}" data-gen-refmod="${esc(item.slug)}" title="${item.hasWalk ? 'Regenerate headshot & walk preview' : 'Queue headshot & walk preview'}">${genLabel}</button>`;
     return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)}${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
       ${avatarHtml}${walkHtml}${badge}${genBtn}
       <span class="refmod-name">${esc(label)}</span>
@@ -451,31 +468,41 @@ function init() {
       return;
     }
 
-    // Per-tile "✨" generate headshot & walk preview button
+    // "Generate missing" button: queues all RefMods lacking a headshot or walk preview
+    if (e.target.closest('#ai-refmods-gen-missing')) {
+      const missing = refmodEntries.filter((m) => !m.hasHeadshot || !m.hasWalk);
+      if (!missing.length) return setStatus('All RefMods already have previews.');
+      const res = await api.refmodsGenerateMissing({
+        mannimmateDir: $('t2v-form').elements.mannimmateDir.value.trim(),
+        mods: missing,
+      });
+      if (res && res.ok) {
+        setStatus(`Queued ${res.queued} RefMod preview${res.queued === 1 ? '' : 's'} (${res.total} total in queue).`);
+        appendLog('REFMOD', `Queued ${res.queued} missing RefMod previews.`);
+      }
+      return;
+    }
+
+    if (e.target.closest('#ai-refmods-stop-queue')) {
+      await api.refmodsCancelQueue();
+      setStatus('Stopped RefMod preview queue.');
+      appendLog('REFMOD', 'Preview queue cancelled.');
+      return;
+    }
+
+    // Per-tile "✨" generate headshot & walk preview button (queues cleanly)
     const genRefBtn = e.target.closest('[data-gen-refmod]');
     if (genRefBtn) {
       e.stopPropagation();
       const slug = genRefBtn.dataset.genRefmod;
       const mod = refmodEntries.find((m) => m.slug === slug);
-      if (!mod || generatingRefmodSlug) return;
-      generatingRefmodSlug = slug;
-      renderRefModGrid();
-      setStatus(`Generating headshot & walk animation for ${mod.firstName}…`);
-      appendLog('REFMOD', `Generating walk.mp4 + headshot.jpg for ${mod.file}…`);
-      const res = await api.refmodsGeneratePreview({
+      if (!mod) return;
+      setStatus(`Queued headshot & walk preview for ${mod.firstName}…`);
+      appendLog('REFMOD', `Queued walk.mp4 + headshot.jpg for ${mod.file}…`);
+      await api.refmodsGeneratePreview({
         mannimmateDir: $('t2v-form').elements.mannimmateDir.value.trim(),
         mod,
       });
-      generatingRefmodSlug = null;
-      if (res && res.ok && res.entry) {
-        refmodEntries = refmodEntries.map((m) => (m.slug === slug ? res.entry : m));
-        setStatus(`Generated headshot & walk animation for ${res.entry.firstName}!`);
-        appendLog('OK', `Saved ${res.entry.walkPath} and ${res.entry.headshotPath}`);
-      } else {
-        setStatus((res && res.error) || 'Could not generate RefMod preview.', true);
-        appendLog('ERR', (res && res.error) || 'RefMod preview failed');
-      }
-      renderRefModGrid();
       return;
     }
 
@@ -583,6 +610,29 @@ function init() {
   api.onJob(onJob);
   if (api.onRefmodProgress) {
     api.onRefmodProgress((ev) => {
+      if (ev.type === 'queue') {
+        queuedRefmodSlugs = Array.isArray(ev.queuedSlugs) ? ev.queuedSlugs : [];
+        renderRefModGrid();
+        return;
+      }
+      if (ev.type === 'done' && ev.entry) {
+        const bust = `?v=${Date.now()}`;
+        const updated = {
+          ...ev.entry,
+          headshotUrl: ev.entry.headshotUrl ? ev.entry.headshotUrl + bust : null,
+          walkUrl: ev.entry.walkUrl ? ev.entry.walkUrl + bust : null,
+        };
+        refmodEntries = refmodEntries.map((m) => (m.slug === updated.slug ? updated : m));
+        renderRefModGrid();
+        setStatus(`Preview ready for ${updated.firstName}!`);
+        appendLog('OK', `RefMod preview saved: ${updated.slug}`);
+        return;
+      }
+      if (ev.type === 'error') {
+        setStatus(`RefMod ${ev.slug}: ${ev.error || 'failed'}`, true);
+        appendLog('ERR', `RefMod ${ev.slug}: ${ev.error || 'failed'}`);
+        return;
+      }
       if (ev.label) setStatus(`RefMod ${ev.slug}: ${ev.label}`);
       if (ev.text) appendLog('REFMOD', ev.text);
     });

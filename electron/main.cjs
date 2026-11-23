@@ -441,30 +441,104 @@ function registerAiHandlers() {
     };
   });
 
-  ipcMain.handle('ai:refmods:generatePreview', async (event, input) => {
-    const settings = loadSettings();
-    const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
-    const mod = input && input.mod;
-    if (!mod || !mod.file) return { ok: false, error: 'No RefMod specified.' };
+  let activeRefmodPreview = null; // { slug, cancel }
+  const refmodPreviewQueue = [];  // [{ mod, mannimmateDir, settings, sender }]
+
+  function broadcastRefmodQueue(sender) {
+    const queuedSlugs = [
+      ...(activeRefmodPreview ? [activeRefmodPreview.slug] : []),
+      ...refmodPreviewQueue.map((x) => x.mod.slug),
+    ];
+    if (sender && !sender.isDestroyed()) {
+      sender.send('ai:refmodProgress', {
+        type: 'queue',
+        activeSlug: activeRefmodPreview ? activeRefmodPreview.slug : null,
+        queuedSlugs,
+        remaining: queuedSlugs.length,
+      });
+    }
+  }
+
+  function pumpRefmodPreviewQueue() {
+    if (activeRefmodPreview || !refmodPreviewQueue.length) return;
+    const item = refmodPreviewQueue.shift();
+    const { mod, mannimmateDir, settings, sender } = item;
+    const send = (payload) => {
+      if (sender && !sender.isDestroyed()) sender.send('ai:refmodProgress', { slug: mod.slug, ...payload });
+    };
     const job = refmodsLib.generateRefModAssets({
       refmodsRoot: refmodsRoot(),
       mannimmateDir,
       python: settings.python,
       mod,
-      onEvent: (ev) => {
-        if (!event.sender.isDestroyed()) event.sender.send('ai:refmodProgress', { slug: mod.slug || mod.file, ...ev });
-      },
+      onEvent: send,
     });
-    const res = await job.promise;
-    if (!res.ok) return res;
-    return {
-      ok: true,
-      entry: {
-        ...res.entry,
-        headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
-        walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
-      },
-    };
+    activeRefmodPreview = { slug: mod.slug, cancel: job.cancel, sender };
+    send({ type: 'start', label: `Generating preview for ${mod.firstName || mod.slug}…` });
+    broadcastRefmodQueue(sender);
+
+    job.promise.then((res) => {
+      activeRefmodPreview = null;
+      if (res && res.ok && res.entry) {
+        send({
+          type: 'done',
+          entry: {
+            ...res.entry,
+            headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
+            walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+          },
+        });
+      } else {
+        send({ type: 'error', error: (res && res.error) || 'Preview failed' });
+      }
+      broadcastRefmodQueue(sender);
+      pumpRefmodPreviewQueue();
+    });
+  }
+
+  ipcMain.handle('ai:refmods:generatePreview', async (event, input) => {
+    const settings = loadSettings();
+    const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
+    const mod = input && input.mod;
+    if (!mod || !mod.file) return { ok: false, error: 'No RefMod specified.' };
+    const slug = mod.slug || refmodsLib.slugForRefMod(mod.file);
+    const already = (activeRefmodPreview && activeRefmodPreview.slug === slug)
+      || refmodPreviewQueue.some((x) => x.mod.slug === slug);
+    if (!already) {
+      refmodPreviewQueue.push({ mod: { ...mod, slug }, mannimmateDir, settings, sender: event.sender });
+      broadcastRefmodQueue(event.sender);
+      pumpRefmodPreviewQueue();
+    }
+    return { ok: true, queued: 1 };
+  });
+
+  ipcMain.handle('ai:refmods:generateMissing', (event, input) => {
+    const settings = loadSettings();
+    const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
+    const mods = Array.isArray(input && input.mods) ? input.mods : [];
+    let added = 0;
+    for (const mod of mods) {
+      if (!mod || !mod.file) continue;
+      if (mod.hasHeadshot && mod.hasWalk) continue;
+      const slug = mod.slug || refmodsLib.slugForRefMod(mod.file);
+      const already = (activeRefmodPreview && activeRefmodPreview.slug === slug)
+        || refmodPreviewQueue.some((x) => x.mod.slug === slug);
+      if (already) continue;
+      refmodPreviewQueue.push({ mod: { ...mod, slug }, mannimmateDir, settings, sender: event.sender });
+      added++;
+    }
+    broadcastRefmodQueue(event.sender);
+    pumpRefmodPreviewQueue();
+    return { ok: true, queued: added, total: (activeRefmodPreview ? 1 : 0) + refmodPreviewQueue.length };
+  });
+
+  ipcMain.handle('ai:refmods:cancelQueue', (event) => {
+    refmodPreviewQueue.length = 0;
+    if (activeRefmodPreview) {
+      activeRefmodPreview.cancel();
+    }
+    broadcastRefmodQueue(event.sender);
+    return { ok: true };
   });
 
   // ---------- Unified Mannimmate AI Studio (Text->Video, RefMod, Auto, Coverage) ----------
