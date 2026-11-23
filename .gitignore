@@ -1,2 +1,8 @@
 node_modules/
 dist/
+
+# Generated RefMod preview media (folders and README stay tracked)
+refmods/*/*.mp4
+refmods/*/*.jpg
+refmods/*/*.png
+refmods/*/meta.json

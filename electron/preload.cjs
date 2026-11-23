@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   mannimmateDoctor: (dir) => ipcRenderer.invoke('ai:mannimmate:doctor', dir),
   mannimmateStart: (input) => ipcRenderer.invoke('ai:mannimmate:start', input),
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
+  refmodsList: (dir) => ipcRenderer.invoke('ai:refmods:list', dir),
+  refmodsAdd: (input) => ipcRenderer.invoke('ai:refmods:add', input),
+  refmodsGeneratePreview: (input) => ipcRenderer.invoke('ai:refmods:generatePreview', input),
+  onRefmodProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('ai:refmodProgress', listener);
+    return () => ipcRenderer.removeListener('ai:refmodProgress', listener);
+  },
   reveal: (filePath) => ipcRenderer.invoke('ai:reveal', filePath),
   mediaUrl: (filePath) => ipcRenderer.invoke('ai:mediaUrl', filePath),
   onJob: (callback) => {

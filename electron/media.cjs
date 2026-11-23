@@ -15,6 +15,10 @@ const MIME = {
   '.aac': 'audio/aac',
   '.flac': 'audio/flac',
   '.ogg': 'audio/ogg',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
 };
 
 function encodeMediaPath(filePath) {

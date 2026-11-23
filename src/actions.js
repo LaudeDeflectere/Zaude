@@ -719,19 +719,97 @@ export function createActions(store, engine) {
     const id = 'gen-' + d.id;
     if (d.type === 'start') {
       const s = get();
-      const props = { id, name: 'Generating…', generating: true, progress: null, srcDur: d.seconds, srcIn: 0, speed: 1, transition: 0, volume: 1, opacity: 1, muted: false, kind: 'video' };
-      store.set({ clips: T.placeRange(s.clips, 'V1', s.playhead, d.seconds, props), selected: id, log: 'Generating a ' + d.seconds + ' s clip…' });
+      // Place queued generations side-by-side if a generating clip already occupies the playhead
+      const existingGen = s.clips.filter((c) => c.generating && c.track === 'V1');
+      let startAt = s.playhead;
+      for (const g of existingGen) {
+        if (startAt >= g.start - 0.05 && startAt < T.clipEnd(g) + 0.05) {
+          startAt = T.clipEnd(g);
+        }
+      }
+      const props = {
+        id,
+        name: d.label ? `AI · ${d.label}` : 'Generating…',
+        generating: true,
+        progress: null,
+        queuePos: d.queuePos || 1,
+        etaSec: d.etaSec || null,
+        step: 0,
+        totalSteps: d.totalSteps || 6,
+        previewUrl: null,
+        srcDur: d.seconds,
+        srcIn: 0,
+        speed: 1,
+        transition: 0,
+        volume: 1,
+        opacity: 1,
+        muted: false,
+        kind: 'video',
+      };
+      store.set({
+        clips: T.placeRange(s.clips, 'V1', startAt, d.seconds, props),
+        selected: id,
+        log: `Queued #${props.queuePos}: generating ${d.seconds} s clip…`,
+      });
+    } else if (d.type === 'queue') {
+      const s = get();
+      store.set({
+        clips: s.clips.map((c) => (c.id === id ? {
+          ...c,
+          queuePos: d.queuePos ?? c.queuePos,
+          etaSec: d.etaSec ?? c.etaSec,
+        } : c)),
+      });
+    } else if (d.type === 'preview') {
+      const s = get();
+      const bustUrl = d.previewUrl ? `${d.previewUrl}?v=${Date.now()}` : null;
+      store.set({
+        clips: s.clips.map((c) => (c.id === id ? {
+          ...c,
+          previewUrl: bustUrl || c.previewUrl,
+          step: d.step ?? c.step,
+          totalSteps: d.totalSteps ?? c.totalSteps,
+          progress: typeof d.progress === 'number' ? d.progress : c.progress,
+          etaSec: d.etaSec ?? c.etaSec,
+        } : c)),
+      });
     } else if (d.type === 'progress') {
       const s = get();
       store.set({
-        clips: s.clips.map((c) => (c.id === id ? { ...c, progress: typeof d.progress === 'number' ? d.progress : null } : c)),
+        clips: s.clips.map((c) => (c.id === id ? {
+          ...c,
+          progress: typeof d.progress === 'number' ? d.progress : c.progress,
+          step: d.step ?? c.step,
+          totalSteps: d.totalSteps ?? c.totalSteps,
+          etaSec: d.etaSec ?? c.etaSec,
+        } : c)),
         log: d.label || s.log,
       });
     } else if (d.type === 'done') {
       const s = get();
+      if (d.dryRun || !d.path) {
+        store.set({
+          clips: T.deleteClip(s.clips, id),
+          log: d.dryRun ? 'Dry run finished cleanly (no video generated).' : 'Generation finished.',
+        });
+        return;
+      }
       const name = d.path.split(/[\\/]/).pop();
       store.set({
-        clips: s.clips.map((c) => (c.id === id ? { ...c, name, path: d.path, kind: 'video', hasAudio: false, generating: false, progress: undefined } : c)),
+        clips: s.clips.map((c) => (c.id === id ? {
+          ...c,
+          name,
+          path: d.path,
+          kind: 'video',
+          hasAudio: true,
+          generating: false,
+          progress: undefined,
+          queuePos: undefined,
+          etaSec: undefined,
+          step: undefined,
+          totalSteps: undefined,
+          previewUrl: undefined,
+        } : c)),
         log: 'Saved ' + name,
       });
       scheduleSave();

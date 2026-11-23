@@ -596,7 +596,11 @@ export function viewerPanel({ store, actions, engine }) {
     btn.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
     const c = T.clipAt(s.clips, s.playhead);
     const labelEl = root.querySelector('.viewer-text');
-    if (c && !c.path) {
+    if (c && c.generating && c.previewUrl) {
+      const stepInfo = c.step >= 1 && c.totalSteps ? ` · Step ${c.step}/${c.totalSteps}` : '';
+      labelEl.innerHTML = `<img class="viewer-gen-preview" src="${esc(c.previewUrl)}" alt="Live generation preview"><span class="viewer-gen-tag">#${c.queuePos || 1}${stepInfo}</span>`;
+      labelEl.className = 'viewer-text viewer-gen-wrap';
+    } else if (c && !c.path) {
       labelEl.textContent = c.name;
       labelEl.className = 'viewer-text viewer-badge';
     } else if (!c) {
@@ -1067,7 +1071,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const beatsKey = `${b.enabled}:${b.snap}:${b.bpm}:${b.offset}:${b.beatsPerBar}:${b.subdivisions}:` +
       (Array.isArray(b.markers) ? b.markers.map((m) => `${m.id}@${m.time}`).join(',') : '');
     const timelineKey = `${s.pps}|${s.snap}|${selKey}|${tracksKey}|${beatsKey}|` + s.clips.map((c) =>
-      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.progress}:${c.name}:${c.path}`
+      `${c.id}:${c.track}:${c.start}:${c.dur}:${c.srcIn}:${c.speed}:${c.volume}:${c.muted}:${c.fadeIn || 0}:${c.fadeOut || 0}:${(c.volumeKeyframes || []).map((k) => `${k.t}=${k.value}`).join(',')}:${c.transition}:${c.generating}:${c.progress}:${c.queuePos || 0}:${c.etaSec || 0}:${c.step || 0}:${c.previewUrl || ''}:${c.name}:${c.path}`
     ).join(';');
     if (timelineKey === lastTimelineKey) {
       updateTime(s);
@@ -1136,6 +1140,25 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         const speed = c.speed && c.speed !== 1 ? ` ×${c.speed}` : '';
         const vol = c.kind === 'audio' || c.kind === 'video' ? (c.muted ? ' · muted' : ` · ${Math.round(T.propValue(c, 'volume') * 100)}%`) : '';
         const pct = Math.round((c.progress || 0) * 100);
+        const clipPx = Math.max(8, c.dur * s.pps);
+        const fmtEta = (sec) => {
+          if (!Number.isFinite(sec) || sec <= 0) return '';
+          if (sec < 60) return `~${Math.round(sec)}s`;
+          const m = Math.floor(sec / 60);
+          const rem = Math.round(sec % 60);
+          return rem ? `~${m}m ${rem}s` : `~${m}m`;
+        };
+        const genPreview = c.generating && c.previewUrl
+          ? `<span class="blk-gen-preview" style="background-image:url('${esc(c.previewUrl)}')" aria-hidden="true"></span>`
+          : '';
+        let genMeta = '';
+        if (c.generating) {
+          const qBadge = c.queuePos ? `#${c.queuePos}` : '#1';
+          const stepTxt = c.step >= 1 && c.totalSteps ? ` · ${c.step}/${c.totalSteps}` : '';
+          const etaTxt = c.etaSec ? ` · ${fmtEta(c.etaSec)}` : '';
+          const metaText = clipPx >= 95 ? `${qBadge}${stepTxt}${etaTxt}` : (clipPx >= 46 ? qBadge : '');
+          if (metaText) genMeta = `<span class="blk-gen-meta">${esc(metaText)}</span>`;
+        }
         const fill = c.generating ? `<span class="gen-fill${c.progress == null ? ' pulse' : ''}" style="width:${pct}%"></span>` : '';
         const dissolve = c.transition ? '<span class="tr" title="Cross dissolve"></span>' : '';
 
@@ -1168,7 +1191,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
         return `<div class="blk ${kind}${sel}${strip ? ' has-strip' : ''}${hasInternalAudio ? ' has-wave' : ''}" role="button" tabindex="0" data-clip="${esc(c.id)}"
             aria-label="${esc(c.name)}" style="left:${c.start * s.pps}px;width:${Math.max(8, c.dur * s.pps)}px">
-            ${strip}${waveHtml}${fill}${dissolve}${fadeHandles}<span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle" title="Drag edge to trim length"></span></div>`;
+            ${strip}${genPreview}${waveHtml}${fill}${dissolve}${fadeHandles}${genMeta}<span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle" title="Drag edge to trim length"></span></div>`;
       }).join('');
       return `<div class="trk" data-track="${tr.id}">${blocks}</div>`;
     }).join('');

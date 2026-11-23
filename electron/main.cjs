@@ -249,7 +249,15 @@ async function createWindow() {
 // One render at a time, since the GPU runs one job. Progress goes to the window as "ai:job" events.
 const textToVideo = require('./text-to-video.cjs');
 const mannimmate = require('./mannimmate.cjs');
+const refmodsLib = require('./refmods.cjs');
 const os = require('node:os');
+
+const refmodsRoot = () => path.join(ROOT, 'refmods');
+const previewRoot = () => path.join(app.getPath('userData'), 'ai-previews');
+const pickedMediaDirs = new Set();
+const mediaUrlFor = (filePath) => (filePath && serverPort
+  ? `http://127.0.0.1:${serverPort}/media/${media.encodeMediaPath(filePath)}`
+  : null);
 
 const settingsFile = () => path.join(app.getPath('userData'), 'zaude-settings.json');
 const defaultMannimmateDir = () => path.join(os.homedir(), 'Documents', 'MeineProgramme', 'mannimmate');
@@ -275,14 +283,23 @@ function saveSettings(next) {
   fs.writeFileSync(settingsFile(), JSON.stringify(next, null, 2));
 }
 
-let activeJob = null; // { id, cancel }
+let activeJob = null; // { id, cancel, estSec }
+const jobQueue = [];  // queued Mannimmate jobs: [{ id, input, settings, sender, estSec }]
 const zdSessionDirs = new Set();
 
 // Folders the editor may play media from: the Zaude output folder, Mannimmate's default output,
-// opened project folders, and unpacked .zd session folders.
+// RefMod preview folders, live AI previews, picked input image/video folders, opened project folders, and unpacked .zd sessions.
 function mediaRoots() {
   const s = loadSettings();
-  return [s.outDir, path.join(os.homedir(), 'Videos', 'Mannimmate'), ...projectFolders(), ...zdSessionDirs];
+  return [
+    s.outDir,
+    path.join(os.homedir(), 'Videos', 'Mannimmate'),
+    refmodsRoot(),
+    previewRoot(),
+    ...pickedMediaDirs,
+    ...projectFolders(),
+    ...zdSessionDirs,
+  ];
 }
 
 function projectFolders() {
@@ -328,10 +345,126 @@ function registerAiHandlers() {
     return { ok: true, id };
   });
 
+  function broadcastQueueStatus() {
+    let cumEta = activeJob ? (activeJob.remainingEta ?? activeJob.estSec ?? 60) : 0;
+    if (activeJob && activeJob.send) {
+      activeJob.send({ type: 'queue', queuePos: 1, queueTotal: 1 + jobQueue.length, etaSec: cumEta });
+    }
+    jobQueue.forEach((item, idx) => {
+      cumEta += item.estSec;
+      item.send({
+        type: 'queue',
+        queuePos: idx + (activeJob ? 2 : 1),
+        queueTotal: (activeJob ? 1 : 0) + jobQueue.length,
+        etaSec: cumEta,
+      });
+    });
+  }
+
+  function pumpJobQueue() {
+    if (activeJob || !jobQueue.length) return;
+    const next = jobQueue.shift();
+    const { id, input, mannimmateDir, settings, send, estSec } = next;
+    const job = mannimmate.runJob({
+      mannimmateDir,
+      python: settings.python,
+      request: input,
+      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+      previewDir: previewRoot(),
+      jobId: id,
+      outDir: settings.outDir,
+      onEvent: (ev) => {
+        if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
+        if (ev.type === 'preview' && ev.previewPath) {
+          pickedMediaDirs.add(path.dirname(ev.previewPath));
+          send({ ...ev, previewUrl: mediaUrlFor(ev.previewPath) });
+        } else {
+          send(ev);
+        }
+      },
+    });
+    activeJob = { id, cancel: job.cancel, send, estSec, remainingEta: estSec };
+    broadcastQueueStatus();
+    job.promise.then((result) => {
+      activeJob = null;
+      if (result.ok) send({ type: 'done', path: result.path, dryRun: Boolean(result.dryRun), code: result.code });
+      else send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
+      pumpJobQueue();
+      broadcastQueueStatus();
+    });
+  }
+
   ipcMain.handle('ai:textToVideo:cancel', (_e, id) => {
-    if (!activeJob || activeJob.id !== id) return { ok: false, error: 'That render is not running.' };
-    activeJob.cancel();
-    return { ok: true };
+    if (activeJob && activeJob.id === id) {
+      activeJob.cancel();
+      return { ok: true };
+    }
+    const qIdx = jobQueue.findIndex((j) => j.id === id);
+    if (qIdx >= 0) {
+      const [removed] = jobQueue.splice(qIdx, 1);
+      removed.send({ type: 'cancelled', message: 'Removed from queue.' });
+      broadcastQueueStatus();
+      return { ok: true };
+    }
+    return { ok: false, error: 'That render is not running or queued.' };
+  });
+
+  // ---------- Visual RefMod Library (<appRoot>/refmods/<slug>/) ----------
+  ipcMain.handle('ai:refmods:list', async (_e, dirOverride) => {
+    const settings = loadSettings();
+    const mannimmateDir = String(dirOverride || '').trim() || settings.mannimmateDir;
+    const optRes = await mannimmate.fetchOptions({ mannimmateDir, python: settings.python });
+    const rawMods = optRes && optRes.data && Array.isArray(optRes.data.mods) ? optRes.data.mods : [];
+    const entries = refmodsLib.syncRefMods(refmodsRoot(), rawMods).map((item) => ({
+      ...item,
+      headshotUrl: item.headshotPath ? mediaUrlFor(item.headshotPath) : null,
+      walkUrl: item.walkPath ? mediaUrlFor(item.walkPath) : null,
+    }));
+    return {
+      ok: true,
+      refmodsDir: refmodsRoot(),
+      refmods: entries,
+      options: optRes && optRes.data ? optRes.data : null,
+      optionsError: optRes && !optRes.ok ? optRes.error : null,
+    };
+  });
+
+  ipcMain.handle('ai:refmods:add', (_e, input) => {
+    const entry = refmodsLib.createRefModFolder(refmodsRoot(), input || {});
+    return {
+      ok: true,
+      entry: {
+        ...entry,
+        headshotUrl: entry.headshotPath ? mediaUrlFor(entry.headshotPath) : null,
+        walkUrl: entry.walkPath ? mediaUrlFor(entry.walkPath) : null,
+      },
+    };
+  });
+
+  ipcMain.handle('ai:refmods:generatePreview', async (event, input) => {
+    const settings = loadSettings();
+    const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
+    const mod = input && input.mod;
+    if (!mod || !mod.file) return { ok: false, error: 'No RefMod specified.' };
+    const job = refmodsLib.generateRefModAssets({
+      refmodsRoot: refmodsRoot(),
+      mannimmateDir,
+      python: settings.python,
+      mod,
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:refmodProgress', { slug: mod.slug || mod.file, ...ev });
+      },
+    });
+    const res = await job.promise;
+    if (!res.ok) return res;
+    return {
+      ok: true,
+      entry: {
+        ...res.entry,
+        headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
+        walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+      },
+    };
   });
 
   // ---------- Unified Mannimmate AI Studio (Text->Video, RefMod, Auto, Coverage) ----------
@@ -358,11 +491,12 @@ function registerAiHandlers() {
       filters,
     });
     if (res.canceled || !res.filePaths.length) return null;
-    return res.filePaths[0];
+    const chosen = res.filePaths[0];
+    pickedMediaDirs.add(path.dirname(chosen));
+    return { path: chosen, url: mediaUrlFor(chosen) };
   });
 
   ipcMain.handle('ai:mannimmate:start', (event, input) => {
-    if (activeJob) return { ok: false, error: 'A Mannimmate job is already running. Wait for it or cancel it.' };
     const settings = loadSettings();
     const mannimmateDir = String((input && input.mannimmateDir) || '').trim() || settings.mannimmateDir;
     if (mannimmateDir !== settings.mannimmateDir) {
@@ -372,21 +506,12 @@ function registerAiHandlers() {
     const send = (payload) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:job', { id, ...payload });
     };
-    const job = mannimmate.runJob({
-      mannimmateDir,
-      python: settings.python,
-      request: input,
-      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
-      outDir: settings.outDir,
-      onEvent: send,
-    });
-    activeJob = { id, cancel: job.cancel };
-    job.promise.then((result) => {
-      activeJob = null;
-      if (result.ok) send({ type: 'done', path: result.path, dryRun: Boolean(result.dryRun), code: result.code });
-      else send({ type: result.cancelled ? 'cancelled' : 'error', message: result.error, code: result.code });
-    });
-    return { ok: true, id };
+    const estSec = mannimmate.estimateJobSeconds(input);
+    const queuePos = (activeJob ? 1 : 0) + jobQueue.length + 1;
+    jobQueue.push({ id, input, mannimmateDir, settings, send, estSec });
+    pumpJobQueue();
+    broadcastQueueStatus();
+    return { ok: true, id, queuePos, etaSec: estSec };
   });
 
   // Gives the editor a URL it can play. Only files inside the output folders are allowed.

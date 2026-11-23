@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import * as T from '../src/timeline.js';
 
 const require = createRequire(import.meta.url);
 const mannimmate = require('../electron/mannimmate.cjs');
+const refmods = require('../electron/refmods.cjs');
 
 test('mannimmate.buildCommand routes text-render, refmod, auto, and coverage with dry-run', () => {
   const t2v = mannimmate.buildCommand({
@@ -102,4 +106,36 @@ test('dynamic tracks add V3/A3 and moveClipToTrack moves videos across rows clea
     { id: 'c', track: 'V2', kind: 'video', start: 0, dur: 5 },
   ];
   assert.equal(T.clipAt(stacked, 2).id, 'b');
+});
+
+test('refmods library extracts first name only, falls back to Subject N, and creates per-refmod folders', () => {
+  assert.equal(refmods.displayFirstName('Elias Varga', 1), 'Elias');
+  assert.equal(refmods.displayFirstName('nadia_krasavica', 2), 'Nadia');
+  assert.equal(refmods.displayFirstName('', 3), 'Subject 3');
+  assert.equal(refmods.displayFirstName('   ', 4), 'Subject 4');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zaude-refmods-'));
+  try {
+    const synced = refmods.syncRefMods(tmp, [
+      { file: 'elias_varga', name: 'Elias Varga' },
+      { file: 'unnamed_02', name: '' },
+    ]);
+    assert.equal(synced.length, 2);
+    assert.equal(synced[0].firstName, 'Elias');
+    assert.equal(synced[1].firstName, 'Subject 2');
+    assert.ok(fs.existsSync(path.join(tmp, 'elias_varga', 'meta.json')));
+
+    const created = refmods.createRefModFolder(tmp, { name: '', file: '' });
+    assert.equal(created.firstName, 'Subject 3');
+    assert.ok(fs.existsSync(path.join(created.dir, 'meta.json')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('estimateJobSeconds scales with quality, steps, length, and dryRun', () => {
+  assert.equal(mannimmate.estimateJobSeconds({ dryRun: true }), 5);
+  const prod = mannimmate.estimateJobSeconds({ quality: '640', steps: 6, seconds: 7 });
+  const draft = mannimmate.estimateJobSeconds({ quality: '480', steps: 4, seconds: 4 });
+  assert.ok(prod > draft && prod >= 300);
 });

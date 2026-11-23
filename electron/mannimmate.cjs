@@ -212,8 +212,40 @@ function runDoctor({ mannimmateDir, python }) {
   return runCliJson({ mannimmateDir, python, cliArgs: ['doctor', '--json'], timeoutMs: 20000 });
 }
 
-// Runs a Mannimmate job and streams full debug output (cmd, stdout, stderr, JSON events, exit code).
-function runJob({ mannimmateDir, python, request, promptDir, outDir, onEvent }) {
+// Estimates job duration in seconds (RTX 3090 baseline: ~55s/step at 640p, ~28s/step at 480p).
+function estimateJobSeconds(request) {
+  if (request && request.dryRun) return 5;
+  const steps = Math.max(1, Number(request && request.steps) || 6);
+  const q = Number(request && request.quality) || 640;
+  const secs = Math.max(1, Number(request && request.seconds) || 7);
+  const perStep = q >= 640 ? 55 : q >= 480 ? 28 : 16;
+  const lenFactor = Math.max(0.5, secs / 7);
+  return Math.round(steps * perStep * lenFactor);
+}
+
+// Extracts a preview frame JPG from a chunk/output video for live timeline preview.
+function extractPreviewFrame(videoPath, outJpg, ffmpeg = 'ffmpeg') {
+  return new Promise((resolve) => {
+    try {
+      fs.mkdirSync(path.dirname(outJpg), { recursive: true });
+      const child = spawn(ffmpeg, [
+        '-y', '-v', 'error',
+        '-i', videoPath,
+        '-vframes', '1',
+        '-vf', 'scale=480:-2',
+        '-q:v', '4',
+        outJpg,
+      ], { windowsHide: true });
+      child.on('error', () => resolve(null));
+      child.on('close', (code) => resolve(code === 0 && fs.existsSync(outJpg) ? outJpg : null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+// Runs a Mannimmate job and streams full debug output (cmd, stdout, stderr, JSON events, step previews, ETA, exit code).
+function runJob({ mannimmateDir, python, request, promptDir, previewDir, jobId = '', outDir, onEvent }) {
   const cliPath = path.join(mannimmateDir, 'mannimmate_cli.py');
   if (!fs.existsSync(cliPath)) {
     return {
@@ -248,10 +280,22 @@ function runJob({ mannimmateDir, python, request, promptDir, outDir, onEvent }) 
     };
   }
 
+  const startedAt = Date.now();
+  const baseEstSec = estimateJobSeconds(request);
+  const totalSteps = Math.max(1, Number(request && request.steps) || 6);
+  let lastStep = 0;
   let savedPath = null;
   let cancelled = false;
   let outBuf = '';
   let stderrTail = [];
+
+  const calcEta = (prog) => {
+    const elapsed = (Date.now() - startedAt) / 1000;
+    if (typeof prog === 'number' && prog > 0.04 && prog < 1) {
+      return Math.max(1, Math.round((elapsed / prog) * (1 - prog)));
+    }
+    return Math.max(1, Math.round(baseEstSec - elapsed));
+  };
 
   const handleStdoutLine = (line) => {
     const trimmed = line.trim();
@@ -259,14 +303,46 @@ function runJob({ mannimmateDir, python, request, promptDir, outDir, onEvent }) 
     onEvent({ type: 'stdout', text: trimmed });
     const ev = parseJsonLine(trimmed);
     if (!ev) return;
+
     const p = ev.path || ev.output || ev.video || ev.contact_sheet || null;
     if ((ev.event === 'saved' || ev.event === 'done' || ev.event === 'refmod_saved' || ev.event === 'coverage_saved') && p) {
       savedPath = p;
     }
-    if (typeof ev.progress === 'number') {
-      onEvent({ type: 'progress', progress: Math.max(0, Math.min(1, ev.progress)), label: ev.label || ev.stage || ev.event || 'Working…' });
-    } else if (ev.event) {
-      onEvent({ type: 'progress', progress: null, label: ev.label || ev.message || `${ev.event}…` });
+
+    // Track step progress (either explicit `step` or inferred from `progress`)
+    let prog = typeof ev.progress === 'number' ? Math.max(0, Math.min(1, ev.progress)) : null;
+    let step = Number.isFinite(Number(ev.step)) ? Number(ev.step) : null;
+    const evTotal = Number.isFinite(Number(ev.total_steps || ev.steps)) ? Number(ev.total_steps || ev.steps) : totalSteps;
+    if (step === null && prog !== null && evTotal > 0) {
+      step = Math.min(evTotal, Math.floor(prog * evTotal));
+    }
+    if (prog === null && step !== null && evTotal > 0) {
+      prog = Math.max(0, Math.min(1, step / evTotal));
+    }
+    if (step !== null && step > lastStep) lastStep = step;
+
+    const etaSec = calcEta(prog);
+
+    // Emit live preview image whenever Mannimmate/ComfyUI reports a preview image or a saved intermediate chunk
+    const directPreview = ev.preview_path || ev.preview || ev.frame_path || null;
+    if (directPreview && typeof directPreview === 'string' && fs.existsSync(directPreview)) {
+      onEvent({ type: 'preview', previewPath: directPreview, step: lastStep, totalSteps: evTotal, progress: prog, etaSec });
+    } else if ((ev.event === 'clip_saved' || ev.event === 'chunk_saved') && p && fs.existsSync(p) && previewDir) {
+      const outJpg = path.join(previewDir, `preview-${jobId || Date.now()}.jpg`);
+      extractPreviewFrame(p, outJpg).then((jpg) => {
+        if (jpg) onEvent({ type: 'preview', previewPath: jpg, step: Math.max(1, lastStep), totalSteps: evTotal, progress: prog, etaSec: calcEta(prog) });
+      });
+    }
+
+    if (prog !== null || ev.event) {
+      onEvent({
+        type: 'progress',
+        progress: prog,
+        step: lastStep,
+        totalSteps: evTotal,
+        etaSec,
+        label: ev.label || ev.stage || ev.message || (lastStep >= 1 ? `Step ${lastStep}/${evTotal}` : `${ev.event || 'Working'}…`),
+      });
     }
   };
 
@@ -310,4 +386,4 @@ function runJob({ mannimmateDir, python, request, promptDir, outDir, onEvent }) 
   };
 }
 
-module.exports = { MODES, buildCommand, fetchOptions, runDoctor, runJob };
+module.exports = { MODES, buildCommand, estimateJobSeconds, fetchOptions, runDoctor, runJob };

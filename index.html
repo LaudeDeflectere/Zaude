@@ -62,17 +62,21 @@
       </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
 
-      <label class="ai-model-col" data-modes="refmod,auto">RefMod Character 1 (&lt;Subject 1&gt;)
-        <select name="refmod" id="ai-refmod-select">
-          <option value="">— Loading RefMods… —</option>
-        </select>
-      </label>
-
-      <label class="ai-model-col" data-modes="refmod">RefMod Character 2 (&lt;Subject 2&gt;, optional)
-        <select name="refmod2" id="ai-refmod2-select">
-          <option value="">— None (single character) —</option>
-        </select>
-      </label>
+      <div class="t2v-wide" data-modes="refmod,auto">
+        <div class="ai-prompt-head">
+          <span>Characters (RefMod) <span class="muted">· Hover to preview walk · Click to cast Subject 1 &amp; 2</span></span>
+          <span class="muted" id="ai-refmods-dir"></span>
+        </div>
+        <div class="refmod-grid" id="ai-refmod-grid"></div>
+        <div class="refmod-add-form" id="ai-refmod-add-form" hidden>
+          <input type="text" id="ai-new-refmod-name" placeholder="First / Character name (blank = Subject N)" autocomplete="off">
+          <input type="text" id="ai-new-refmod-file" placeholder="RefMod file slug (e.g. elias_varga)" autocomplete="off">
+          <button type="button" id="ai-new-refmod-save" class="ai">Create</button>
+          <button type="button" id="ai-new-refmod-cancel">Cancel</button>
+        </div>
+        <input type="hidden" name="refmod" id="ai-refmod-input">
+        <input type="hidden" name="refmod2" id="ai-refmod2-input">
+      </div>
 
       <label class="t2v-wide" data-modes="refmod" id="ai-latent-wrap" hidden>Saved Latent (for Continue)
         <select name="latent" id="ai-latent-select">
@@ -80,30 +84,35 @@
         </select>
       </label>
 
-      <label class="t2v-wide" data-modes="auto">Source Video
-        <div class="ai-file-row">
-          <input name="video" placeholder="/path/to/source.mp4" autocomplete="off">
-          <button type="button" data-pick-file="video">Browse…</button>
+      <div class="t2v-wide ai-media-squares" data-modes="text-render,auto,coverage">
+        <div class="ai-square-slot" data-modes="auto" data-slot="video" data-pick-file="video" data-pick-target="video" title="Click to choose source video">
+          <div class="ai-square-box" id="ai-preview-video">
+            <span class="ai-square-empty">🎬<br>Source Video</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="video" hidden title="Clear">×</button>
+          <input type="hidden" name="video">
         </div>
-      </label>
 
-      <label class="t2v-wide" data-modes="text-render,auto">Reference Image (optional for Text→Video)
-        <div class="ai-file-row">
-          <input name="ref" placeholder="/path/to/reference.png" autocomplete="off">
-          <button type="button" data-pick-file="image" data-pick-target="ref">Browse…</button>
+        <div class="ai-square-slot" data-modes="text-render,auto" data-slot="ref" data-pick-file="image" data-pick-target="ref" title="Click to choose reference image (optional for Text→Video)">
+          <div class="ai-square-box" id="ai-preview-ref">
+            <span class="ai-square-empty">🖼️<br>Ref Image</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="ref" hidden title="Clear">×</button>
+          <input type="hidden" name="ref">
         </div>
-      </label>
 
-      <label class="t2v-wide" data-modes="coverage">Scene Reference Image
-        <div class="ai-file-row">
-          <input name="image" placeholder="/path/to/scene.png" autocomplete="off">
-          <button type="button" data-pick-file="image" data-pick-target="image">Browse…</button>
+        <div class="ai-square-slot" data-modes="coverage" data-slot="image" data-pick-file="image" data-pick-target="image" title="Click to choose scene reference image">
+          <div class="ai-square-box" id="ai-preview-image">
+            <span class="ai-square-empty">🖼️<br>Scene Image</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="image" hidden title="Clear">×</button>
+          <input type="hidden" name="image">
         </div>
-      </label>
 
-      <label class="t2v-wide" data-modes="coverage">Coverage Target (optional)
-        <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
-      </label>
+        <label class="ai-coverage-target" data-modes="coverage">Coverage Target (optional)
+          <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
+        </label>
+      </div>
 
       <div class="t2v-wide" data-modes="text-render,refmod">
         <div class="ai-prompt-head">

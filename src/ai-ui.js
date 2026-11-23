@@ -1,14 +1,18 @@
-// Interactive Mannimmate AI Studio popup for Zaude.
-// Supports Text->Video (FL2VA), RefMod->Video (Ref2VA), Video Restyle (auto), and Multishot Coverage,
-// with automatic model routing and a live debug console (command preview, stdout, stderr, dry-run, doctor).
+// Interactive Visual Mannimmate AI Studio popup for Zaude.
+// - Visual RefMod square grid (headshot + hover walk animation + translucent first-name overlay + "+" creator)
+// - Square image/video preview inputs for all image/video slots
+// - Closes automatically on Generate and supports queuing multiple generations with live step previews & ETA
+// - Full Debug Console (command preview, stdout, stderr, dry-run, doctor)
 
 const api = window.zaudeAI || null;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
-let jobId = null;
-let running = false;
 let currentMode = 'text-render';
+let refmodEntries = [];
+let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
+let generatingRefmodSlug = null;
+const trackedJobs = new Map(); // jobId -> { mode, dryRun, seconds }
 let cachedOptions = {
   mods: [],
   models: [],
@@ -33,48 +37,9 @@ function appendLog(prefix, text) {
 
 function setStatus(text, isError = false) {
   const el = $('t2v-status');
+  if (!el) return;
   el.textContent = text;
   el.className = 't2v-status' + (isError ? ' err' : '');
-}
-
-function setRunning(on) {
-  running = on;
-  $('t2v-generate').disabled = on;
-  $('t2v-cancel').disabled = !on;
-  $('ai-refresh').disabled = on;
-  $('ai-doctor').disabled = on;
-  $('ai-mode-tabs').querySelectorAll('button').forEach((b) => { b.disabled = on; });
-  if (!on) $('t2v-progress').hidden = true;
-}
-
-function showProgress(progress) {
-  const wrap = $('t2v-progress');
-  wrap.hidden = false;
-  if (typeof progress === 'number') {
-    wrap.classList.remove('indeterminate');
-    $('t2v-bar').style.width = Math.round(progress * 100) + '%';
-  } else {
-    wrap.classList.add('indeterminate');
-  }
-}
-
-function showResult(path, dryRun) {
-  if (dryRun) {
-    $('t2v-result').innerHTML = `<div class="muted">Dry run completed cleanly (no GPU job submitted). Check Debug Console for manifest/graph details.</div>`;
-    return;
-  }
-  if (!path) {
-    $('t2v-result').innerHTML = `<div class="muted">Finished. Check Debug Console for output path.</div>`;
-    return;
-  }
-  $('t2v-result').innerHTML = `
-    <div>Saved clip:</div>
-    <code>${esc(path)}</code>
-    <div><button type="button" data-reveal="${esc(path)}">Show in folder</button></div>`;
-}
-
-function clearResult() {
-  $('t2v-result').innerHTML = '';
 }
 
 function populateSelect(sel, items, { emptyLabel = 'Auto (Mannimmate default)', defaultVal = '', mapItem } = {}) {
@@ -93,6 +58,68 @@ function populateSelect(sel, items, { emptyLabel = 'Auto (Mannimmate default)', 
   }
 }
 
+function syncHiddenRefmodInputs() {
+  const f1 = $('ai-refmod-input');
+  const f2 = $('ai-refmod2-input');
+  if (f1) f1.value = selectedRefmods[0] || '';
+  if (f2) f2.value = selectedRefmods[1] || '';
+}
+
+function renderRefModGrid() {
+  const grid = $('ai-refmod-grid');
+  if (!grid) return;
+  syncHiddenRefmodInputs();
+
+  const cards = refmodEntries.map((item, idx) => {
+    const selIdx = selectedRefmods.indexOf(item.file);
+    const selCls = selIdx === 0 ? ' sel-1' : selIdx === 1 ? ' sel-2' : '';
+    const badge = selIdx >= 0 ? `<span class="refmod-slot-badge">${selIdx + 1}</span>` : '';
+    const label = item.firstName || `Subject ${idx + 1}`;
+    const isGen = generatingRefmodSlug === item.slug;
+    const avatarHtml = item.headshotUrl
+      ? `<img class="refmod-headshot" src="${esc(item.headshotUrl)}" alt="${esc(label)}" loading="lazy">`
+      : `<span class="refmod-monogram">${esc(label.slice(0, 2).toUpperCase())}</span>`;
+    const walkHtml = item.walkUrl
+      ? `<video class="refmod-walk" src="${esc(item.walkUrl)}" muted loop playsinline preload="none"></video>`
+      : '';
+    const genBtn = `<button type="button" class="refmod-gen-btn" data-gen-refmod="${esc(item.slug)}" title="${item.hasWalk ? 'Regenerate headshot & walk preview' : 'Generate headshot & walk preview with RefMod'}">${isGen ? '…' : '✨'}</button>`;
+    return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)}${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
+      ${avatarHtml}${walkHtml}${badge}${genBtn}
+      <span class="refmod-name">${esc(label)}</span>
+    </div>`;
+  }).join('');
+
+  const addTile = `<button type="button" class="refmod-tile refmod-add-tile" id="ai-refmod-add-btn" title="Add a new RefMod character folder">
+    <span class="refmod-plus">+</span>
+    <span class="refmod-name">Add</span>
+  </button>`;
+
+  grid.innerHTML = cards + addTile;
+}
+
+function updateSquarePreview(slotName, filePath, url, isVideo = false) {
+  const box = $(`ai-preview-${slotName}`);
+  const form = $('t2v-form');
+  const clearBtn = document.querySelector(`[data-clear-slot="${slotName}"]`);
+  if (form && form.elements[slotName]) form.elements[slotName].value = filePath || '';
+  if (!box) return;
+  if (!filePath) {
+    const emptyLabel = slotName === 'video' ? '🎬<br>Source Video' : slotName === 'image' ? '🖼️<br>Scene Image' : '🖼️<br>Ref Image';
+    box.innerHTML = `<span class="ai-square-empty">${emptyLabel}</span>`;
+    if (clearBtn) clearBtn.hidden = true;
+    return;
+  }
+  const shortName = filePath.split(/[\\/]/).pop();
+  if (isVideo && url) {
+    box.innerHTML = `<video src="${esc(url)}" muted loop autoplay playsinline></video><span class="ai-square-cap">${esc(shortName)}</span>`;
+  } else if (url) {
+    box.innerHTML = `<img src="${esc(url)}" alt="${esc(shortName)}"><span class="ai-square-cap">${esc(shortName)}</span>`;
+  } else {
+    box.innerHTML = `<span class="ai-square-empty">📄</span><span class="ai-square-cap">${esc(shortName)}</span>`;
+  }
+  if (clearBtn) clearBtn.hidden = false;
+}
+
 function updateModelRouting() {
   const isText = currentMode === 'text-render';
   const badge = $('ai-route-badge');
@@ -105,21 +132,9 @@ function updateModelRouting() {
     defaultVal: isText ? '' : (cachedOptions.default_model || ''),
   });
 
-  // Filter LoRAs lightly by mode relevance while keeping all accessible
-  const loras = cachedOptions.loras || [];
-  populateSelect($('ai-lora-select'), loras, {
+  populateSelect($('ai-lora-select'), cachedOptions.loras || [], {
     emptyLabel: 'Auto / None',
     defaultVal: isText ? '' : (cachedOptions.default_lora || ''),
-  });
-
-  populateSelect($('ai-refmod-select'), cachedOptions.mods || [], {
-    emptyLabel: cachedOptions.mods.length ? '— Pick RefMod Character 1 —' : '— No RefMods loaded (click ↻ Models) —',
-    mapItem: (m) => ({ value: m.file, label: `${m.name} (${m.file})` }),
-  });
-
-  populateSelect($('ai-refmod2-select'), cachedOptions.mods || [], {
-    emptyLabel: '— None (single character) —',
-    mapItem: (m) => ({ value: m.file, label: `${m.name} (${m.file})` }),
   });
 
   populateSelect($('ai-latent-select'), (cachedOptions.latents || []).slice(0, 60), {
@@ -146,11 +161,10 @@ function applyModeVisibility() {
 function collectRequest() {
   const form = $('t2v-form');
   const fd = new FormData(form);
-  const refmodSel = $('ai-refmod-select');
-  const refmodFile = String(fd.get('refmod') || '').trim();
-  const matchedMod = (cachedOptions.mods || []).find((m) => m.file === refmodFile);
-  const refmod2File = String(fd.get('refmod2') || '').trim();
-  const matchedMod2 = (cachedOptions.mods || []).find((m) => m.file === refmod2File);
+  const refmodFile = selectedRefmods[0] || '';
+  const refmod2File = selectedRefmods[1] || '';
+  const m1 = refmodEntries.find((m) => m.file === refmodFile);
+  const m2 = refmodEntries.find((m) => m.file === refmod2File);
   return {
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
@@ -166,9 +180,9 @@ function collectRequest() {
     lora: String(fd.get('lora') || '').trim(),
     ref: String(fd.get('ref') || '').trim(),
     refmod: refmodFile,
-    refmodName: matchedMod ? matchedMod.name : (refmodSel && refmodSel.selectedOptions[0] ? refmodSel.selectedOptions[0].textContent : ''),
+    refmodName: m1 ? (m1.name || m1.firstName) : '',
     refmod2: refmod2File,
-    refmod2Name: matchedMod2 ? matchedMod2.name : '',
+    refmod2Name: m2 ? (m2.name || m2.firstName) : '',
     refmodMode: String(fd.get('refmodMode') || 'generate'),
     identityStrength: fd.get('identityStrength') !== '' ? Number(fd.get('identityStrength')) : 1.0,
     voiceStrength: fd.get('voiceStrength') !== '' ? Number(fd.get('voiceStrength')) : 1.0,
@@ -190,7 +204,7 @@ function updateCommandPreview() {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
     if (req.ref) parts.push('--ref', req.ref);
   } else if (req.mode === 'refmod') {
-    parts.push('--mode', req.refmodMode, '--refmod', `"${req.refmod || '<refmod>'}|${req.refmodName || 'Subject'}|${req.identityStrength}|${req.voiceStrength}"`);
+    parts.push('--mode', req.refmodMode, '--refmod', `"${req.refmod || '<refmod>'}|${req.refmodName || 'Subject 1'}|${req.identityStrength}|${req.voiceStrength}"`);
     if (req.refmod2) parts.push('--refmod', `"${req.refmod2}|${req.refmod2Name || 'Subject 2'}|1|1"`);
     parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
     if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
@@ -212,31 +226,38 @@ function updateCommandPreview() {
   if (el) el.textContent = parts.join(' ');
 }
 
-async function loadOptions() {
-  if (!api || !api.mannimmateOptions) return;
+async function loadOptionsAndRefMods() {
+  if (!api || !api.refmodsList) return;
   const dir = $('t2v-form').elements.mannimmateDir.value.trim();
-  setStatus('Loading Mannimmate models & RefMods…');
-  appendLog('INFO', 'Running mannimmate_cli.py refmod-options --json…');
-  const res = await api.mannimmateOptions(dir);
-  if (!res || !res.ok || !res.data) {
-    const err = (res && res.error) || 'Could not query Mannimmate options';
+  setStatus('Loading RefMods & Mannimmate models…');
+  appendLog('INFO', 'Syncing Zaude refmods/ library & Mannimmate options…');
+  const res = await api.refmodsList(dir);
+  if (!res || !res.ok) {
+    const err = (res && res.error) || 'Could not load RefMods';
     setStatus(err, true);
     appendLog('ERR', err);
     return;
   }
-  cachedOptions = {
-    mods: res.data.mods || [],
-    models: res.data.models || [],
-    text_models: res.data.text_models || [],
-    loras: res.data.loras || [],
-    latents: res.data.latents || [],
-    default_model: res.data.default_model || '',
-    default_lora: res.data.default_lora || '',
-  };
+  refmodEntries = res.refmods || [];
+  if ($('ai-refmods-dir') && res.refmodsDir) {
+    $('ai-refmods-dir').textContent = res.refmodsDir;
+  }
+  if (res.options) {
+    cachedOptions = {
+      mods: res.options.mods || [],
+      models: res.options.models || [],
+      text_models: res.options.text_models || [],
+      loras: res.options.loras || [],
+      latents: res.options.latents || [],
+      default_model: res.options.default_model || '',
+      default_lora: res.options.default_lora || '',
+    };
+  }
+  renderRefModGrid();
   updateModelRouting();
   updateCommandPreview();
-  const msg = `Loaded ${cachedOptions.mods.length} RefMods, ${cachedOptions.models.length} Ref2VA models, ${cachedOptions.text_models.length} FL2VA models, ${cachedOptions.loras.length} LoRAs.`;
-  setStatus(msg);
+  const msg = `Loaded ${refmodEntries.length} RefMods, ${cachedOptions.models.length} Ref2VA, ${cachedOptions.text_models.length} FL2VA models.`;
+  setStatus(res.optionsError ? `${msg} (${res.optionsError})` : msg, Boolean(res.optionsError));
   appendLog('OK', msg);
 }
 
@@ -259,7 +280,6 @@ async function runDoctor() {
 async function open() {
   $('t2v-dialog').hidden = false;
   setStatus('');
-  clearResult();
   try {
     const settings = await api.getSettings();
     $('t2v-form').elements.mannimmateDir.value = settings.mannimmateDir;
@@ -267,8 +287,9 @@ async function open() {
     setStatus('Could not read settings: ' + err.message, true);
   }
   applyModeVisibility();
-  if (!cachedOptions.models.length && !cachedOptions.mods.length) {
-    loadOptions();
+  renderRefModGrid();
+  if (!refmodEntries.length && !cachedOptions.models.length) {
+    loadOptionsAndRefMods();
   }
 }
 
@@ -276,34 +297,58 @@ function close() {
   $('t2v-dialog').hidden = true;
 }
 
-async function onSubmit() {
-  if (running) return;
-  const req = collectRequest();
-  if (req.mannimmateDir) await api.setSettings({ mannimmateDir: req.mannimmateDir });
-
-  const result = await api.mannimmateStart(req);
-  if (!result || !result.ok) {
-    const err = (result && result.error) || 'Could not start Mannimmate job.';
-    setStatus(err, true);
-    appendLog('ERR', err);
-    return;
-  }
-  jobId = result.id;
-  if (!req.dryRun && (req.mode === 'text-render' || req.mode === 'refmod')) {
-    notifyEditor({ type: 'start', id: result.id, seconds: Number(req.seconds) || 4 });
-  }
-  clearResult();
-  setRunning(true);
-  showProgress(null);
-  setStatus(`Running Mannimmate (${req.mode}${req.dryRun ? ' · dry-run' : ''})…`);
-}
-
 function notifyEditor(detail) {
   window.dispatchEvent(new CustomEvent('zaude:t2v', { detail }));
 }
 
+async function onSubmit() {
+  const req = collectRequest();
+  if (req.mannimmateDir) await api.setSettings({ mannimmateDir: req.mannimmateDir });
+
+  // Basic client-side check before closing so errors show right inside the popup
+  if ((req.mode === 'text-render' || req.mode === 'refmod') && !req.prompt) {
+    return setStatus('Write a prompt first.', true);
+  }
+  if (req.mode === 'refmod' && !req.refmod) {
+    return setStatus('Click a RefMod character square first.', true);
+  }
+  if (req.mode === 'auto' && !req.video) {
+    return setStatus('Pick a source video first.', true);
+  }
+  if (req.mode === 'coverage' && !req.image) {
+    return setStatus('Pick a scene reference image first.', true);
+  }
+
+  const result = await api.mannimmateStart(req);
+  if (!result || !result.ok) {
+    const err = (result && result.error) || 'Could not queue Mannimmate job.';
+    setStatus(err, true);
+    appendLog('ERR', err);
+    return;
+  }
+
+  const secs = req.mode === 'auto'
+    ? Math.max(1, Math.round(req.end - req.start))
+    : (Number(req.seconds) || 7);
+  trackedJobs.set(result.id, { mode: req.mode, dryRun: req.dryRun, seconds: secs });
+  notifyEditor({
+    type: 'start',
+    id: result.id,
+    seconds: secs,
+    queuePos: result.queuePos || 1,
+    etaSec: result.etaSec || 60,
+    totalSteps: Number(req.steps) || 6,
+    label: req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode,
+  });
+  appendLog('QUEUE', `Queued job #${result.queuePos || 1} (${req.mode}, ~${Math.round((result.etaSec || 60) / 60)}m)`);
+
+  // Close the window immediately when pressing Generate so the user sees the live clip on the timeline!
+  close();
+}
+
 function onJob(payload) {
-  if (!jobId || payload.id !== jobId) return;
+  const info = trackedJobs.get(payload.id);
+  if (!info) return;
   if (payload.type === 'cmd') {
     appendLog('CMD', payload.cmd);
     return;
@@ -316,38 +361,11 @@ function onJob(payload) {
     appendLog('ERR', payload.text);
     return;
   }
-  if (!payload.dryRun) notifyEditor({ ...payload });
-  switch (payload.type) {
-    case 'progress':
-      setStatus(payload.label || 'Working…');
-      showProgress(payload.progress);
-      break;
-    case 'done':
-      setRunning(false);
-      jobId = null;
-      appendLog('EXIT', `code=${payload.code ?? 0}${payload.path ? ' path=' + payload.path : ''}`);
-      setStatus(payload.dryRun ? 'Dry run succeeded (exit 0).' : 'Done.');
-      showResult(payload.path, payload.dryRun);
-      break;
-    case 'cancelled':
-      setRunning(false);
-      jobId = null;
-      appendLog('CANCEL', 'Job cancelled by user.');
-      setStatus('Cancelled.');
-      break;
-    case 'error':
-      setRunning(false);
-      jobId = null;
-      appendLog('FAIL', `code=${payload.code ?? '?'} ${payload.message || 'Render failed'}`);
-      setStatus(payload.message || 'The render failed.', true);
-      break;
+  notifyEditor({ ...payload, dryRun: info.dryRun });
+  if (payload.type === 'done' || payload.type === 'cancelled' || payload.type === 'error') {
+    appendLog(payload.type.toUpperCase(), `job=${payload.id.slice(0, 6)} ${payload.path || payload.message || ''}`);
+    trackedJobs.delete(payload.id);
   }
-}
-
-async function onCancel() {
-  if (!jobId) return;
-  const res = await api.cancelTextToVideo(jobId);
-  if (!res.ok) setStatus(res.error, true);
 }
 
 function init() {
@@ -359,8 +377,7 @@ function init() {
   }
   openBtn.addEventListener('click', open);
   $('t2v-close').addEventListener('click', close);
-  $('t2v-cancel').addEventListener('click', onCancel);
-  $('ai-refresh').addEventListener('click', loadOptions);
+  $('ai-refresh').addEventListener('click', loadOptionsAndRefMods);
   $('ai-doctor').addEventListener('click', runDoctor);
   $('ai-log-clear').addEventListener('click', () => {
     logLines.length = 0;
@@ -372,9 +389,39 @@ function init() {
 
   $('ai-mode-tabs').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-ai-mode]');
-    if (!btn || running) return;
+    if (!btn) return;
     currentMode = btn.dataset.aiMode;
     applyModeVisibility();
+  });
+
+  // Hover walk animation playback on RefMod square tiles
+  const grid = $('ai-refmod-grid');
+  grid.addEventListener('pointerenter', (e) => {
+    const tile = e.target.closest('.refmod-tile[data-refmod-tile]');
+    const vid = tile && tile.querySelector('.refmod-walk');
+    if (vid) { vid.currentTime = 0; vid.play().catch(() => {}); }
+  }, true);
+  grid.addEventListener('pointerleave', (e) => {
+    const tile = e.target.closest('.refmod-tile[data-refmod-tile]');
+    const vid = tile && tile.querySelector('.refmod-walk');
+    if (vid) { vid.pause(); }
+  }, true);
+
+  $('ai-new-refmod-cancel').addEventListener('click', () => {
+    $('ai-refmod-add-form').hidden = true;
+  });
+  $('ai-new-refmod-save').addEventListener('click', async () => {
+    const name = $('ai-new-refmod-name').value.trim();
+    const file = $('ai-new-refmod-file').value.trim();
+    const res = await api.refmodsAdd({ name, file });
+    if (res && res.ok && res.entry) {
+      refmodEntries.push(res.entry);
+      $('ai-new-refmod-name').value = '';
+      $('ai-new-refmod-file').value = '';
+      $('ai-refmod-add-form').hidden = true;
+      renderRefModGrid();
+      setStatus(`Created RefMod folder: ${res.entry.slug}`);
+    }
   });
 
   $('t2v-form').addEventListener('input', () => {
@@ -397,6 +444,69 @@ function init() {
     const reveal = e.target.closest('[data-reveal]');
     if (reveal) return api.reveal(reveal.dataset.reveal);
 
+    // "+" add RefMod button
+    if (e.target.closest('#ai-refmod-add-btn')) {
+      $('ai-refmod-add-form').hidden = !$('ai-refmod-add-form').hidden;
+      if (!$('ai-refmod-add-form').hidden) $('ai-new-refmod-name').focus();
+      return;
+    }
+
+    // Per-tile "✨" generate headshot & walk preview button
+    const genRefBtn = e.target.closest('[data-gen-refmod]');
+    if (genRefBtn) {
+      e.stopPropagation();
+      const slug = genRefBtn.dataset.genRefmod;
+      const mod = refmodEntries.find((m) => m.slug === slug);
+      if (!mod || generatingRefmodSlug) return;
+      generatingRefmodSlug = slug;
+      renderRefModGrid();
+      setStatus(`Generating headshot & walk animation for ${mod.firstName}…`);
+      appendLog('REFMOD', `Generating walk.mp4 + headshot.jpg for ${mod.file}…`);
+      const res = await api.refmodsGeneratePreview({
+        mannimmateDir: $('t2v-form').elements.mannimmateDir.value.trim(),
+        mod,
+      });
+      generatingRefmodSlug = null;
+      if (res && res.ok && res.entry) {
+        refmodEntries = refmodEntries.map((m) => (m.slug === slug ? res.entry : m));
+        setStatus(`Generated headshot & walk animation for ${res.entry.firstName}!`);
+        appendLog('OK', `Saved ${res.entry.walkPath} and ${res.entry.headshotPath}`);
+      } else {
+        setStatus((res && res.error) || 'Could not generate RefMod preview.', true);
+        appendLog('ERR', (res && res.error) || 'RefMod preview failed');
+      }
+      renderRefModGrid();
+      return;
+    }
+
+    // RefMod square tile selection (Subject 1 / Subject 2)
+    const refTile = e.target.closest('.refmod-tile[data-refmod-tile]');
+    if (refTile) {
+      const file = refTile.dataset.refmodTile;
+      const idx = selectedRefmods.indexOf(file);
+      if (idx >= 0) {
+        selectedRefmods.splice(idx, 1);
+      } else if (currentMode === 'auto') {
+        selectedRefmods = [file];
+      } else {
+        if (selectedRefmods.length >= 2) selectedRefmods.shift();
+        selectedRefmods.push(file);
+      }
+      renderRefModGrid();
+      updateCommandPreview();
+      return;
+    }
+
+    // Clear square media preview
+    const clearBtn = e.target.closest('[data-clear-slot]');
+    if (clearBtn) {
+      e.stopPropagation();
+      updateSquarePreview(clearBtn.dataset.clearSlot, '', null);
+      updateCommandPreview();
+      return;
+    }
+
+    // Production presets
     const presetBtn = e.target.closest('[data-ai-preset]');
     if (presetBtn) {
       const form = $('t2v-form');
@@ -429,6 +539,7 @@ function init() {
       return;
     }
 
+    // Prompt helper snippets
     const snipBtn = e.target.closest('[data-prompt-snip]');
     if (snipBtn) {
       const ta = $('t2v-form').elements.prompt;
@@ -451,13 +562,14 @@ function init() {
       return;
     }
 
+    // Square image/video file picker
     const pick = e.target.closest('[data-pick-file]');
     if (pick && api.mannimmatePickFile) {
       const kind = pick.dataset.pickFile;
       const targetName = pick.dataset.pickTarget || kind;
       const chosen = await api.mannimmatePickFile(kind);
-      if (chosen && $('t2v-form').elements[targetName]) {
-        $('t2v-form').elements[targetName].value = chosen;
+      if (chosen && chosen.path) {
+        updateSquarePreview(targetName, chosen.path, chosen.url, kind === 'video');
         updateCommandPreview();
       }
     }
@@ -469,6 +581,12 @@ function init() {
   });
 
   api.onJob(onJob);
+  if (api.onRefmodProgress) {
+    api.onRefmodProgress((ev) => {
+      if (ev.label) setStatus(`RefMod ${ev.slug}: ${ev.label}`);
+      if (ev.text) appendLog('REFMOD', ev.text);
+    });
+  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('t2v-dialog').hidden) close();
   });
