@@ -14,7 +14,7 @@ import os
 import subprocess
 import modal
 
-GPU_TYPE = os.environ.get("MODAL_GPU", "L40S")  # L40S | A100-80GB | H100
+GPU_TYPE = os.environ.get("MODAL_GPU", "H100")  # L40S | A100-80GB | H100
 APP_NAME = os.environ.get("MODAL_APP_NAME", "zaude-comfy")
 VOLUME_NAME = os.environ.get("MODAL_VOLUME_NAME", "zaude-comfy-models")
 
@@ -40,6 +40,11 @@ comfy_image = (
         "git clone --depth 1 https://github.com/Lightricks/ComfyUI-LTXVideo.git /root/ComfyUI/custom_nodes/ComfyUI-LTXVideo",
         "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-LTXVideo/requirements.txt || true",
         "git clone --depth 1 https://github.com/welltop-cn/ComfyUI-TeaCache.git /root/ComfyUI/custom_nodes/ComfyUI-TeaCache",
+        "git clone --depth 1 https://github.com/kijai/ComfyUI-KJNodes.git /root/ComfyUI/custom_nodes/comfyui-kjnodes",
+        "pip install -r /root/ComfyUI/custom_nodes/comfyui-kjnodes/requirements.txt || true",
+        "git clone --depth 1 https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod /root/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod",
+        "git clone --depth 1 https://github.com/SatoDive/Minimax-H3-Latent-Continuation.git /root/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3-Latent-Continuation",
+        "git clone --depth 1 https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo /root/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-Turbo",
         "pip install sageattention triton || true",
         "rm -rf /root/ComfyUI/models && mkdir -p /root/ComfyUI/models",
     )
@@ -57,7 +62,7 @@ comfy_image = (
 @modal.web_server(8188, startup_timeout=180)
 def comfy_web():
     """Starts ComfyUI on port 8188 with live step previews enabled."""
-    for sub in ("unet", "diffusion_models", "vae", "clip", "loras", "upscale_models", "checkpoints"):
+    for sub in ("unet", "diffusion_models", "vae", "clip", "text_encoders", "loras", "upscale_models", "checkpoints", "refmods"):
         os.makedirs(f"/root/ComfyUI/models/{sub}", exist_ok=True)
     cmd = [
         "python3",
@@ -119,3 +124,43 @@ def download_open_models():
         subprocess.run(["curl", "-L", "-C", "-", "--fail", "-o", dest, url], check=True)
     models_vol.commit()
     print("All open models downloaded and committed to Modal Volume.")
+
+
+@app.function(
+    image=comfy_image,
+    volumes={"/root/ComfyUI/models": models_vol},
+    timeout=3600,
+)
+def download_minimax_h3():
+    """Downloads MiniMax-H3 Ref2VA (FP8 scaled) + Qwen3VL-32B + VAEs + 4-step Turbo LoRA onto Modal Volume."""
+    downloads = [
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+            "/root/ComfyUI/models/diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+            "/root/ComfyUI/models/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors",
+            "/root/ComfyUI/models/vae/minimax_h3_video_vae_int8_convrot.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+            "/root/ComfyUI/models/vae/minimax_h3_audio_vae_fp32.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+            "/root/ComfyUI/models/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        ),
+    ]
+    for url, dest in downloads:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.exists(dest) and os.path.getsize(dest) > 1024 * 1024:
+            print(f"[skip] {dest} already exists")
+            continue
+        print(f"[download] {url} -> {dest}")
+        subprocess.run(["curl", "-L", "-C", "-", "--fail", "-o", dest, url], check=True)
+    models_vol.commit()
+    print("MiniMax-H3 Ref2VA suite downloaded and committed to Modal Volume.")
