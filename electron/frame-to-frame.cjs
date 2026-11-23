@@ -252,8 +252,10 @@ function runFrameToFrame({ request, previewDir, jobId = '', outDir, onEvent = ()
         return Math.max(1, Math.round(baseEstSec - elapsed));
       };
 
+      const clientId = `zaude-fl2v-${jobId || Date.now()}`;
       watcher = comfyLive.watchComfyJob({
         baseUrl,
+        clientId,
         previewDir,
         jobId,
         onStep: ({ step, totalSteps, progress }) => {
@@ -268,7 +270,7 @@ function runFrameToFrame({ request, previewDir, jobId = '', outDir, onEvent = ()
       const submitRes = await fetch(`${baseUrl}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: graph, client_id: `zaude-fl2v-${jobId || Date.now()}` }),
+        body: JSON.stringify({ prompt: graph, client_id: clientId }),
       });
       if (!submitRes.ok) throw new Error(`ComfyUI rejected FL2VA graph (${submitRes.status}): ${await submitRes.text()}`);
       const subData = await submitRes.json();

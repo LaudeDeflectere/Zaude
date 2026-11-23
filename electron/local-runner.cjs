@@ -114,7 +114,8 @@ async function ensureLocalComfy({ comfyDir = DEFAULT_LOCAL_COMFY_DIR, comfyUrl =
   const venvPy = path.join(comfyDir, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
   const pythonBin = fs.existsSync(venvPy) ? venvPy : 'python3';
   const report = systemAdvisor.analyzeSystem({ comfyDir });
-  const flags = (report.optimizations && report.optimizations.comfyFlags) || ['--use-pytorch-cross-attention', '--force-fp16', '--lowvram'];
+  const baseFlags = (report.optimizations && report.optimizations.comfyFlags) || ['--use-pytorch-cross-attention', '--force-fp16', '--lowvram'];
+  const flags = baseFlags.includes('--preview-method') ? baseFlags : [...baseFlags, '--preview-method', 'auto'];
 
   const u = new URL(comfyUrl);
   const args = [mainPy, '--listen', u.hostname || '127.0.0.1', '--port', String(u.port || 8188), ...flags];
@@ -429,14 +430,15 @@ function runLocalVideo({
       const clientId = `zaude-local-${Date.now()}`;
       watcher = comfyLive.watchComfyJob({
         baseUrl: base,
+        clientId,
         previewDir: previewDir || outDir,
         jobId,
-        onPreview: (previewPath) => {
-          if (previewPath) onEvent({ type: 'preview', previewPath });
+        onPreview: ({ previewPath, step, totalSteps }) => {
+          const prog = totalSteps > 0 ? Math.min(0.99, step / totalSteps) : null;
+          if (previewPath) onEvent({ type: 'preview', previewPath, step, totalSteps, progress: prog });
         },
-        onStep: ({ step, totalSteps }) => {
-          const pct = totalSteps ? Math.min(94, Math.round(20 + (step / totalSteps) * 72)) : 50;
-          onEvent({ type: 'progress', step, maxSteps: totalSteps, percent: pct, message: `💻 ${setup.hostname} ${model.label}: step ${step}/${totalSteps}` });
+        onStep: ({ step, totalSteps, progress }) => {
+          onEvent({ type: 'progress', step, totalSteps, progress, label: `💻 ${setup.hostname} ${model.label}: step ${step}/${totalSteps}` });
         },
       });
 

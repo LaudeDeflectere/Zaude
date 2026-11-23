@@ -233,6 +233,7 @@ function computeOptimizations(gpu) {
   } else if (vram > 10 && vram <= 16) {
     flags.push('--normalvram');
   }
+  flags.push('--preview-method', 'auto');
   return {
     pipPackages: pkgs,
     comfyFlags: flags,
