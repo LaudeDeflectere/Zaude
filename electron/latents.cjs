@@ -81,7 +81,8 @@ function findClipLatent(videoPath) {
           prompt: data.prompt || '',
           fallbackName: parsed.name,
         });
-        return { latent, label };
+        const quality = data.quality != null ? String(data.quality).replace(/[^0-9]/g, '') : null;
+        return { latent, label, quality: quality || null };
       }
     } catch { /* ignore */ }
   }

@@ -485,9 +485,9 @@ function registerAiHandlers() {
 
   ipcMain.handle('ai:clipLatent', (_e, filePath) => {
     const found = latentsLib.findClipLatent(filePath);
-    if (!found) return { ok: true, latent: null, label: null };
+    if (!found) return { ok: true, latent: null, label: null, quality: null };
     const names = latentsLib.loadLatentNames(latentNamesFile());
-    return { ok: true, latent: found.latent, label: names[found.latent] || found.label };
+    return { ok: true, latent: found.latent, label: names[found.latent] || found.label, quality: found.quality || null };
   });
 
   // ---------- Local Hardware Analyzer, AI Web Research & 1-Click Model Installer ----------

@@ -550,6 +550,8 @@ async function onSubmit() {
   pendingInsertAt = null;
   pendingSeedVideo = '';
   pendingClipLatent = null;
+  const firstImg = document.querySelector('#ai-preview-firstFrame img');
+  const initialPreviewUrl = firstImg && firstImg.src ? firstImg.src : null;
   notifyEditor({
     type: 'start',
     id: result.id,
@@ -558,8 +560,9 @@ async function onSubmit() {
     queuePos: result.queuePos || 1,
     etaSec: result.etaSec || 60,
     totalSteps: Number(req.steps) || 6,
+    previewUrl: initialPreviewUrl,
     label: (req.firstFrame || req.lastFrame)
-      ? 'FrameToFrame'
+      ? (req.refmodMode === 'continue' ? 'FrameContinue' : 'FrameToFrame')
       : (req.mode === 'refmod' && req.refmodMode === 'continue'
         ? 'FrameContinue'
         : (req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode)),
@@ -957,7 +960,7 @@ function init() {
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 
-  window.__zaudeOpenFrameContinue = async ({ seedVideo = '', latent = '', latentLabel = '', clipName = '', firstFrame = null, insertAt = null } = {}) => {
+  window.__zaudeOpenFrameContinue = async ({ seedVideo = '', latent = '', latentLabel = '', quality = '', clipName = '', firstFrame = null, insertAt = null } = {}) => {
     currentMode = 'refmod';
     pendingInsertAt = insertAt;
     pendingSeedVideo = seedVideo || '';
@@ -980,9 +983,15 @@ function init() {
     updateSquarePreview('lastFrame', '', null, false);
     if (form && form.elements.refmodMode) form.elements.refmodMode.value = 'continue';
     if (form && form.elements.steps) form.elements.steps.value = '7';
+    // Match the saved latent's exact resolution so H3 never throws a latent-size mismatch error!
+    if (quality && form && form.elements.resolution) {
+      const qOpt = Array.from(form.elements.resolution.options).find((o) => o.value === String(quality));
+      if (qOpt) form.elements.resolution.value = String(quality);
+    }
     applyModeVisibility();
     updateCommandPreview();
-    setStatus(`FrameContinue ready (${pendingClipLatent.label}) — write what happens next and click Run.`);
+    const resNote = quality ? ` · locked to ${quality}p to match latent` : '';
+    setStatus(`FrameContinue ready (${pendingClipLatent.label}${resNote}) — write what happens next and click Run.`);
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 

@@ -596,10 +596,17 @@ export function viewerPanel({ store, actions, engine }) {
     btn.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
     const c = T.clipAt(s.clips, s.playhead);
     const labelEl = root.querySelector('.viewer-text');
-    if (c && c.generating && c.previewUrl) {
-      const stepInfo = c.step >= 1 && c.totalSteps ? ` · Step ${c.step}/${c.totalSteps}` : '';
-      labelEl.innerHTML = `<img class="viewer-gen-preview" src="${esc(c.previewUrl)}" alt="Live generation preview"><span class="viewer-gen-tag">#${c.queuePos || 1}${stepInfo}</span>`;
-      labelEl.className = 'viewer-text viewer-gen-wrap';
+    if (c && c.generating) {
+      const stepInfo = c.step >= 1 && c.totalSteps ? `Step ${c.step}/${c.totalSteps}` : (c.progress != null ? `${Math.round(c.progress * 100)}%` : 'Starting…');
+      const etaInfo = c.etaSec > 0 ? ` · ~${Math.max(1, Math.round(c.etaSec))}s left` : '';
+      const pct = c.progress != null ? Math.max(4, Math.min(100, Math.round(c.progress * 100))) : 12;
+      if (c.previewUrl) {
+        labelEl.innerHTML = `<img class="viewer-gen-preview" src="${esc(c.previewUrl)}" alt="Live generation preview"><span class="viewer-gen-tag">#${c.queuePos || 1} · ${esc(stepInfo)}${esc(etaInfo)}</span>`;
+        labelEl.className = 'viewer-text viewer-gen-wrap';
+      } else {
+        labelEl.innerHTML = `<div class="viewer-gen-hud"><div class="viewer-gen-hud-title">✨ ${esc(c.name)}</div><div class="viewer-gen-hud-sub">#${c.queuePos || 1} · ${esc(stepInfo)}${esc(etaInfo)}</div><div class="viewer-gen-hud-bar"><span style="width:${pct}%"></span></div></div>`;
+        labelEl.className = 'viewer-text viewer-gen-wrap';
+      }
     } else if (c && !c.path) {
       labelEl.textContent = c.name;
       labelEl.className = 'viewer-text viewer-badge';
@@ -880,6 +887,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
             seedVideo: clip.path,
             latent: (latentRes && latentRes.latent) || clip.latent || '',
             latentLabel: (latentRes && latentRes.label) || clip.latentLabel || '',
+            quality: (latentRes && latentRes.quality) || '',
             clipName: clip.name,
             firstFrame: lastFrameRes && lastFrameRes.ok ? lastFrameRes : null,
             insertAt: T.clipEnd(clip),

@@ -758,7 +758,7 @@ export function createActions(store, engine) {
         etaSec: d.etaSec || null,
         step: 0,
         totalSteps: d.totalSteps || 6,
-        previewUrl: null,
+        previewUrl: d.previewUrl || null,
         srcDur: d.seconds,
         srcIn: 0,
         speed: 1,
