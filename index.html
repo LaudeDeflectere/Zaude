@@ -17,6 +17,7 @@
     <button id="aichat-open" class="ai" title="Open AI Chat assistant (Claude, Codex, OpenCode, MCP)">AI Chat</button>
     <button id="help-open" title="Open Help, Shortcuts, MCP Setup &amp; AI Tips">Help &amp; Tips</button>
     <button id="t2v-open" class="ai" title="Open Mannimmate AI Studio (Text to Video, RefMod, Restyle, Coverage)">✨ AI Studio</button>
+    <button id="advisor-open" class="ai" title="Analyze local GPU, RAM &amp; Storage, search newest AI video models, and 1-click install">🖥️ Local GPU</button>
     <button id="remote-open">Remote machines</button>
     <button id="update-btn" title="Check for updates">Check for updates</button>
     <button id="export-top" class="primary" data-action="export">Export</button>
@@ -301,9 +302,51 @@
   </div>
 </div>
 
+<div id="advisor-dialog" class="modal" hidden>
+  <div class="modal-card ai-studio-card" role="dialog" aria-modal="true" aria-labelledby="adv-title">
+    <div class="modal-head">
+      <h2 id="adv-title">🖥️ Local GPU Analyzer &amp; 1-Click Model Installer</h2>
+      <div class="ai-head-btns">
+        <button type="button" id="adv-analyze" class="ai">🔍 Re-Analyze</button>
+        <button type="button" id="adv-close">Close</button>
+      </div>
+    </div>
+
+    <div class="adv-hw-grid" id="adv-hw-grid"></div>
+
+    <div class="adv-research-bar">
+      <button type="button" id="adv-web-search" class="ai" title="Have an AI agent scrape the web for the newest local video models, LoRAs &amp; optimizations for your GPU">🌐 Search Web for Newest &amp; Greatest</button>
+      <select id="adv-provider" aria-label="AI research provider">
+        <option value="auto" selected>Auto AI Agent</option>
+        <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
+        <option value="opencode">OpenCode</option>
+      </select>
+      <button type="button" id="adv-cancel-web" hidden>Cancel Search</button>
+      <label class="adv-dir-lbl">ComfyUI dir
+        <input type="text" id="adv-comfy-dir" autocomplete="off">
+      </label>
+    </div>
+
+    <div id="adv-web-result" class="adv-web-result" hidden></div>
+
+    <div class="adv-section-title">Recommended Local Models (with LoRAs &amp; GPU Optimizations)</div>
+    <div class="adv-model-list" id="adv-model-list"></div>
+
+    <div class="adv-install-box" id="adv-install-box" hidden>
+      <div class="ai-prompt-head">
+        <span id="adv-install-status">Installing…</span>
+        <button type="button" id="adv-cancel-install">Cancel Install</button>
+      </div>
+      <pre class="ai-debug-log" id="adv-install-log"></pre>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="src/main.js"></script>
 <script type="module" src="src/remote-ui.js"></script>
 <script type="module" src="src/ai-ui.js"></script>
+<script type="module" src="src/advisor-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
 </body>
 </html>

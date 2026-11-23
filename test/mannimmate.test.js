@@ -244,3 +244,29 @@ test('latents.formatLatentLabel builds character initials + short scene summary 
   assert.equal(refmods.displayFirstName('Cb Alexander Visual', 1), 'Alexander');
   assert.equal(refmods.displayFirstName('Changebang Michael 2d V1 Visual', 2), 'Michael');
 });
+
+test('systemAdvisor analyzes local hardware, tailors GPU optimizations, and builds AI web research prompt', () => {
+  const advisor = require('../electron/system-advisor.cjs');
+  const report = advisor.analyzeSystem();
+  assert.equal(report.ok, true);
+  assert.ok(report.ram.totalGb > 0);
+  assert.ok(Array.isArray(report.recommendations) && report.recommendations.length >= 4);
+
+  // 8 GB Turing laptop -> recommends LTX-Video 2B & Wan 1.3B, blocks MiniMax-H3, uses xformers + --force-fp16 + --lowvram
+  const turingOpts = advisor.computeOptimizations({ vramTotalGb: 8, computeCap: 7.5 });
+  assert.ok(turingOpts.pipPackages.includes('xformers'));
+  assert.ok(turingOpts.comfyFlags.includes('--lowvram'));
+  const turingRecs = advisor.recommendModels({ gpu: { vramTotalGb: 8, computeCap: 7.5 }, ramTotalGb: 16, diskFreeGb: 80, optimizations: turingOpts });
+  assert.equal(turingRecs.find((m) => m.id === 'ltx-video-2b-gguf').fits, true);
+  assert.equal(turingRecs.find((m) => m.id === 'minimax-h3-refmod').fits, false);
+
+  // 24 GB Ampere RTX 3090 -> uses sageattention + triton, fits MiniMax-H3
+  const ampereOpts = advisor.computeOptimizations({ vramTotalGb: 24, computeCap: 8.6 });
+  assert.ok(ampereOpts.pipPackages.includes('sageattention'));
+  const ampereRecs = advisor.recommendModels({ gpu: { vramTotalGb: 24, computeCap: 8.6 }, ramTotalGb: 64, diskFreeGb: 200, optimizations: ampereOpts });
+  assert.equal(ampereRecs.find((m) => m.id === 'minimax-h3-refmod').fits, true);
+
+  const prompt = advisor.buildResearchPrompt(report);
+  assert.ok(prompt.includes('User Hardware Profile'));
+  assert.ok(prompt.includes('First & Last Frame'));
+});

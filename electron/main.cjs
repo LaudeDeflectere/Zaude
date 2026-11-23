@@ -252,6 +252,7 @@ const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
 const frameToFrame = require('./frame-to-frame.cjs');
 const latentsLib = require('./latents.cjs');
+const systemAdvisor = require('./system-advisor.cjs');
 const os = require('node:os');
 
 const refmodsRoot = () => path.join(ROOT, 'refmods');
@@ -467,6 +468,54 @@ function registerAiHandlers() {
     if (!found) return { ok: true, latent: null, label: null };
     const names = latentsLib.loadLatentNames(latentNamesFile());
     return { ok: true, latent: found.latent, label: names[found.latent] || found.label };
+  });
+
+  // ---------- Local Hardware Analyzer, AI Web Research & 1-Click Model Installer ----------
+  let activeResearch = null;
+  let activeInstall = null;
+
+  ipcMain.handle('advisor:analyze', (_e, opts) => {
+    return systemAdvisor.analyzeSystem(opts || {});
+  });
+
+  ipcMain.handle('advisor:research', (event, { provider = 'auto', comfyDir } = {}) => {
+    if (activeResearch) activeResearch.cancel();
+    const report = systemAdvisor.analyzeSystem({ comfyDir });
+    const send = (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('advisor:event', { scope: 'research', ...payload });
+    };
+    const job = systemAdvisor.runWebResearch({ provider, report, onChunk: send });
+    activeResearch = job;
+    job.promise.then((res) => {
+      if (activeResearch === job) activeResearch = null;
+      send({ type: 'done', ...res });
+    });
+    return { ok: true };
+  });
+
+  ipcMain.handle('advisor:cancelResearch', () => {
+    if (activeResearch) { activeResearch.cancel(); activeResearch = null; }
+    return { ok: true };
+  });
+
+  ipcMain.handle('advisor:install', (event, { modelId, comfyDir } = {}) => {
+    if (activeInstall) return { ok: false, error: 'An installation is already running.' };
+    const report = systemAdvisor.analyzeSystem({ comfyDir });
+    const send = (payload) => {
+      if (!event.sender.isDestroyed()) event.sender.send('advisor:event', { scope: 'install', modelId, ...payload });
+    };
+    const job = systemAdvisor.installModel({ modelId, comfyDir, gpu: report.gpu, onLog: send });
+    activeInstall = job;
+    job.promise.then((res) => {
+      if (activeInstall === job) activeInstall = null;
+      send({ type: 'finished', ...res });
+    });
+    return { ok: true };
+  });
+
+  ipcMain.handle('advisor:cancelInstall', () => {
+    if (activeInstall) { activeInstall.cancel(); activeInstall = null; }
+    return { ok: true };
   });
 
   ipcMain.handle('ai:refmods:add', (_e, input) => {

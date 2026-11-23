@@ -69,6 +69,19 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   },
 });
 
+contextBridge.exposeInMainWorld('zaudeAdvisor', {
+  analyze: (opts) => ipcRenderer.invoke('advisor:analyze', opts),
+  research: (opts) => ipcRenderer.invoke('advisor:research', opts),
+  cancelResearch: () => ipcRenderer.invoke('advisor:cancelResearch'),
+  install: (opts) => ipcRenderer.invoke('advisor:install', opts),
+  cancelInstall: () => ipcRenderer.invoke('advisor:cancelInstall'),
+  onEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('advisor:event', listener);
+    return () => ipcRenderer.removeListener('advisor:event', listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('zaudeTouchpad', {
   status: () => ipcRenderer.invoke('touchpad:status'),
   onRotate: (callback) => {

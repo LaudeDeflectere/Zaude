@@ -1053,3 +1053,152 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   background: rgba(139, 92, 246, 0.45);
   color: #ffffff;
 }
+
+/* ---------- Local GPU Hardware Advisor & 1-Click Installer ---------- */
+.adv-hw-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.adv-hw-card {
+  background: #12141e;
+  border: 1px solid #282c3e;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.adv-hw-k {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8b93ab;
+  margin-bottom: 3px;
+}
+.adv-hw-v {
+  font-weight: 700;
+  color: #f3f5fc;
+  margin-bottom: 2px;
+}
+.adv-research-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.adv-dir-lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #a4a4b8;
+}
+.adv-dir-lbl input {
+  width: 200px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #3a3a48;
+  background: #121218;
+  color: #ececf2;
+}
+.adv-web-result {
+  background: #0b0d14;
+  border: 1px solid #2c3148;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: #dce2f4;
+}
+.adv-web-result[hidden] { display: none; }
+.adv-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+  margin: 6px 0;
+}
+.adv-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.adv-model-card {
+  background: #131520;
+  border: 1px solid #2b2f42;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.adv-model-card.fits {
+  border-color: rgba(56, 189, 248, 0.45);
+}
+.adv-model-card.heavy {
+  opacity: 0.7;
+}
+.adv-model-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.adv-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.adv-badge.fits {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+.adv-badge.heavy {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+.adv-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  background: rgba(139, 92, 246, 0.2);
+  color: #ddd6fe;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+.adv-model-specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: #93c5fd;
+  font-variant-numeric: tabular-nums;
+}
+.adv-model-desc,
+.adv-model-extras {
+  font-size: 11px;
+}
+.adv-blockers {
+  font-size: 11px;
+  color: #fca5a5;
+}
+.adv-install-box {
+  margin-top: 10px;
+}
+.adv-install-box[hidden] { display: none; }
+@media (max-width: 720px) {
+  .adv-hw-grid { grid-template-columns: 1fr; }
+}
