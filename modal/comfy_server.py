@@ -41,6 +41,7 @@ comfy_image = (
         "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-LTXVideo/requirements.txt || true",
         "git clone --depth 1 https://github.com/welltop-cn/ComfyUI-TeaCache.git /root/ComfyUI/custom_nodes/ComfyUI-TeaCache",
         "pip install sageattention triton || true",
+        "rm -rf /root/ComfyUI/models && mkdir -p /root/ComfyUI/models",
     )
 )
 
