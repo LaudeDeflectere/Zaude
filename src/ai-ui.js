@@ -1045,8 +1045,69 @@ function init() {
           if (planEl) planEl.textContent = `Deploy failed: ${ev.error || 'Run "pip install modal && modal setup" first.'}`;
           setStatus(ev.error || 'Modal deploy failed', true);
         }
+        refreshModalUsage();
       }
     });
+  }
+
+  // Live Modal usage & billing pill in the top bar + 1-click Stop All kill-switch
+  async function refreshModalUsage() {
+    if (!modalApi || !modalApi.usage) return;
+    const grp = $('modal-usage-group');
+    const txt = $('modal-usage-text');
+    const dot = $('modal-usage-dot');
+    const btn = $('modal-usage-btn');
+    try {
+      const u = await modalApi.usage();
+      if (!u || !u.cliInstalled) {
+        if (grp) grp.hidden = true;
+        return;
+      }
+      if (grp) grp.hidden = false;
+      const active = Number(u.activeContainers) || 0;
+      const metered = Number(u.meteredUsd) || 0;
+      const billed = Number(u.billedUsd) || 0;
+      const credits = Number(u.creditsUsd) || 0;
+      if (dot) dot.classList.toggle('active', active > 0);
+      if (txt) {
+        const stateStr = active > 0 ? `${active} GPU active` : 'idle $0';
+        txt.textContent = `☁️ $${metered.toFixed(2)} · ${stateStr}`;
+      }
+      if (btn) {
+        btn.title = `Modal Usage — Metered: $${metered.toFixed(2)} | Billed: $${billed.toFixed(2)} | Credits applied: $${credits.toFixed(2)} | Active containers: ${active} (click to refresh)`;
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function triggerStopAllModal() {
+    if (!modalApi || !modalApi.stopAll) return;
+    const stopBtns = [$('modal-stop-all'), $('ai-modal-stop-all')].filter(Boolean);
+    stopBtns.forEach((b) => { b.disabled = true; b.textContent = 'Stopping…'; });
+    try {
+      const res = await modalApi.stopAll();
+      const msg = `Stopped ${res.stoppedCount || 0} Modal container(s) & ${res.cancelledJobs || 0} queued job(s).`;
+      setStatus(msg);
+      appendLog('MODAL', msg);
+      const planEl = $('ai-modal-plan');
+      if (planEl) planEl.textContent = `⏹ ${msg}`;
+    } catch (err) {
+      setStatus(`Stop All failed: ${err.message || err}`, true);
+    } finally {
+      stopBtns.forEach((b) => { b.disabled = false; b.textContent = '⏹ Stop All'; });
+      refreshModalUsage();
+    }
+  }
+
+  const usageBtn = $('modal-usage-btn');
+  if (usageBtn) usageBtn.addEventListener('click', refreshModalUsage);
+  const topStopBtn = $('modal-stop-all');
+  if (topStopBtn) topStopBtn.addEventListener('click', triggerStopAllModal);
+  const barStopBtn = $('ai-modal-stop-all');
+  if (barStopBtn) barStopBtn.addEventListener('click', triggerStopAllModal);
+
+  if (modalApi && modalApi.usage) {
+    refreshModalUsage();
+    setInterval(refreshModalUsage, 30000);
   }
   if (api.onRefmodProgress) {
     api.onRefmodProgress((ev) => {

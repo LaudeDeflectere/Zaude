@@ -18,6 +18,10 @@
     <button id="help-open" title="Open Help, Shortcuts, MCP Setup &amp; AI Tips">Help &amp; Tips</button>
     <button id="t2v-open" class="ai" title="Open Mannimmate AI Studio (Text to Video, RefMod, Restyle, Coverage)">✨ AI Studio</button>
     <button id="advisor-open" class="ai" title="Analyze local GPU, RAM &amp; Storage, search newest AI video models, and 1-click install">🖥️ Local GPU</button>
+    <span class="modal-usage-group" id="modal-usage-group" title="Live Modal.com cloud GPU usage &amp; billing (click to refresh)">
+      <button type="button" id="modal-usage-btn" class="modal-usage-pill"><span class="modal-dot" id="modal-usage-dot"></span><span id="modal-usage-text">☁️ Modal: …</span></button>
+      <button type="button" id="modal-stop-all" class="modal-stop-btn" title="Immediately cancel all Modal jobs and terminate every running Modal GPU container ($0/hr)">⏹ Stop All</button>
+    </span>
     <button id="remote-open">Remote machines</button>
     <button id="update-btn" title="Check for updates">Check for updates</button>
     <button id="export-top" class="primary" data-action="export">Export</button>
@@ -68,6 +72,7 @@
         <button type="button" class="ai-btn-purple" id="ai-modal-ai-pick" title="Ask Zaude's connected AI to pick the optimal Modal GPU, resolution, and steps for this final pass">🤖 AI Pick GPU &amp; Settings</button>
         <input type="url" id="ai-modal-url" placeholder="https://<workspace>--zaude-comfy-comfy-web.modal.run" autocomplete="off">
         <button type="button" id="ai-modal-deploy" title="Deploy modal/comfy_server.py to Modal with the selected GPU">🚀 Deploy</button>
+        <button type="button" class="modal-stop-btn" id="ai-modal-stop-all" title="Cancel all Modal jobs &amp; stop all running Modal containers">⏹ Stop All</button>
       </div>
       <div class="ai-modal-plan muted" id="ai-modal-plan">Draft on Rizzar/Tranklena → switch here for 720p Modal final pass ($0 when idle).</div>
     </div>

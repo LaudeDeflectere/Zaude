@@ -102,6 +102,8 @@ contextBridge.exposeInMainWorld('zaudePrompt', {
 
 contextBridge.exposeInMainWorld('zaudeModal', {
   status: () => ipcRenderer.invoke('modal:status'),
+  usage: () => ipcRenderer.invoke('modal:usage'),
+  stopAll: () => ipcRenderer.invoke('modal:stopAll'),
   saveConfig: (input) => ipcRenderer.invoke('modal:saveConfig', input),
   plan: (input) => ipcRenderer.invoke('modal:plan', input),
   deploy: (input) => ipcRenderer.invoke('modal:deploy', input),

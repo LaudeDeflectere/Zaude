@@ -503,12 +503,104 @@ function runModalVideo({
   return { promise, cancel };
 }
 
+// Reads live Modal workspace billing usage and running GPU containers via the `modal` CLI.
+function getModalUsage() {
+  const cliInstalled = Boolean(safeRun('modal', ['--version'], 3000));
+  if (!cliInstalled) {
+    return { ok: false, cliInstalled: false, activeContainers: 0, containers: [], meteredUsd: 0, billedUsd: 0, creditsUsd: 0 };
+  }
+
+  let containers = [];
+  try {
+    const raw = safeRun('modal', ['container', 'list', '--json'], 8000);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) containers = parsed;
+    }
+  } catch { /* ignore */ }
+
+  let meteredUsd = 0;
+  let billedUsd = 0;
+  let creditsUsd = 0;
+  let billingOk = false;
+  try {
+    const raw = safeRun('modal', ['billing', 'summary', '--json'], 8000);
+    if (raw) {
+      const b = JSON.parse(raw);
+      meteredUsd = Number(b.metered_cost) || 0;
+      billedUsd = Number(b.billed_cost) || 0;
+      creditsUsd = Math.abs(Number(b.adjustments && b.adjustments.credits) || 0);
+      billingOk = true;
+    }
+  } catch { /* ignore */ }
+
+  return {
+    ok: true,
+    cliInstalled: true,
+    billingOk,
+    activeContainers: containers.length,
+    containers: containers.map((c) => ({
+      id: c.container_id || c.id || '',
+      appName: c.app_name || '',
+      startTime: c.start_time || '',
+    })),
+    meteredUsd,
+    billedUsd,
+    creditsUsd,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+// Emergency Kill-Switch: interrupts ComfyUI on Modal and terminates EVERY running Modal container
+// so billing drops to $0 immediately (deployed app + model volume stay intact).
+async function stopAllModal({ endpointUrl = '', token = '' } = {}) {
+  const stopped = [];
+  const errors = [];
+  const base = String(endpointUrl || '').trim().replace(/\/+$/, '');
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  // 1. Interrupt & clear ComfyUI queue if endpoint is reachable
+  if (base) {
+    try {
+      await fetch(`${base}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ clear: true }),
+        signal: AbortSignal.timeout(4000),
+      }).catch(() => {});
+      await fetch(`${base}/interrupt`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(4000),
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+
+  // 2. Terminate all active Modal containers
+  const usage = getModalUsage();
+  for (const c of (usage.containers || [])) {
+    if (!c.id) continue;
+    const r = spawnSync('modal', ['container', 'stop', c.id], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+    if (r.status === 0) stopped.push(c.id);
+    else errors.push(`${c.id}: ${(r.stderr || r.stdout || 'failed').trim().slice(0, 120)}`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    stoppedCount: stopped.length,
+    stopped,
+    errors,
+  };
+}
+
 module.exports = {
   DEFAULT_MODAL_SCRIPT,
   MODAL_GPUS,
   recommendModalPlan,
   askAiForModalPlan,
   checkModalStatus,
+  getModalUsage,
+  stopAllModal,
   deployModalServer,
   runModalVideo,
 };

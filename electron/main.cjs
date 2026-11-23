@@ -483,7 +483,7 @@ function registerAiHandlers() {
         onEvent: onEv,
       });
     }
-    activeJob = { id, cancel: job.cancel, send, estSec, remainingEta: estSec };
+    activeJob = { id, backend: (input && input.backend) || 'remote', cancel: job.cancel, send, estSec, remainingEta: estSec };
     broadcastQueueStatus();
     job.promise.then((result) => {
       activeJob = null;
@@ -656,6 +656,38 @@ function registerAiHandlers() {
       token: settings.modalToken,
     });
     return { ...status, savedGpu: settings.modalGpu || 'auto' };
+  });
+
+  ipcMain.handle('modal:usage', () => modalRunner.getModalUsage());
+
+  ipcMain.handle('modal:stopAll', async () => {
+    const settings = loadSettings();
+    // 1. Cancel active Modal deploy if running
+    if (activeModalDeploy) {
+      try { activeModalDeploy.cancel(); } catch { /* ignore */ }
+      activeModalDeploy = null;
+    }
+    // 2. Cancel active job if it's running on Modal, and remove all queued Modal jobs
+    let cancelledJobs = 0;
+    if (activeJob && activeJob.backend === 'modal') {
+      try { activeJob.cancel(); } catch { /* ignore */ }
+      cancelledJobs += 1;
+    }
+    for (let i = jobQueue.length - 1; i >= 0; i--) {
+      if (jobQueue[i].input && jobQueue[i].input.backend === 'modal') {
+        const [removed] = jobQueue.splice(i, 1);
+        removed.send({ type: 'cancelled', message: 'Stopped via Modal Stop All.' });
+        cancelledJobs += 1;
+      }
+    }
+    broadcastQueueStatus();
+    // 3. Interrupt Modal ComfyUI and terminate all running Modal containers
+    const res = await modalRunner.stopAllModal({
+      endpointUrl: settings.modalEndpoint,
+      token: settings.modalToken,
+    });
+    const freshUsage = modalRunner.getModalUsage();
+    return { ...res, cancelledJobs, usage: freshUsage };
   });
 
   ipcMain.handle('modal:saveConfig', (_e, input = {}) => {

@@ -1491,6 +1491,46 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   font-size: 11px;
   color: #93c5fd;
 }
+.modal-usage-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.modal-usage-group[hidden] { display: none; }
+.modal-usage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #101626 !important;
+  border: 1px solid rgba(56, 189, 248, 0.45) !important;
+  color: #bae6fd !important;
+  font-size: 11px !important;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 8px !important;
+}
+.modal-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+  display: inline-block;
+}
+.modal-dot.active {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+.modal-stop-btn {
+  background: rgba(220, 38, 38, 0.22) !important;
+  border: 1px solid rgba(248, 113, 113, 0.65) !important;
+  color: #fecaca !important;
+  font-size: 11px !important;
+  font-weight: 600;
+  padding: 4px 8px !important;
+}
+.modal-stop-btn:hover {
+  background: rgba(220, 38, 38, 0.45) !important;
+  color: #ffffff !important;
+}
 .ai-local-model-sel {
   padding: 4px 8px;
   border-radius: 6px;
