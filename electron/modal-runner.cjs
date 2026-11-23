@@ -331,19 +331,36 @@ function runModalVideo({
   const promise = (async () => {
     try {
       onEvent({ type: 'progress', progress: 0.05, label: '☁️ Waking Modal GPU container…' });
-      // Detect available models on the Modal ComfyUI server (wakes container if scaled to 0)
+      // Detect available models on the Modal ComfyUI server (wakes container if scaled to 0).
+      // ComfyUI 0.46+ serves GGUF UNets under /models/unet_gguf & safetensors under /models/diffusion_models,
+      // and GGUF CLIPs under /models/clip_gguf & safetensors under /models/text_encoders.
       let unets = [];
       let vaes = [];
       let clips = [];
+      const fetchList = async (ep, timeoutMs = 30000) => {
+        try {
+          const r = await fetch(`${base}${ep}`, { headers: authHeaders, signal: AbortSignal.timeout(timeoutMs) });
+          if (r.ok) {
+            const j = await r.json();
+            if (Array.isArray(j)) return j;
+          }
+        } catch { /* endpoint may not exist on older ComfyUI */ }
+        return [];
+      };
       try {
-        const [uRes, vRes, cRes] = await Promise.all([
-          fetch(`${base}/models/unet`, { headers: authHeaders, signal: AbortSignal.timeout(120000) }),
-          fetch(`${base}/models/vae`, { headers: authHeaders, signal: AbortSignal.timeout(30000) }),
-          fetch(`${base}/models/clip`, { headers: authHeaders, signal: AbortSignal.timeout(30000) }),
+        // Wake container first with /system_stats (up to 120s cold start)
+        const wake = await fetch(`${base}/system_stats`, { headers: authHeaders, signal: AbortSignal.timeout(120000) });
+        if (!wake.ok) throw new Error(`HTTP ${wake.status}`);
+        const [uGguf, uDiff, vList, cGguf, cText] = await Promise.all([
+          fetchList('/models/unet_gguf'),
+          fetchList('/models/diffusion_models'),
+          fetchList('/models/vae'),
+          fetchList('/models/clip_gguf'),
+          fetchList('/models/text_encoders'),
         ]);
-        if (uRes.ok) unets = await uRes.json();
-        if (vRes.ok) vaes = await vRes.json();
-        if (cRes.ok) clips = await cRes.json();
+        unets = [...uGguf, ...uDiff];
+        vaes = vList;
+        clips = [...cGguf, ...cText];
       } catch (e) {
         return { ok: false, error: `Could not reach Modal endpoint (${base}): ${e.message}` };
       }
@@ -373,9 +390,9 @@ function runModalVideo({
       }
       if (cancelled) return { ok: false, cancelled: true, error: 'Cancelled' };
 
-      // Auto-pick best installed video model on the Modal Volume (MiniMax-H3 > Wan 2.1 > LTX-Video)
+      // Auto-pick best installed video model on the Modal Volume (MiniMax-H3 > Wan T2V > LTX-Video)
       const h3Model = (unets || []).find((u) => /minimax|h3/i.test(u));
-      const wanModel = (unets || []).find((u) => /wan/i.test(u));
+      const wanT2vModel = (unets || []).find((u) => /wan/i.test(u) && /t2v/i.test(u));
       const ltxModel = (unets || []).find((u) => /ltx/i.test(u));
       let graph;
       let modelLabel;
@@ -388,13 +405,13 @@ function runModalVideo({
           prefix: `Zaude/modal_h3_${Date.now()}`,
         });
         modelLabel = 'Modal MiniMax-H3';
-      } else if (wanModel && !firstFrameName && !lastFrameName) {
+      } else if (wanT2vModel && !firstFrameName && !lastFrameName) {
         const { width, height } = localRunner.dimsForLocal(resolution, aspect, 16);
         const frames = localRunner.snapWanFrames(seconds, 16);
         const vae = (vaes || []).find((v) => /wan/i.test(v)) || vaes[0] || 'wan_2.1_vae.safetensors';
         const clip = (clips || []).find((c) => /umt5/i.test(c)) || clips[0] || 'umt5-xxl-encoder-Q4_K_M.gguf';
         graph = localRunner.buildWanGraph({
-          prompt, width, height, frames, steps: steps || 8, seed, unet: wanModel, clip, vae,
+          prompt, width, height, frames, steps: steps || 8, seed, unet: wanT2vModel, clip, vae,
           prefix: `Zaude/modal_wan_${Date.now()}`,
         });
         modelLabel = 'Modal Wan 2.1';
