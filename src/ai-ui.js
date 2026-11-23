@@ -15,7 +15,7 @@ let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
 let pendingInsertAt = null;
 let pendingSeedVideo = '';
-let pendingClipLatent = null; // { value, label } pinned for the clip being continued
+let pendingClipLatent = null; // { value, label, quality } pinned for the clip being continued
 let latentNames = {}; // latent filename -> friendly "E+N · short scene desc"
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
@@ -257,6 +257,13 @@ function collectRequest() {
   const second = refmods[1] || null;
   const rawLatent = String(fd.get('latent') || '').trim();
   const isSeedSentinel = rawLatent === '__seed_video__';
+  const reqQuality = String(fd.get('resolution') || (currentBackend === 'local' ? '480' : '640'));
+  // If user intentionally changed resolution from the saved latent's resolution (e.g. 480p -> 640p),
+  // switch cleanly to --seed-video (pixel-space re-encode) instead of crashing ComfyUI on latent size mismatch.
+  const latentResMismatch = Boolean(
+    !isSeedSentinel && rawLatent && pendingClipLatent && pendingClipLatent.value === rawLatent
+    && pendingClipLatent.quality && String(pendingClipLatent.quality) !== reqQuality && pendingSeedVideo
+  );
   return {
     backend: currentBackend,
     localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
@@ -265,7 +272,7 @@ function collectRequest() {
     prompt: String(fd.get('prompt') || '').trim(),
     seconds: Number(fd.get('seconds') || (currentBackend === 'local' ? 4 : 7)),
     resolution: Number(fd.get('resolution') || (currentBackend === 'local' ? 480 : 640)),
-    quality: String(fd.get('resolution') || (currentBackend === 'local' ? '480' : '640')),
+    quality: reqQuality,
     preset: String(fd.get('quality') || 'normal'),
     aspect: String(fd.get('aspect') || '16:9'),
     fps: Number(fd.get('fps') || 24),
@@ -284,8 +291,8 @@ function collectRequest() {
     refmodMode: String(fd.get('refmodMode') || 'generate'),
     identityStrength: idStrength,
     voiceStrength,
-    latent: isSeedSentinel ? '' : rawLatent,
-    seedVideo: (isSeedSentinel || !rawLatent) ? (pendingSeedVideo || '') : '',
+    latent: (isSeedSentinel || latentResMismatch) ? '' : rawLatent,
+    seedVideo: (isSeedSentinel || latentResMismatch || !rawLatent) ? (pendingSeedVideo || '') : '',
     video: String(fd.get('video') || '').trim(),
     start: Number(fd.get('start') ?? 0),
     end: Number(fd.get('end') ?? 7),
@@ -981,9 +988,9 @@ function init() {
     if (latent) {
       const friendly = latentLabel || latentNames[latent] || `${cleanClipName} (saved latent)`;
       latentNames[latent] = friendly;
-      pendingClipLatent = { value: latent, label: `This clip · ${friendly}` };
+      pendingClipLatent = { value: latent, label: `This clip · ${friendly}`, quality: quality ? String(quality) : '' };
     } else {
-      pendingClipLatent = { value: '__seed_video__', label: `This clip · ${cleanClipName} (from video)` };
+      pendingClipLatent = { value: '__seed_video__', label: `This clip · ${cleanClipName} (from video)`, quality: quality ? String(quality) : '' };
     }
     await open();
     const form = $('t2v-form');

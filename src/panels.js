@@ -907,9 +907,9 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           window.zaudeAI && window.zaudeAI.extractFrame
             ? window.zaudeAI.extractFrame({ filePath: clip.path, timeSec: tEnd, tag: 'continue_first' })
             : Promise.resolve({ ok: false }),
-          !clip.latent && window.zaudeAI && window.zaudeAI.clipLatent
+          window.zaudeAI && window.zaudeAI.clipLatent
             ? window.zaudeAI.clipLatent(clip.path)
-            : Promise.resolve({ ok: true, latent: clip.latent || '', label: clip.latentLabel || '' }),
+            : Promise.resolve({ ok: true, latent: clip.latent || '', label: clip.latentLabel || '', quality: '' }),
         ]);
         if (window.__zaudeOpenFrameContinue) {
           window.__zaudeOpenFrameContinue({
