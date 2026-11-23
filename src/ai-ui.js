@@ -11,6 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', 
 let currentMode = 'text-render';
 let stylizeAction = 'both'; // 'replace' | 'object' | 'both'
 let stylizeSrcDur = 15;
+let pendingInsertAt = null;
 let refmodEntries = [];
 let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
@@ -123,7 +124,13 @@ function updateSquarePreview(slotName, filePath, url, isVideo = false) {
   if (form && form.elements[slotName]) form.elements[slotName].value = filePath || '';
   if (!box) return;
   if (!filePath) {
-    const emptyLabel = slotName === 'video' ? '🎬<br>Source Video' : slotName === 'image' ? '🖼️<br>Scene Image' : '🖼️<br>Ref Image';
+    const emptyMap = {
+      video: '🎬<br>Source Video',
+      image: '🖼️<br>Scene Image',
+      firstFrame: '⏮️<br>First Frame',
+      lastFrame: '⏭️<br>Last Frame',
+    };
+    const emptyLabel = emptyMap[slotName] || '🖼️<br>Ref Image';
     box.innerHTML = `<span class="ai-square-empty">${emptyLabel}</span>`;
     if (clearBtn) clearBtn.hidden = true;
     return;
@@ -239,6 +246,8 @@ function collectRequest() {
     model: String(fd.get('model') || '').trim(),
     lora: String(fd.get('lora') || '').trim(),
     ref: String(fd.get('ref') || '').trim(),
+    firstFrame: String(fd.get('firstFrame') || '').trim(),
+    lastFrame: String(fd.get('lastFrame') || '').trim(),
     refmods,
     refmod: first ? first.file : '',
     refmodName: first ? first.name : '',
@@ -267,16 +276,26 @@ function updateCommandPreview() {
     parts.push('--prompt-file', '<prompt.txt>', '--aspect', req.aspect, '--quality', req.quality, '--preset', req.preset, '--fps', '24');
     if (req.ref) parts.push('--ref', req.ref);
   } else if (req.mode === 'refmod') {
-    parts.push('--mode', req.refmodMode);
-    if (req.refmods && req.refmods.length) {
-      for (const r of req.refmods) {
-        parts.push('--refmod', `"${r.file}|${r.name}|${r.identityStrength}|${r.voiceStrength}"`);
+    if (req.firstFrame || req.lastFrame) {
+      parts.length = 0;
+      parts.push('ComfyUI', 'MiniMaxH3ImageToVideo (FL2VA)', `--quality ${req.quality}`, `--seconds ${req.seconds}`);
+      if (req.firstFrame) parts.push('--first-frame', req.firstFrame.split(/[\\/]/).pop());
+      if (req.lastFrame) parts.push('--last-frame', req.lastFrame.split(/[\\/]/).pop());
+      if (req.refmods && req.refmods.length) {
+        parts.push(`--refmods (${req.refmods.map((r) => r.name).join(', ')})`);
       }
     } else {
-      parts.push('--refmod', `"<refmod>|Subject 1|${req.identityStrength}|${req.voiceStrength}"`);
+      parts.push('--mode', req.refmodMode);
+      if (req.refmods && req.refmods.length) {
+        for (const r of req.refmods) {
+          parts.push('--refmod', `"${r.file}|${r.name}|${r.identityStrength}|${r.voiceStrength}"`);
+        }
+      } else {
+        parts.push('--refmod', `"<refmod>|Subject 1|${req.identityStrength}|${req.voiceStrength}"`);
+      }
+      parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
+      if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
     }
-    parts.push('--quality', req.quality, '--seconds', String(req.seconds), '--fps', String(req.fps), '--save-latent');
-    if (req.refmodMode === 'continue' && req.latent) parts.push('--latent', req.latent);
   } else if (req.mode === 'auto') {
     parts[2] = 'render';
     parts.push('--video', req.video || '<video>', '--start', String(req.start), '--end', String(req.end), '--quality', req.quality, '--preset', req.preset, '--prompt-file', '<stylize_prompt.txt>');
@@ -381,8 +400,8 @@ async function onSubmit() {
   if ((req.mode === 'text-render' || req.mode === 'refmod') && !req.prompt) {
     return setStatus('Write a prompt first.', true);
   }
-  if (req.mode === 'refmod' && !req.refmod) {
-    return setStatus('Click a RefMod character square first.', true);
+  if (req.mode === 'refmod' && !req.refmod && !req.firstFrame && !req.lastFrame) {
+    return setStatus('Click a RefMod character square (or pick First/Last frames) first.', true);
   }
   if (req.mode === 'auto' && !req.video) {
     return setStatus('Pick a source video (or click "🎯 Pick from Timeline") first.', true);
@@ -409,14 +428,19 @@ async function onSubmit() {
     ? Math.max(1, Math.round(req.end - req.start))
     : (Number(req.seconds) || 7);
   trackedJobs.set(result.id, { mode: req.mode, dryRun: req.dryRun, seconds: secs });
+  const insertAt = pendingInsertAt;
+  pendingInsertAt = null;
   notifyEditor({
     type: 'start',
     id: result.id,
     seconds: secs,
+    insertAt,
     queuePos: result.queuePos || 1,
     etaSec: result.etaSec || 60,
     totalSteps: Number(req.steps) || 6,
-    label: req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode,
+    label: (req.firstFrame || req.lastFrame)
+      ? 'FrameToFrame'
+      : (req.mode === 'refmod' ? (req.refmodName || 'RefMod') : req.mode),
   });
   appendLog('QUEUE', `Queued job #${result.queuePos || 1} (${req.mode}, ~${Math.round((result.etaSec || 60) / 60)}m)`);
 
@@ -779,6 +803,21 @@ function init() {
       if (ev.text) appendLog('REFMOD', ev.text);
     });
   }
+  window.__zaudeOpenFrameToFrame = async ({ firstFrame, lastFrame, seconds, insertAt = null } = {}) => {
+    currentMode = 'refmod';
+    pendingInsertAt = insertAt;
+    await open();
+    const form = $('t2v-form');
+    if (seconds && form && form.elements.seconds) {
+      form.elements.seconds.value = String(Math.max(2, Math.min(15, Math.round(seconds))));
+    }
+    if (firstFrame && firstFrame.path) updateSquarePreview('firstFrame', firstFrame.path, firstFrame.url, false);
+    if (lastFrame && lastFrame.path) updateSquarePreview('lastFrame', lastFrame.path, lastFrame.url, false);
+    updateCommandPreview();
+    setStatus(`FrameToFrame ready (${Math.round(seconds || 4)}s) — write your prompt and click Run.`);
+    if (form && form.elements.prompt) form.elements.prompt.focus();
+  };
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('t2v-dialog').hidden) close();
   });

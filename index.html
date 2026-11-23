@@ -123,7 +123,23 @@
         </select>
       </label>
 
-      <div class="t2v-wide ai-media-squares" data-modes="text-render,auto,coverage">
+      <div class="t2v-wide ai-media-squares" data-modes="text-render,refmod,auto,coverage">
+        <div class="ai-square-slot" data-modes="refmod" data-slot="firstFrame" data-pick-file="image" data-pick-target="firstFrame" title="First Frame (optional — or right-click 2 clips → FrameToFrame)">
+          <div class="ai-square-box" id="ai-preview-firstFrame">
+            <span class="ai-square-empty">⏮️<br>First Frame</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="firstFrame" hidden title="Clear">×</button>
+          <input type="hidden" name="firstFrame">
+        </div>
+
+        <div class="ai-square-slot" data-modes="refmod" data-slot="lastFrame" data-pick-file="image" data-pick-target="lastFrame" title="Last Frame (optional — or right-click 2 clips → FrameToFrame)">
+          <div class="ai-square-box" id="ai-preview-lastFrame">
+            <span class="ai-square-empty">⏭️<br>Last Frame</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="lastFrame" hidden title="Clear">×</button>
+          <input type="hidden" name="lastFrame">
+        </div>
+
         <div class="ai-square-slot" data-modes="auto" data-slot="video" data-pick-file="video" data-pick-target="video" title="Click to choose source video">
           <div class="ai-square-box" id="ai-preview-video">
             <span class="ai-square-empty">🎬<br>Source Video</span>

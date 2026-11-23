@@ -250,6 +250,7 @@ async function createWindow() {
 const textToVideo = require('./text-to-video.cjs');
 const mannimmate = require('./mannimmate.cjs');
 const refmodsLib = require('./refmods.cjs');
+const frameToFrame = require('./frame-to-frame.cjs');
 const os = require('node:os');
 
 const refmodsRoot = () => path.join(ROOT, 'refmods');
@@ -365,24 +366,34 @@ function registerAiHandlers() {
     if (activeJob || !jobQueue.length) return;
     const next = jobQueue.shift();
     const { id, input, mannimmateDir, settings, send, estSec } = next;
-    const job = mannimmate.runJob({
-      mannimmateDir,
-      python: settings.python,
-      request: input,
-      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
-      previewDir: previewRoot(),
-      jobId: id,
-      outDir: settings.outDir,
-      onEvent: (ev) => {
-        if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
-        if (ev.type === 'preview' && ev.previewPath) {
-          pickedMediaDirs.add(path.dirname(ev.previewPath));
-          send({ ...ev, previewUrl: mediaUrlFor(ev.previewPath) });
-        } else {
-          send(ev);
-        }
-      },
-    });
+    const useFl2v = input && input.mode === 'refmod' && (input.firstFrame || input.lastFrame);
+    const onEv = (ev) => {
+      if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
+      if (ev.type === 'preview' && ev.previewPath) {
+        pickedMediaDirs.add(path.dirname(ev.previewPath));
+        send({ ...ev, previewUrl: mediaUrlFor(ev.previewPath) });
+      } else {
+        send(ev);
+      }
+    };
+    const job = useFl2v
+      ? frameToFrame.runFrameToFrame({
+          request: input,
+          previewDir: previewRoot(),
+          jobId: id,
+          outDir: settings.outDir,
+          onEvent: onEv,
+        })
+      : mannimmate.runJob({
+          mannimmateDir,
+          python: settings.python,
+          request: input,
+          promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+          previewDir: previewRoot(),
+          jobId: id,
+          outDir: settings.outDir,
+          onEvent: onEv,
+        });
     activeJob = { id, cancel: job.cancel, send, estSec, remainingEta: estSec };
     broadcastQueueStatus();
     job.promise.then((result) => {
@@ -552,6 +563,18 @@ function registerAiHandlers() {
     const settings = loadSettings();
     const mannimmateDir = String(dirOverride || '').trim() || settings.mannimmateDir;
     return mannimmate.runDoctor({ mannimmateDir, python: settings.python });
+  });
+
+  ipcMain.handle('ai:extractFrame', async (_e, { filePath, timeSec, tag }) => {
+    if (typeof filePath !== 'string' || !media.isAllowedMedia(filePath, mediaRoots())) {
+      return { ok: false, error: 'Not an allowed video file.' };
+    }
+    const safeTag = String(tag || 'frame').replace(/[^a-zA-Z0-9_-]/g, '');
+    const outPng = path.join(previewRoot(), `${safeTag}_${Date.now()}_${Math.floor(Math.random() * 1000)}.png`);
+    const res = await frameToFrame.extractFrameAt(filePath, timeSec, outPng);
+    if (!res.ok) return res;
+    pickedMediaDirs.add(path.dirname(res.path));
+    return { ok: true, path: res.path, url: mediaUrlFor(res.path) };
   });
 
   ipcMain.handle('ai:mannimmate:pickFile', async (event, kind) => {

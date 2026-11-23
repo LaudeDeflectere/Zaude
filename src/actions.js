@@ -741,9 +741,9 @@ export function createActions(store, engine) {
     const id = 'gen-' + d.id;
     if (d.type === 'start') {
       const s = get();
-      // Place queued generations side-by-side if a generating clip already occupies the playhead
+      // Place queued generations at insertAt (e.g. FrameToFrame gap) or playhead side-by-side
       const existingGen = s.clips.filter((c) => c.generating && c.track === 'V1');
-      let startAt = s.playhead;
+      let startAt = typeof d.insertAt === 'number' ? d.insertAt : s.playhead;
       for (const g of existingGen) {
         if (startAt >= g.start - 0.05 && startAt < T.clipEnd(g) + 0.05) {
           startAt = T.clipEnd(g);

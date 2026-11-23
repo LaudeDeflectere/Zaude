@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   mannimmateDoctor: (dir) => ipcRenderer.invoke('ai:mannimmate:doctor', dir),
   mannimmateStart: (input) => ipcRenderer.invoke('ai:mannimmate:start', input),
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
+  extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
   refmodsList: (dir) => ipcRenderer.invoke('ai:refmods:list', dir),
   refmodsAdd: (input) => ipcRenderer.invoke('ai:refmods:add', input),
   refmodsGeneratePreview: (input) => ipcRenderer.invoke('ai:refmods:generatePreview', input),

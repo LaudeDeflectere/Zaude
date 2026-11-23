@@ -818,9 +818,18 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     e.preventDefault();
     closeCtxMenu();
     const clipId = blk.dataset.clip;
-    actions.select(clipId);
-    const clip = T.findClip(store.get().clips, clipId);
+    const preSel = store.get().selectedIds || [];
+    if (!preSel.includes(clipId)) actions.select(clipId);
+    const sNow = store.get();
+    const clip = T.findClip(sNow.clips, clipId);
     if (!clip) return;
+
+    const selIds = sNow.selectedIds && sNow.selectedIds.length ? sNow.selectedIds : (sNow.selected ? [sNow.selected] : []);
+    const selVideoClips = selIds
+      .map((id) => T.findClip(sNow.clips, id))
+      .filter((c) => c && c.kind === 'video' && c.path)
+      .sort((a, b) => a.start - b.start);
+    const canFrameToFrame = selVideoClips.length === 2 && Boolean(window.zaudeAI && window.zaudeAI.extractFrame);
 
     const isVideo = clip.kind === 'video';
     const isMedia = isVideo || clip.kind === 'audio';
@@ -831,7 +840,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     ctxMenu.className = 'menu clip-ctx-menu';
     ctxMenu.setAttribute('role', 'menu');
     ctxMenu.innerHTML = `
-      <div class="menu-title">${esc(clip.name)}</div>
+      <div class="menu-title">${esc(selVideoClips.length === 2 ? `${selVideoClips[0].name} → ${selVideoClips[1].name}` : clip.name)}</div>
+      ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button><div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
       ${isMedia ? `<button role="menuitem" data-ctx="mute">${clip.muted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}
       <button role="menuitem" data-ctx="split">Split at playhead</button>
@@ -846,12 +856,31 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     ctxMenu.style.left = Math.max(8, Math.min(e.clientX, window.innerWidth - w - 8)) + 'px';
     ctxMenu.style.top = Math.max(8, Math.min(e.clientY, window.innerHeight - h - 8)) + 'px';
 
-    ctxMenu.addEventListener('click', (ev) => {
+    ctxMenu.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-ctx]');
       if (!btn || btn.disabled) return;
       const act = btn.dataset.ctx;
       closeCtxMenu();
-      if (act === 'separate') actions.detach();
+      if (act === 'frame-to-frame' && selVideoClips.length === 2) {
+        const [c1, c2] = selVideoClips;
+        actions.log('Extracting First & Last frames for FrameToFrame…');
+        const t1 = Math.max(0, (Number(c1.srcIn) || 0) + (Number(c1.dur) || 1) * (c1.speed || 1) - 0.05);
+        const t2 = Math.max(0, Number(c2.srcIn) || 0);
+        const [f1, f2] = await Promise.all([
+          window.zaudeAI.extractFrame({ filePath: c1.path, timeSec: t1, tag: 'fl2v_first' }),
+          window.zaudeAI.extractFrame({ filePath: c2.path, timeSec: t2, tag: 'fl2v_last' }),
+        ]);
+        if (!f1.ok || !f2.ok) {
+          actions.log('Could not extract frames: ' + (f1.error || f2.error || 'unknown error'));
+          return;
+        }
+        const gap = c2.start - T.clipEnd(c1);
+        const seconds = gap >= 1 ? Math.min(15, Math.round(gap)) : 4;
+        const insertAt = gap >= 0.5 ? T.clipEnd(c1) : T.clipEnd(c1);
+        if (window.__zaudeOpenFrameToFrame) {
+          window.__zaudeOpenFrameToFrame({ firstFrame: f1, lastFrame: f2, seconds, insertAt });
+        }
+      } else if (act === 'separate') actions.detach();
       else if (act === 'mute') {
         const s = store.get();
         const cur = T.findClip(s.clips, clipId);

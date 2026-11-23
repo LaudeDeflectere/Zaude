@@ -184,3 +184,27 @@ test('parseComfyBinaryPreview decodes ComfyUI JPEG (type 1) and metadata PNG (ty
   assert.equal(p4.ext, 'png');
   assert.deepEqual(p4.data, pngBytes);
 });
+
+test('frameToFrame.buildFl2vGraph wires first_frame, last_frame, 17k+5 frames, and optional RefMods', () => {
+  const fl2v = require('../electron/frame-to-frame.cjs');
+  assert.equal(fl2v.snapH3Frames(4, 24), 90);
+  assert.equal(fl2v.snapH3Frames(5, 24), 124);
+
+  const g = fl2v.buildFl2vGraph({
+    prompt: 'Smooth transition between shot A and shot B',
+    firstFrameName: 'first.png',
+    lastFrameName: 'last.png',
+    width: 864,
+    height: 480,
+    frames: 90,
+    steps: 8,
+    refmods: [{ file: 'elias_varga', name: 'Elias' }],
+  });
+  assert.equal(g['5'].class_type, 'MiniMaxH3ImageToVideo');
+  assert.deepEqual(g['5'].inputs.first_frame, ['21', 0]);
+  assert.deepEqual(g['5'].inputs.last_frame, ['23', 0]);
+  assert.equal(g['20'].inputs.image, 'first.png');
+  assert.equal(g['22'].inputs.image, 'last.png');
+  assert.equal(g['30'].class_type, 'MiniMaxH3RefModsLoader');
+  assert.deepEqual(g['8'].inputs.conditioning, ['31', 0]);
+});
