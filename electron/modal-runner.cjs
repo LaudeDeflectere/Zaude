@@ -580,7 +580,7 @@ async function stopAllModal({ endpointUrl = '', token = '' } = {}) {
   const usage = getModalUsage();
   for (const c of (usage.containers || [])) {
     if (!c.id) continue;
-    const r = spawnSync('modal', ['container', 'stop', c.id], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+    const r = spawnSync('modal', ['container', 'stop', '-y', c.id], { encoding: 'utf8', timeout: 15000, windowsHide: true });
     if (r.status === 0) stopped.push(c.id);
     else errors.push(`${c.id}: ${(r.stderr || r.stdout || 'failed').trim().slice(0, 120)}`);
   }
