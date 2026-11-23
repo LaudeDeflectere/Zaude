@@ -427,18 +427,16 @@ function runLocalVideo({
 
       onEvent({ type: 'progress', message: `Queueing ${model.label} on ${setup.hostname} (${width}×${height}, ${frames}f, ${chosenSteps} steps)…`, percent: 18 });
       const clientId = `zaude-local-${Date.now()}`;
-      watcher = comfyLive.createComfyPreviewWatcher({
-        comfyUrl: base,
-        clientId,
+      watcher = comfyLive.watchComfyJob({
+        baseUrl: base,
         previewDir: previewDir || outDir,
         jobId,
-        onEvent: (ev) => {
-          if (ev.type === 'preview' && ev.previewPath) {
-            onEvent({ type: 'preview', previewPath: ev.previewPath });
-          } else if (ev.type === 'progress') {
-            const pct = ev.maxSteps ? Math.min(94, Math.round(20 + (ev.step / ev.maxSteps) * 72)) : 50;
-            onEvent({ type: 'progress', step: ev.step, maxSteps: ev.maxSteps, percent: pct, message: `💻 ${setup.hostname} ${model.label}: step ${ev.step}/${ev.maxSteps}` });
-          }
+        onPreview: (previewPath) => {
+          if (previewPath) onEvent({ type: 'preview', previewPath });
+        },
+        onStep: ({ step, totalSteps }) => {
+          const pct = totalSteps ? Math.min(94, Math.round(20 + (step / totalSteps) * 72)) : 50;
+          onEvent({ type: 'progress', step, maxSteps: totalSteps, percent: pct, message: `💻 ${setup.hostname} ${model.label}: step ${step}/${totalSteps}` });
         },
       });
 
