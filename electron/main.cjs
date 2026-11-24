@@ -115,11 +115,19 @@ async function handleApiRequest(req, res) {
 }
 
 const ROOT = path.join(__dirname, '..');
-const ALLOWED = /^(index\.html|styles\.css|src\/.+\.js)$/;
+const ALLOWED = /^(index\.html|styles\.css|src\/.+\.js|assets\/.+\.(?:png|jpe?g|webp|gif|svg|mp4|webm))$/i;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
 };
 
 function startServer() {
@@ -129,7 +137,7 @@ function startServer() {
       if (req.url.startsWith('/media/')) return mediaHandler(req, res);
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
-      if (!ALLOWED.test(rel)) {
+      if (rel.includes('..') || !ALLOWED.test(rel)) {
         res.writeHead(404);
         return res.end('Not found');
       }
@@ -138,7 +146,8 @@ function startServer() {
           res.writeHead(404);
           return res.end('Not found');
         }
-        res.writeHead(200, { 'Content-Type': TYPES[path.extname(rel)] || 'application/octet-stream' });
+        const ext = path.extname(rel).toLowerCase();
+        res.writeHead(200, { 'Content-Type': TYPES[ext] || 'application/octet-stream' });
         res.end(data);
       });
     });
