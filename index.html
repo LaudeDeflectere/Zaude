@@ -118,17 +118,22 @@
         </div>
 
         <div class="ai-prompt-head" style="margin-top:8px">
-          <span>2. What to Change</span>
+          <span>2. What to Change <span class="muted">· Click a Before → After card to preview &amp; pick mode</span></span>
           <div class="ai-stylize-pills" id="ai-stylize-pills">
             <button type="button" data-stylize-act="replace">🧑 Replace Character</button>
+            <button type="button" data-stylize-act="background">🌆 Change Background</button>
             <button type="button" data-stylize-act="object">🐱 Add Object</button>
             <button type="button" class="on" data-stylize-act="both">✨ Both (Swap + Object)</button>
           </div>
         </div>
 
+        <div class="sty-ba-grid" id="ai-stylize-showcase"></div>
+
+        <div class="ai-bg-recipes" id="ai-bg-recipes" hidden></div>
+
         <div class="t2v-wide" id="ai-object-prompt-wrap">
           <div class="ai-prompt-head">
-            <span>Object / Scene Addition (e.g. a moving cat, prop, effect)</span>
+            <span id="ai-object-prompt-label">Object / Scene Addition (e.g. a moving cat, prop, effect)</span>
             <span class="ai-prompt-helpers">
               <button type="button" class="ai-btn-purple" data-prompt-advance-target="objectPrompt" title="Use a connected AI + Prompt Database to make this prompt more robust">✨ Advance Prompt</button>
               <button type="button" data-prompt-db-toggle="objectPrompt" title="Browse &amp; learn from saved working prompts">📚 DB</button>
@@ -213,7 +218,8 @@
         <div class="ai-prompt-head">
           <span>Prompt</span>
           <span class="ai-prompt-helpers">
-            <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and ask clarifying questions if unclear">✨ Advance Prompt</button>
+            <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and Shot Library">✨ Advance Prompt</button>
+            <button type="button" id="ai-shot-lib-btn" data-shot-library-toggle="prompt" title="Browse 20 proven character-swappable shots &amp; background templates with visual squares">🎬 Shot Library</button>
             <button type="button" id="ai-prompt-db-btn" data-prompt-db-toggle="prompt" title="Open Prompt Database of proven working examples">📚 Prompt DB</button>
             <button type="button" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
             <button type="button" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
@@ -243,6 +249,17 @@
         <div class="pa-masters-wrap" id="pa-masters-wrap">
           <div class="pa-subhead">Directing Master Prompts <span class="muted">(optional · click to toggle, saved in <code>prompts/master-prompts.json</code>)</span></div>
           <div class="pa-masters" id="pa-masters"></div>
+        </div>
+        <div class="pa-playbook-wrap" id="pa-playbook-wrap">
+          <div class="pa-subhead">🧠 What Zaude &amp; Singularity v2 Like <span class="muted">(proven rules auto-applied by the AI Advancer)</span></div>
+          <div class="pa-playbook" id="pa-playbook"></div>
+        </div>
+        <div class="pa-lib-wrap" id="pa-lib-wrap">
+          <div class="pa-lib-head">
+            <div class="pa-subhead" style="margin:0">🎬 Shot Library <span class="muted" id="pa-lib-count">(20 character-swappable templates · click Use to cast your selected RefMod)</span></div>
+            <div class="pa-lib-cats" id="pa-lib-cats"></div>
+          </div>
+          <div class="pa-lib-grid" id="pa-lib-grid"></div>
         </div>
         <div class="pa-matched" id="pa-matched" hidden></div>
         <div class="pa-questions" id="pa-questions" hidden></div>

@@ -217,11 +217,35 @@ function applyStylizeActionVisibility() {
       b.classList.toggle('on', b.dataset.stylizeAct === stylizeAction);
     });
   }
+  const showcase = $('ai-stylize-showcase');
+  if (showcase) {
+    showcase.querySelectorAll('.sty-ba-card').forEach((card) => {
+      card.classList.toggle('on', card.dataset.stylizeAct === stylizeAction);
+    });
+  }
+  const bgRecipes = $('ai-bg-recipes');
+  if (bgRecipes) bgRecipes.hidden = stylizeAction !== 'background';
+
   const objWrap = $('ai-object-prompt-wrap');
   if (objWrap) objWrap.hidden = stylizeAction === 'replace';
+
+  const objLabel = $('ai-object-prompt-label');
+  const form = $('t2v-form');
+  const objTa = form && form.elements.objectPrompt;
+  if (objLabel) {
+    objLabel.textContent = stylizeAction === 'background'
+      ? 'New Background / Environment (keeps exact performer, pose & timing from video)'
+      : 'Object / Scene Addition (e.g. a moving cat, prop, effect)';
+  }
+  if (objTa) {
+    objTa.placeholder = stylizeAction === 'background'
+      ? 'e.g. A rain-drenched cyberpunk Tokyo alleyway at midnight with glowing cyan/magenta neon signs and matching rim light'
+      : 'e.g. A fluffy orange and white tabby cat walks playfully across the floor around the dancer\'s feet, tail raised and swishing';
+  }
+
   const refmodSec = $('ai-refmod-section');
   if (refmodSec && currentMode === 'auto') {
-    refmodSec.hidden = stylizeAction === 'object';
+    refmodSec.hidden = stylizeAction === 'object' || stylizeAction === 'background';
   }
 }
 
@@ -659,6 +683,9 @@ async function onSubmit() {
     }
     if (req.mode === 'auto' && (req.stylizeAction === 'object' || req.stylizeAction === 'both') && !req.objectPrompt && !req.ref) {
       return setStatus('Describe the object or scene change you want to add.', true);
+    }
+    if (req.mode === 'auto' && req.stylizeAction === 'background' && !req.objectPrompt && !req.ref) {
+      return setStatus('Describe the new background environment (or click a Background Recipe above).', true);
     }
     if (req.mode === 'coverage' && !req.image) {
       return setStatus('Pick a scene reference image first.', true);

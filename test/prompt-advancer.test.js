@@ -96,3 +96,49 @@ test('promptAdvancer stores, ranks, rates, and injects working examples into AI 
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+test('shot library ships 20 character-swappable shots, Stylize before/afters, and existing preview squares', () => {
+  const lib = pa.loadShotLibrary();
+  assert.equal(lib.ok, true);
+  assert.equal(lib.shots.length, 20);
+  assert.equal(lib.stylizePresets.length, 4);
+  assert.ok(lib.backgroundRecipes.length >= 5);
+  assert.ok(lib.playbook.length >= 5);
+
+  const rootDir = path.resolve(path.dirname(pa.DEFAULT_SHOT_LIBRARY_PATH), '..');
+  for (const s of lib.shots) {
+    assert.ok(s.preview, `Missing preview path on ${s.id}`);
+    assert.ok(fs.existsSync(path.join(rootDir, s.preview)), `Preview image missing on disk: ${s.preview}`);
+  }
+  for (const p of lib.stylizePresets) {
+    assert.ok(fs.existsSync(path.join(rootDir, p.beforePreview)), `Missing before preview: ${p.beforePreview}`);
+    assert.ok(fs.existsSync(path.join(rootDir, p.afterPreview)), `Missing after preview: ${p.afterPreview}`);
+  }
+
+  // Character template substitution works for 1-char and 2-char shots
+  const hero = lib.shots.find((s) => s.id === 'shot-01-hero-walk');
+  const filledElias = pa.renderShotTemplate(hero.template, ['Elias Varga']);
+  const filledNadia = pa.renderShotTemplate(hero.template, ['Nadia Krasavica']);
+  assert.match(filledElias, /Subject 1 \(Elias Varga\)/);
+  assert.match(filledNadia, /Subject 1 \(Nadia Krasavica\)/);
+  assert.equal(filledElias.replace(/Elias Varga/g, 'X'), filledNadia.replace(/Nadia Krasavica/g, 'X'));
+
+  const ots = lib.shots.find((s) => s.id === 'shot-05-ots-confrontation');
+  const filledTwo = pa.renderShotTemplate(ots.template, ['Elias', 'Nadia']);
+  assert.match(filledTwo, /Subject 1 \(Elias\)/);
+  assert.match(filledTwo, /Subject 2 \(Nadia\)/);
+
+  // Stylize Change Background builds valid RV2V command without requiring a RefMod
+  const mannimmate = require('../electron/mannimmate.cjs');
+  const bgCmd = mannimmate.buildCommand({
+    mode: 'auto',
+    stylizeAction: 'background',
+    video: '/tmp/clip.mp4',
+    start: 0,
+    end: 5,
+    objectPrompt: 'A rain-drenched cyberpunk Tokyo alleyway at midnight with neon rim light',
+  });
+  assert.equal(bgCmd.ok, true);
+  assert.match(bgCmd.promptContent, /Replace ONLY the background/);
+  assert.match(bgCmd.promptContent, /cyberpunk Tokyo/);
+});

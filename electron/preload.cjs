@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('zaudePrompt', {
   advance: (input) => ipcRenderer.invoke('prompt:advance', input),
   cancel: () => ipcRenderer.invoke('prompt:cancel'),
   listMasters: () => ipcRenderer.invoke('prompt:masters'),
+  listLibrary: () => ipcRenderer.invoke('prompt:library'),
   listDb: () => ipcRenderer.invoke('prompt:db:list'),
   saveDb: (input) => ipcRenderer.invoke('prompt:db:save', input),
   rateDb: (input) => ipcRenderer.invoke('prompt:db:rate', input),

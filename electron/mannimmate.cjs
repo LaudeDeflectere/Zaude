@@ -151,7 +151,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const end = Number((input && input.end) ?? 7);
     const quality = String((input && input.quality) || '480');
     const preset = String((input && input.preset) || 'draft');
-    const action = ['replace', 'object', 'both'].includes(input && input.stylizeAction)
+    const action = ['replace', 'background', 'object', 'both'].includes(input && input.stylizeAction)
       ? input.stylizeAction
       : ((input && input.objectPrompt) ? ((input && (input.refmod || (input.refmods && input.refmods.length))) ? 'both' : 'object') : 'replace');
     const objectPrompt = String((input && input.objectPrompt) || '').trim();
@@ -182,9 +182,12 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     if ((action === 'object' || action === 'both') && !objectPrompt && !ref) {
       return { ok: false, error: 'Describe the object or scene change you want to add.' };
     }
+    if (action === 'background' && !objectPrompt && !ref) {
+      return { ok: false, error: 'Describe the new background environment (or pick a reference image).' };
+    }
 
-    // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement
-    // and object/scene insertion work together cleanly without `--scene-mode keep` suppressing new objects.
+    // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement,
+    // background swaps, and object/scene insertion work cleanly.
     const promptLines = [];
     if (rmList.length && (action === 'replace' || action === 'both')) {
       promptLines.push('subject_definitions:');
@@ -193,19 +196,24 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       });
       promptLines.push('');
     }
-    const baseKeep = 'Edit <Video 1> frame by frame: preserve the camera framing, lighting, room/background, and exact choreography, poses, and timing of <Video 1>.';
-    const parts = [baseKeep];
-    if (action === 'replace' || action === 'both') {
-      const subjectNames = rmList.length
-        ? rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ')
-        : '<Picture 1>';
-      parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face, hair, and clothing; the original performer of <Video 1> does not appear.`);
-    }
-    if (action === 'object' || action === 'both') {
-      parts.push(`ALSO add and animate in the scene: ${objectPrompt || 'the added element from the reference image'}. Keep the added element naturally lit, physically grounded, and casting realistic shadows throughout the clip.`);
-    }
-    if (bgMode === 'sheet') {
-      parts.push('Adopt the visual style and backdrop of the reference.');
+    const parts = [];
+    if (action === 'background') {
+      parts.push('Edit <Video 1> frame by frame: strictly preserve the original performer from <Video 1> including their exact face, hair, clothing, body proportions, choreography, poses, timing, and camera trajectory.');
+      parts.push(`Replace ONLY the background and surrounding environment with: ${objectPrompt || 'the environment and backdrop shown in <Picture 1>'}. Match rim lighting, ambient color bounce, and grounded floor contact shadows onto the performer so they blend seamlessly into the new location.`);
+    } else {
+      parts.push('Edit <Video 1> frame by frame: preserve the camera framing, lighting, room/background, and exact choreography, poses, and timing of <Video 1>.');
+      if (action === 'replace' || action === 'both') {
+        const subjectNames = rmList.length
+          ? rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ')
+          : '<Picture 1>';
+        parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face, hair, and clothing; the original performer of <Video 1> does not appear.`);
+      }
+      if (action === 'object' || action === 'both') {
+        parts.push(`ALSO add and animate in the scene: ${objectPrompt || 'the added element from the reference image'}. Keep the added element naturally lit, physically grounded, and casting realistic shadows throughout the clip.`);
+      }
+      if (bgMode === 'sheet') {
+        parts.push('Adopt the visual style and backdrop of the reference.');
+      }
     }
     promptLines.push(parts.join(' '));
     const promptContent = promptLines.join('\n') + '\n';

@@ -65,6 +65,22 @@
       "category": "Local GPU",
       "description": "Compact single-shot visual prose tuned for fast 8-step LTX-Video 2B GGUF on 8 GB laptops.",
       "instructions": "Tailor the prompt for fast 8-step LTX-Video 2B GGUF on an 8 GB GPU: write ONE cohesive, vivid paragraph (under 650 characters) describing a single continuous shot with NO scene cuts, ONE clear primary motion arc, concrete subject appearance, simple readable lighting, and smooth camera motion. Avoid complex multi-character dialogue or dense text overlays."
+    },
+    {
+      "id": "change-background",
+      "name": "Change Background",
+      "icon": "🌆",
+      "category": "Stylize",
+      "description": "Preserve performer, pose, timing & camera path from <Video 1> while replacing ONLY the world + matching rim light.",
+      "instructions": "Format for clean RV2V background replacement: explicitly preserve the performer's exact face, hair, clothing, choreography, poses, timing, and camera trajectory from <Video 1>, replace ONLY the background environment with rich concrete scenery, and specify matching rim lighting, color bounce, and grounded floor contact shadows so the performer blends seamlessly into the new location."
+    },
+    {
+      "id": "consistent-shot-lock",
+      "name": "Character-Swappable Shot",
+      "icon": "🎯",
+      "category": "Library",
+      "description": "Locks lens, camera move, lighting, and timed 0s–5s beats so swapping any RefMod outputs the exact same shot.",
+      "instructions": "Structure the prompt as a reusable, character-swappable shot template: use `Subject 1 (<Name>)` keeping their exact RefMod appearance, specify ONE fixed focal length and ONE motivated camera move, anchor concrete environment/props/lighting direction + Kelvin color temperature, choreograph explicit timed physical beats (0s–2s, 2s–4s, 4s–6s), and include `overall_soundscape:` and `non_diegetic_music:` so different characters always produce the same consistent shot."
     }
   ]
 }

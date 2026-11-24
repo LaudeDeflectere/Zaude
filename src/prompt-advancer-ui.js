@@ -58,10 +58,132 @@ function initPromptAdvancerUi() {
   let lastResult = null;
   let dbCache = [];
   let mastersCache = [];
+  let libraryCache = { shots: [], stylizePresets: [], backgroundRecipes: [], playbook: [] };
+  let activeLibCat = 'All';
   const selectedMasters = new Set();
   let busy = false;
 
   const getTextarea = () => form.elements[activeTarget] || form.elements.prompt;
+
+  function substituteCharacters(template) {
+    const { context } = getFormContext(activeTarget);
+    const refs = (context && Array.isArray(context.refmods)) ? context.refmods : [];
+    const c1 = refs[0] || 'the character';
+    const c2 = refs[1] || 'the second character';
+    return String(template || '')
+      .replace(/\{\{\s*CHARACTER\s*\}\}/g, c1)
+      .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, c2);
+  }
+
+  function renderStylizeShowcase() {
+    const box = $('ai-stylize-showcase');
+    if (box && libraryCache.stylizePresets.length) {
+      const activeBtn = document.querySelector('#ai-stylize-pills button.on');
+      const curAct = activeBtn ? activeBtn.dataset.stylizeAct : 'both';
+      box.innerHTML = libraryCache.stylizePresets.map((p) => `
+        <button type="button" class="sty-ba-card ${p.action === curAct ? 'on' : ''}" data-stylize-act="${esc(p.action)}" data-stylize-sample="${esc(p.samplePrompt || '')}" title="${esc(p.subtitle)}">
+          <div class="sty-ba-pair">
+            <div class="sty-ba-frame">
+              <img class="sty-ba-img" src="${esc(p.beforePreview)}" alt="Before" loading="lazy">
+              <span class="sty-ba-tag">Before</span>
+            </div>
+            <span class="sty-ba-arrow">→</span>
+            <div class="sty-ba-frame">
+              <img class="sty-ba-img" src="${esc(p.afterPreview)}" alt="After" loading="lazy">
+              <span class="sty-ba-tag after">After</span>
+            </div>
+          </div>
+          <div class="sty-ba-meta">
+            <strong>${esc(p.icon || '')} ${esc(p.title)}</strong>
+            <span class="muted">${esc(p.subtitle)}</span>
+          </div>
+        </button>
+      `).join('');
+    }
+    const bgBox = $('ai-bg-recipes');
+    if (bgBox && libraryCache.backgroundRecipes.length) {
+      bgBox.innerHTML = `<span class="muted" style="font-size:11px">Quick Backgrounds:</span> ` +
+        libraryCache.backgroundRecipes.map((r) => `
+          <button type="button" class="pa-master-pill" data-bg-recipe="${esc(r.id)}" title="${esc(r.prompt)}">${esc(r.icon || '🌆')} ${esc(r.label)}</button>
+        `).join('');
+    }
+  }
+
+  function renderPlaybook() {
+    const box = $('pa-playbook');
+    if (!box) return;
+    box.innerHTML = (libraryCache.playbook || []).map((rule) => `
+      <div class="pa-rule-card" title="${esc(rule.tip)}">
+        <strong>${esc(rule.icon || '💡')} ${esc(rule.title)}</strong>
+        <span>${esc(rule.tip)}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderShotLibrary() {
+    const catsEl = $('pa-lib-cats');
+    const gridEl = $('pa-lib-grid');
+    const countEl = $('pa-lib-count');
+    if (!gridEl) return;
+    const shots = libraryCache.shots || [];
+    const cats = ['All', ...Array.from(new Set(shots.map((s) => s.category || 'Shot')))];
+    if (catsEl) {
+      catsEl.innerHTML = cats.map((c) => `
+        <button type="button" class="pa-lib-cat ${c === activeLibCat ? 'on' : ''}" data-lib-cat="${esc(c)}">${esc(c)}</button>
+      `).join('');
+    }
+    const filtered = activeLibCat === 'All' ? shots : shots.filter((s) => (s.category || 'Shot') === activeLibCat);
+    if (countEl) {
+      const { context } = getFormContext(activeTarget);
+      const refs = (context && context.refmods) || [];
+      const castNote = refs.length ? `casting: ${refs.join(' + ')}` : 'pick a RefMod above or click Use to auto-cast';
+      countEl.textContent = `(${filtered.length}/${shots.length} consistent shots · ${castNote})`;
+    }
+    gridEl.innerHTML = filtered.map((s) => {
+      const slotBadge = s.mode === 'stylize'
+        ? '🌆 BG Swap'
+        : (s.characterSlots === 2 ? '👥 2 Chars' : '🧑 Any Char');
+      return `
+        <div class="pa-lib-card" data-lib-shot="${esc(s.id)}" title="Why it works: ${esc(s.whyItWorks || '')}">
+          <div class="pa-lib-thumb-wrap">
+            <img class="pa-lib-thumb" src="${esc(s.preview || '')}" alt="${esc(s.title)}" loading="lazy">
+            <span class="pa-lib-cat-badge">${esc(s.category || 'Shot')}</span>
+          </div>
+          <div class="pa-lib-info">
+            <div class="pa-lib-top">
+              <strong class="pa-lib-title">${esc(s.icon || '🎬')} ${esc(s.title)}</strong>
+              <span class="pa-lib-slot">${slotBadge}</span>
+            </div>
+            <div class="pa-lib-desc">${esc(s.whatItDoes || '')}</div>
+            <div class="pa-lib-why">💡 ${esc(s.whyItWorks || '')}</div>
+            <div class="pa-lib-actions">
+              <button type="button" class="pdb-use" data-lib-use="${esc(s.id)}">Use Shot</button>
+              <button type="button" class="pa-lib-adv-btn" data-lib-advance="${esc(s.id)}" title="Load this shot &amp; customize with AI">✨ Customize</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function loadLibrary() {
+    if (!api.listLibrary) return;
+    try {
+      const res = await api.listLibrary();
+      if (res && res.ok) {
+        libraryCache = {
+          shots: Array.isArray(res.shots) ? res.shots : [],
+          stylizePresets: Array.isArray(res.stylizePresets) ? res.stylizePresets : [],
+          backgroundRecipes: Array.isArray(res.backgroundRecipes) ? res.backgroundRecipes : [],
+          playbook: Array.isArray(res.playbook) ? res.playbook : [],
+        };
+      }
+    } catch { /* ignore */ }
+    renderStylizeShowcase();
+    renderPlaybook();
+    renderShotLibrary();
+  }
+  loadLibrary();
 
   async function loadMasters() {
     const box = $('pa-masters');
@@ -200,7 +322,86 @@ function initPromptAdvancerUi() {
     const advBtn = e.target.closest('[data-prompt-advance-target]');
     if (advBtn) {
       activeTarget = advBtn.dataset.promptAdvanceTarget || 'prompt';
+      renderShotLibrary();
       runAdvance([]);
+      return;
+    }
+    const libToggleBtn = e.target.closest('[data-shot-library-toggle]');
+    if (libToggleBtn) {
+      activeTarget = libToggleBtn.dataset.shotLibraryToggle || 'prompt';
+      const opening = panel.hidden;
+      panel.hidden = !opening;
+      if (opening) {
+        dbPanel.hidden = true;
+        renderShotLibrary();
+        setStatus('Pick a proven shot below (auto-casts your selected RefMod) or click ✨ Advance Prompt to customize.');
+      }
+      return;
+    }
+    // Stylize Before/After card click → fill sample prompt if objectPrompt is empty
+    const baCard = e.target.closest('.sty-ba-card');
+    if (baCard) {
+      const sample = baCard.dataset.stylizeSample || '';
+      const objTa = form.elements.objectPrompt;
+      if (sample && objTa && !String(objTa.value || '').trim()) {
+        objTa.value = sample;
+        objTa.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return;
+    }
+    // Quick Background Recipe chip click
+    const bgChip = e.target.closest('[data-bg-recipe]');
+    if (bgChip) {
+      const rec = (libraryCache.backgroundRecipes || []).find((r) => r.id === bgChip.dataset.bgRecipe);
+      const objTa = form.elements.objectPrompt;
+      if (rec && objTa) {
+        objTa.value = rec.prompt;
+        objTa.dispatchEvent(new Event('input', { bubbles: true }));
+        objTa.focus();
+      }
+      return;
+    }
+    // Shot Library category filter
+    const libCatBtn = e.target.closest('[data-lib-cat]');
+    if (libCatBtn) {
+      activeLibCat = libCatBtn.dataset.libCat || 'All';
+      renderShotLibrary();
+      return;
+    }
+    // Shot Library Use or Customize button
+    const libUseBtn = e.target.closest('[data-lib-use], [data-lib-advance]');
+    if (libUseBtn) {
+      const shotId = libUseBtn.dataset.libUse || libUseBtn.dataset.libAdvance;
+      const isCustomize = Boolean(libUseBtn.dataset.libAdvance);
+      const shot = (libraryCache.shots || []).find((s) => s.id === shotId);
+      if (shot) {
+        if (shot.mode === 'stylize') {
+          const stylizeTab = document.querySelector('#ai-mode-tabs button[data-ai-mode="auto"]');
+          if (stylizeTab) stylizeTab.click();
+          const bgPill = document.querySelector('#ai-stylize-pills button[data-stylize-act="background"]');
+          if (bgPill) bgPill.click();
+          activeTarget = 'objectPrompt';
+        }
+        const filled = substituteCharacters(shot.template);
+        const ta = getTextarea();
+        if (ta) {
+          ta.value = filled;
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          ta.focus();
+        }
+        if (shot.recommended) {
+          if (shot.recommended.seconds && form.elements.seconds) form.elements.seconds.value = String(shot.recommended.seconds);
+          if (shot.recommended.aspect && form.elements.aspect) form.elements.aspect.value = String(shot.recommended.aspect);
+        }
+        if (shot.defaultSeed && form.elements.seed) {
+          form.elements.seed.value = String(shot.defaultSeed);
+        }
+        if (isCustomize) {
+          runAdvance([]);
+        } else {
+          setStatus(`Loaded "${shot.title}" — ready to generate or swap RefMod character!`);
+        }
+      }
       return;
     }
     const dbBtn = e.target.closest('[data-prompt-db-toggle]');

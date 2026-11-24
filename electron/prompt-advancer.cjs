@@ -83,11 +83,11 @@ Your job is to transform a user's rough video prompt into a crisp, vivid, produc
 
 You are also given relevant PROVEN WORKING EXAMPLES from the user's Prompt Database (which includes notes on why they worked). Study those examples and apply their winning patterns, structure, and guardrails!
 
-Mode-Specific Best Practices:
-- refmod: Reference subjects as "Subject 1 (<Name>)", "Subject 2 (<Name>)". If overriding default clothing, explicitly negate the default ("NOT in default outfit, instead wearing..."). Keep room/prop anchors concrete, lock TV/monitor screens brightly ON if present, and include timestamped Dialogue windows if characters speak.
+Mode-Specific Best Practices (what MiniMax-H3 Singularity v2 & Zaude respond best to):
+- refmod: Reference subjects as "Subject 1 (<Name>)", "Subject 2 (<Name>)". Keep their exact RefMod appearance OR explicitly negate the default outfit first ("NOT in default outfit, instead wearing..."). Pick ONE focal length (28mm/35mm/50mm/85mm) and ONE motivated camera move, choreograph 2–3 timed physical beats (0s–2s, 2s–4s, 4s–6s), anchor concrete room/prop/lighting direction + Kelvin color temp, lock TV/phone/monitor screens brightly ON, and include timestamped Dialogue windows + RefMod usage block (visible=...; speaking=...) + overall_soundscape: + non_diegetic_music:.
 - fl2v (First-to-Last Frame): Describe the exact continuous physical motion arc connecting the opening frame to the closing frame, locking consistent lighting, camera, and environment so the model bridges smoothly without morphing.
 - continue (FrameContinue): Emphasize direct seamless continuation from the exact ending frame with matching wardrobe, lighting, and camera momentum.
-- stylize (Stylize & Objects): Clearly state what to preserve from the source clip vs. what object/effect/style to add, including grounded contact shadows and matching lighting.
+- stylize (Stylize, Objects & Change Background): Clearly state what to preserve from <Video 1> (performer, pose, timing, camera path) vs. what to change (character swap, new background world, or added moving object). For background swaps, ALWAYS specify matching rim light, color bounce, and grounded floor contact shadows so the performer blends seamlessly into the new location.
 - text-render: Specify shot size/lens, concrete subject & wardrobe, specific physical motion beat-by-beat, environment anchors, lighting/mood, and camera movement.
 
 Output Format:
@@ -232,6 +232,7 @@ function removeExample(filePath, id) {
 }
 
 const DEFAULT_MASTER_PROMPTS_PATH = path.join(__dirname, '..', 'prompts', 'master-prompts.json');
+const DEFAULT_SHOT_LIBRARY_PATH = path.join(__dirname, '..', 'prompts', 'shot-library.json');
 
 function loadMasterPrompts(filePath = DEFAULT_MASTER_PROMPTS_PATH) {
   try {
@@ -239,6 +240,47 @@ function loadMasterPrompts(filePath = DEFAULT_MASTER_PROMPTS_PATH) {
     if (Array.isArray(raw.masters)) return raw.masters;
   } catch { /* missing or invalid */ }
   return [];
+}
+
+function loadShotLibrary(filePath = DEFAULT_SHOT_LIBRARY_PATH) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return {
+      ok: true,
+      shots: Array.isArray(raw.shots) ? raw.shots : [],
+      stylizePresets: Array.isArray(raw.stylizePresets) ? raw.stylizePresets : [],
+      backgroundRecipes: Array.isArray(raw.backgroundRecipes) ? raw.backgroundRecipes : [],
+      playbook: Array.isArray(raw.playbook) ? raw.playbook : [],
+    };
+  } catch {
+    return { ok: true, shots: [], stylizePresets: [], backgroundRecipes: [], playbook: [] };
+  }
+}
+
+function renderShotTemplate(template, refmods = []) {
+  const list = Array.isArray(refmods)
+    ? refmods.map((r) => String(r || '').trim()).filter(Boolean)
+    : [];
+  const char1 = list[0] || 'the character';
+  const char2 = list[1] || 'the second character';
+  return String(template || '')
+    .replace(/\{\{\s*CHARACTER\s*\}\}/g, char1)
+    .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, char2);
+}
+
+function shotsAsExamples(shots = []) {
+  return (Array.isArray(shots) ? shots : []).map((s) => ({
+    id: s.id,
+    title: s.title,
+    mode: s.mode || 'refmod',
+    originalDraft: s.whatItDoes || s.title,
+    enhancedPrompt: s.template || '',
+    notes: s.whyItWorks || '',
+    tags: Array.isArray(s.tags) ? s.tags : [],
+    rating: 5,
+    usedCount: 2,
+    preview: s.preview || '',
+  }));
 }
 
 function pickAvailableProvider(requested = 'auto') {
@@ -372,8 +414,10 @@ function advancePrompt({
   onChunk = () => {},
 }) {
   const chosen = pickAvailableProvider(provider);
-  const examples = dbFilePath ? loadPromptDb(dbFilePath) : STARTER_EXAMPLES;
-  const relevantExamples = findRelevantExamples(examples, { draft, mode, limit: 4 });
+  const userExamples = dbFilePath ? loadPromptDb(dbFilePath) : STARTER_EXAMPLES;
+  const lib = loadShotLibrary();
+  const combinedExamples = [...userExamples, ...shotsAsExamples(lib.shots)];
+  const relevantExamples = findRelevantExamples(combinedExamples, { draft, mode, limit: 4 });
   const allMasters = loadMasterPrompts(mastersFilePath);
   const idSet = new Set(Array.isArray(masterIds) ? masterIds : []);
   const selectedMasters = allMasters.filter((m) => idSet.has(m.id));
@@ -437,8 +481,12 @@ function advancePrompt({
 module.exports = {
   STARTER_EXAMPLES,
   DEFAULT_MASTER_PROMPTS_PATH,
+  DEFAULT_SHOT_LIBRARY_PATH,
   PROMPT_ADVANCER_SYSTEM_PROMPT,
   loadMasterPrompts,
+  loadShotLibrary,
+  renderShotTemplate,
+  shotsAsExamples,
   pickAvailableProvider,
   loadPromptDb,
   savePromptDb,

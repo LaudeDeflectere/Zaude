@@ -642,6 +642,10 @@ function registerAiHandlers() {
     masters: promptAdvancer.loadMasterPrompts(),
     path: promptAdvancer.DEFAULT_MASTER_PROMPTS_PATH,
   }));
+  ipcMain.handle('prompt:library', () => ({
+    ...promptAdvancer.loadShotLibrary(),
+    path: promptAdvancer.DEFAULT_SHOT_LIBRARY_PATH,
+  }));
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));
