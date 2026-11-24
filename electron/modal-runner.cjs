@@ -19,23 +19,106 @@ const MODAL_GPUS = {
     label: 'L40S (48 GB)',
     vramGb: 48,
     hourlyUsd: 1.95,
-    bestFor: 'Best value for 480p–640p, Wan 14B GGUF, LTX-2B, and fast RealESRGAN upscales',
+    bestFor: 'Fast & cheap 480p drafts, LTX-2B, and RealESRGAN 2× upscales',
   },
   'A100-80GB': {
     id: 'A100-80GB',
     label: 'A100 (80 GB)',
     vramGb: 80,
     hourlyUsd: 2.50,
-    bestFor: '720p long shots, multi-RefMod H3 renders, and heavy V2V / SeedVR2 refinement',
+    bestFor: 'Balanced 640p–720p renders',
   },
   H100: {
     id: 'H100',
     label: 'H100 (80 GB)',
     vramGb: 80,
     hourlyUsd: 3.95,
-    bestFor: 'Fastest final-pass 720p hero shots (BF16 + FP8 + SageAttention)',
+    bestFor: 'RTX 3090 baseline quality (Singularity v2 INT8) at ~7× speed',
+  },
+  H200: {
+    id: 'H200',
+    label: 'H200 (141 GB)',
+    vramGb: 141,
+    hourlyUsd: 4.54,
+    bestFor: 'Full unquantized BF16 Singularity v2 + Qwen3VL BF16 + Video VAE FP16',
   },
 };
+
+const MODAL_TIERS = {
+  fast: {
+    id: 'fast',
+    label: '⚡ Fast & Cheap',
+    gpu: 'L40S',
+    endpointSuffix: 'comfy-fast',
+    defaultRes: 480,
+    defaultSteps: 4,
+    defaultSeconds: 5,
+    secPerStep640: 5.5,
+    modelSummary: 'Singularity v2 INT8 (4-step) / LTX-2B',
+    description: 'Cheapest rapid drafts on L40S 48 GB (60s auto-sleep).',
+  },
+  balanced: {
+    id: 'balanced',
+    label: '⚖️ Balanced',
+    gpu: 'H100',
+    endpointSuffix: 'comfy-balanced',
+    defaultRes: 640,
+    defaultSteps: 6,
+    defaultSeconds: 7,
+    secPerStep640: 7.2,
+    modelSummary: 'Singularity v2 Pruned INT8 + Qwen3VL INT8',
+    description: 'Matches your RTX 3090 baseline quality (upgraded to v2) at ~7× speed.',
+  },
+  ultra: {
+    id: 'ultra',
+    label: '💎 High Quality',
+    gpu: 'H200',
+    endpointSuffix: 'comfy-ultra',
+    defaultRes: 720,
+    defaultSteps: 10,
+    defaultSeconds: 7,
+    secPerStep640: 11.5,
+    modelSummary: 'Singularity v2 FULL BF16 + Qwen3VL BF16 + VAE FP16',
+    description: 'Maximum fidelity & prompt adherence on H200 141 GB (zero quantization).',
+  },
+};
+
+function deriveTierEndpoint(baseUrl, tier = 'balanced') {
+  const clean = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!clean) return '';
+  const t = MODAL_TIERS[tier] || MODAL_TIERS.balanced;
+  return clean.replace(/comfy-(?:web|fast|balanced|ultra)(?=\.)/i, t.endpointSuffix);
+}
+
+// Per-generation time & credit cost estimate tailored to tier, resolution, seconds, and steps.
+function estimateModalCost({ tier = 'balanced', resolution, seconds, steps } = {}) {
+  const t = MODAL_TIERS[tier] || MODAL_TIERS.balanced;
+  const gpuInfo = MODAL_GPUS[t.gpu] || MODAL_GPUS.H100;
+  const res = Number(resolution) || t.defaultRes;
+  const secs = Math.max(1, Math.min(20, Number(seconds) || t.defaultSeconds));
+  const st = Math.max(1, Math.min(25, Number(steps) || t.defaultSteps));
+
+  const resScale = res <= 320 ? 0.38 : (res <= 480 ? 0.62 : (res <= 640 ? 1.0 : 1.38));
+  const lenScale = secs / 6.0;
+  const computeSec = Math.max(8, Math.round(st * t.secPerStep640 * resScale * lenScale + 6));
+  const estCostUsd = Math.round(((computeSec / 3600) * gpuInfo.hourlyUsd) * 1000) / 1000;
+
+  return {
+    ok: true,
+    tier: t.id,
+    tierLabel: t.label,
+    gpu: t.gpu,
+    gpuLabel: gpuInfo.label,
+    hourlyUsd: gpuInfo.hourlyUsd,
+    resolution: res,
+    seconds: secs,
+    steps: st,
+    estSec: computeSec,
+    estCostUsd,
+    modelSummary: t.modelSummary,
+    description: t.description,
+  };
+}
 
 function safeRun(cmd, args, timeoutMs = 4000) {
   try {
@@ -291,25 +374,144 @@ function deployModalServer({ gpu = 'L40S', scriptPath = DEFAULT_MODAL_SCRIPT, on
   };
 }
 
-// Runs a final-pass video generation job against the user's Modal ComfyUI HTTPS endpoint.
+// Pure ComfyUI graph builder for MiniMax-H3 Singularity (SatoDive EasyContextSegments + RefModContinuumBridge).
+function buildSingularityGraph({
+  prompt,
+  model,
+  clip,
+  videoVae,
+  audioVae = 'minimax_h3_audio_vae_fp32.safetensors',
+  lora = '',
+  refmods = [],
+  width = 1120,
+  height = 640,
+  aspect = '16:9',
+  resolution = 640,
+  seconds = 7,
+  steps = 6,
+  seed = 1001,
+  prefix = 'Zaude/modal_h3',
+}) {
+  const validMods = (refmods || []).filter((r) => r && r.file).slice(0, 8);
+  const fullPromptLines = [];
+  if (validMods.length && !/subject_definitions:/i.test(String(prompt || ''))) {
+    fullPromptLines.push('subject_definitions:');
+    validMods.forEach((r, i) => {
+      fullPromptLines.push(`<Subject ${i + 1}> is ${r.name || `Subject ${i + 1}`}, using the stable identity, face, hair and distinguishing features of <Subject ${i + 1}>'s reference.`);
+    });
+    fullPromptLines.push('');
+  }
+  fullPromptLines.push(String(prompt || '').trim());
+
+  const resTag = Number(resolution) >= 720 ? '720P' : (Number(resolution) >= 640 ? '640P' : (Number(resolution) >= 480 ? '480P' : '320P'));
+  const loaderInputs = { show_info: false };
+  for (let i = 1; i <= 8; i++) {
+    const r = validMods[i - 1];
+    loaderInputs[`mod_${i}`] = r ? r.file : '(none)';
+    loaderInputs[`strength_${i}`] = r ? (Number(r.identityStrength) || 1.0) : 1.0;
+    loaderInputs[`copies_${i}`] = 1;
+    loaderInputs[`audio_strength_${i}`] = r ? (Number(r.voiceStrength ?? 1.0)) : 0.0;
+  }
+
+  const graph = {
+    '1': { class_type: 'UNETLoader', inputs: { unet_name: model, weight_dtype: 'default' } },
+    '2': { class_type: 'CLIPLoader', inputs: { clip_name: clip, type: 'minimax', device: 'default' } },
+    '3': { class_type: 'VAELoader', inputs: { vae_name: videoVae } },
+    '4': { class_type: 'VAELoader', inputs: { vae_name: audioVae } },
+  };
+
+  let modelRef = ['1', 0];
+  if (lora) {
+    graph['5'] = { class_type: 'LoraLoaderModelOnly', inputs: { model: modelRef, lora_name: lora, strength_model: 1.0 } };
+    modelRef = ['5', 0];
+  }
+  if (validMods.length) {
+    graph['10'] = { class_type: 'MiniMaxH3RefModsLoader', inputs: loaderInputs };
+    graph['11'] = {
+      class_type: 'MiniMaxH3RefModContinuumBridge',
+      inputs: {
+        model: modelRef, mods: ['10', 0], enable: true, retention: 1.0,
+        curve_direction: 'constant', curve_shape: 'linear', curve_value: 1.0, scramble_seed: -1,
+      },
+    };
+    modelRef = ['11', 0];
+  }
+
+  graph['12'] = {
+    class_type: 'MiniMaxH3EasyModelAdapter_SatoDive',
+    inputs: { text_encoder: ['2', 0], video_vae: ['3', 0], audio_vae: ['4', 0], ref2va_model: modelRef },
+  };
+  graph['13'] = {
+    class_type: 'MiniMaxH3EasyContextSegments_SatoDive',
+    inputs: {
+      h3_bundle: ['12', 0],
+      mode: 'context_segments',
+      audio_mode: 'generated',
+      prompt: fullPromptLines.join('\n'),
+      resolution: resTag,
+      aspect_ratio: aspect === '9:16' ? '9:16' : '16:9',
+      custom_ratio: aspect === '9:16' ? '9:16' : '16:9',
+      width,
+      height,
+      seconds: Number(seconds) || 7.0,
+      segment_seconds: '',
+      context_length: 22,
+      continuity_mode: 'native_guide',
+      transition_seconds: 0.0,
+      advanced: false,
+      fps: 24.0,
+      keyframe_role: 'first',
+      ref_image_size: 'match',
+      reference_mention_mode: 'index',
+      prompt_optimizer_settings: false,
+      prompt_optimizer_scene_guide: 'none',
+      context_prompt_optimizer_mode: '1',
+      context_prompt_optimizer_concurrency: 1,
+      enable_detail_daemon: false,
+      detail_strength: 0.0,
+      ref_image_strength: 1.0,
+      ref_video_strength: 1.0,
+      ref_video1_strength: 1.0,
+      ref_video2_strength: 1.0,
+      ref_video3_strength: 1.0,
+      ref_video1_range: '',
+      ref_video2_range: '',
+      ref_video3_range: '',
+      seed_video_strength: 1.0,
+      seed_video_reserved_seconds: 1.0,
+    },
+  };
+  graph['15'] = { class_type: 'BasicScheduler', inputs: { model: ['13', 0], scheduler: 'simple', steps: Math.max(1, Math.round(Number(steps) || 6)), denoise: 1.0 } };
+  graph['16'] = { class_type: 'KSamplerSelect', inputs: { sampler_name: 'res_multistep' } };
+  graph['17'] = {
+    class_type: 'MiniMaxH3EasySegmentRender_SatoDive',
+    inputs: { h3_context: ['13', 1], model: ['13', 0], sampler: ['16', 0], sigmas: ['15', 0], seed: Math.abs(Math.round(Number(seed) || 1001)), segment_seeds: 'default' },
+  };
+  graph['18'] = { class_type: 'MiniMaxH3EasySegmentDecode_SatoDive', inputs: { segments: ['17', 0] } };
+  graph['22'] = { class_type: 'SaveVideo', inputs: { video: ['18', 0], filename_prefix: prefix, format: 'mp4', codec: 'h264' } };
+  return graph;
+}
+
+// Runs a video generation job against the user's Modal ComfyUI HTTPS endpoint using the chosen quality tier.
 function runModalVideo({
   endpointUrl = '',
+  tier = 'balanced',
   token = '',
   prompt = '',
   firstFrame = '',
   lastFrame = '',
   refmods = [],
   seconds = 7,
-  resolution = 720,
+  resolution = 640,
   aspect = '16:9',
-  steps = 8,
+  steps = 6,
   seed = 1001,
   outDir,
   previewDir = '',
   jobId = 'modal',
   onEvent = () => {},
 }) {
-  const base = String(endpointUrl || '').trim().replace(/\/+$/, '');
+  const base = deriveTierEndpoint(endpointUrl, tier);
   if (!base) {
     return {
       promise: Promise.resolve({ ok: false, error: 'Modal endpoint URL is not set. Click "🚀 Deploy to Modal" or paste your https://...modal.run URL.' }),
@@ -404,8 +606,22 @@ function runModalVideo({
       }
       if (cancelled) return { ok: false, cancelled: true, error: 'Cancelled' };
 
-      // Auto-pick best installed video model on the Modal Volume (MiniMax-H3 > Wan T2V > LTX-Video)
-      const h3Model = (unets || []).find((u) => /minimax|h3/i.test(u));
+      // Tier-aware model selection:
+      // - ultra:    Singularity v2 FULL BF16 + Qwen3VL BF16 + Video VAE FP16
+      // - balanced: Singularity v2 Pruned INT8 + Qwen3VL INT8 + Video VAE INT8 (matches 3090 baseline!)
+      // - fast:     Singularity v2 Pruned INT8 (4-step) or LTX-Video 2B
+      const pickUnet = () => {
+        if (tier === 'ultra') {
+          return unets.find((u) => /singularity.*v2.*bf16/i.test(u))
+            || unets.find((u) => /singularity.*bf16/i.test(u))
+            || unets.find((u) => /singularity.*v2/i.test(u))
+            || unets.find((u) => /minimax|h3/i.test(u));
+        }
+        return unets.find((u) => /singularity.*v2.*pruned.*int8/i.test(u))
+          || unets.find((u) => /singularity.*int8/i.test(u))
+          || unets.find((u) => /minimax|h3/i.test(u));
+      };
+      const h3Model = pickUnet();
       const wanT2vModel = (unets || []).find((u) => /wan/i.test(u) && /t2v/i.test(u));
       const ltxModel = (unets || []).find((u) => /ltx/i.test(u));
       let graph;
@@ -414,6 +630,12 @@ function runModalVideo({
       if (h3Model) {
         const { width, height } = frameToFrame.dimsForQuality(resolution, aspect);
         const frames = frameToFrame.snapH3Frames(seconds, 24);
+        const h3Clip = tier === 'ultra'
+          ? (clips.find((c) => /qwen3vl.*bf16/i.test(c)) || clips.find((c) => /qwen3vl/i.test(c)) || 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors')
+          : (clips.find((c) => /qwen3vl.*int8/i.test(c)) || clips.find((c) => /qwen3vl/i.test(c)) || 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors');
+        const h3VideoVae = tier === 'ultra'
+          ? (vaes.find((v) => /video_vae_fp16/i.test(v)) || vaes.find((v) => /video_vae/i.test(v)) || 'minimax_h3_video_vae_int8_convrot.safetensors')
+          : (vaes.find((v) => /video_vae_int8/i.test(v)) || vaes.find((v) => /video_vae/i.test(v)) || 'minimax_h3_video_vae_int8_convrot.safetensors');
         const h3Lora = (loras || []).find((l) => /minimax.*h3.*turbo/i.test(l)) || '';
         const resolveModFile = (rawFile) => {
           const norm = String(rawFile || '').replace(/\\/g, '/').replace(/\.safetensors$/i, '');
@@ -429,12 +651,21 @@ function runModalVideo({
         const resolvedRefmods = (refmods || [])
           .filter((r) => r && r.file)
           .map((r) => ({ ...r, file: resolveModFile(r.file) }));
-        graph = frameToFrame.buildFl2vGraph({
-          prompt, firstFrameName, lastFrameName, width, height, frames, steps: steps || 6, seed,
-          model: h3Model, lora: h3Lora, refmods: resolvedRefmods,
-          prefix: `Zaude/modal_h3_${Date.now()}`,
-        });
-        modelLabel = 'Modal MiniMax-H3';
+        if (firstFrameName || lastFrameName) {
+          graph = frameToFrame.buildFl2vGraph({
+            prompt, firstFrameName, lastFrameName, width, height, frames, steps: steps || 6, seed,
+            model: h3Model, lora: h3Lora, refmods: resolvedRefmods,
+            prefix: `Zaude/modal_${tier}_${Date.now()}`,
+          });
+        } else {
+          graph = buildSingularityGraph({
+            prompt, model: h3Model, clip: h3Clip, videoVae: h3VideoVae, lora: h3Lora,
+            refmods: resolvedRefmods, width, height, aspect, resolution, seconds, steps: steps || 6, seed,
+            prefix: `Zaude/modal_${tier}_${Date.now()}`,
+          });
+        }
+        const tMeta = MODAL_TIERS[tier] || MODAL_TIERS.balanced;
+        modelLabel = `Modal ${tMeta.label} (${h3Model.includes('bf16') ? 'Singularity v2 BF16' : 'Singularity v2 INT8'})`;
       } else if (wanT2vModel && !firstFrameName && !lastFrameName) {
         const { width, height } = localRunner.dimsForLocal(resolution, aspect, 16);
         const frames = localRunner.snapWanFrames(seconds, 16);
@@ -626,6 +857,10 @@ async function stopAllModal({ endpointUrl = '', token = '' } = {}) {
 module.exports = {
   DEFAULT_MODAL_SCRIPT,
   MODAL_GPUS,
+  MODAL_TIERS,
+  deriveTierEndpoint,
+  estimateModalCost,
+  buildSingularityGraph,
   recommendModalPlan,
   askAiForModalPlan,
   checkModalStatus,

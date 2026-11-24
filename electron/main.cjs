@@ -432,15 +432,16 @@ function registerAiHandlers() {
     } else if (useModal) {
       job = modalRunner.runModalVideo({
         endpointUrl: input.modalEndpoint || settings.modalEndpoint || '',
+        tier: input.modalTier || 'balanced',
         token: input.modalToken || settings.modalToken || '',
         prompt: input.prompt || input.objectPrompt || '',
         firstFrame: input.firstFrame || '',
         lastFrame: input.lastFrame || '',
         refmods: input.refmods || [],
         seconds: input.seconds || 7,
-        resolution: input.resolution || 720,
+        resolution: input.resolution || 640,
         aspect: input.aspect || '16:9',
-        steps: input.steps || 8,
+        steps: input.steps || 6,
         seed: input.seed || 1001,
         outDir: settings.outDir,
         previewDir: previewRoot(),
@@ -707,6 +708,8 @@ function registerAiHandlers() {
     const { promise } = modalRunner.askAiForModalPlan({ request, provider });
     return promise;
   });
+
+  ipcMain.handle('modal:estimate', (_e, opts = {}) => modalRunner.estimateModalCost(opts));
 
   ipcMain.handle('modal:deploy', (event, { gpu = 'L40S' } = {}) => {
     if (activeModalDeploy) return { ok: false, error: 'A Modal deploy is already running.' };

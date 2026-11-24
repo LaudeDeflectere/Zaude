@@ -1,20 +1,21 @@
 """
-Serverless ComfyUI GPU backend for Zaude on Modal.com.
-Supports L40S (48 GB), A100-80GB, and H100 (80 GB) with persistent model storage,
---preview-method auto (live step-by-step WebSocket previews), and scale-to-zero ($0 idle).
+3-Tier Serverless ComfyUI GPU Backend for Zaude on Modal.com.
+Credit-optimized (scaledown_window=60s -> $0/hr idle) with three independent GPU tiers sharing
+one persistent model volume (`zaude-comfy-models`):
 
-Quick start:
-  1. pip install modal && modal setup
-  2. MODAL_GPU=L40S modal deploy modal/comfy_server.py
-  3. (Optional) Download open video models directly onto the Modal Volume:
-     modal run modal/comfy_server.py::download_open_models
-  4. Paste the printed https://...modal.run URL into Zaude -> AI Studio -> Modal Cloud Final.
+  - comfy_fast     (L40S 48 GB,  ~$1.95/hr): Fast & Cheap drafts (Singularity v2 pruned INT8 4-step / LTX-2B)
+  - comfy_balanced (H100 80 GB,  ~$3.95/hr): RTX 3090 baseline quality at ~7x speed (Singularity v2 pruned INT8 6-step)
+  - comfy_ultra    (H200 141 GB, ~$4.54/hr): Maximum quality & prompt adherence (Singularity v2 FULL BF16 + Qwen3VL BF16 + VAE FP16)
+
+Deploy all 3 tiers at once:
+  modal deploy modal/comfy_server.py
+Download Singularity v2 tiers (Balanced + Ultra BF16) onto the volume:
+  modal run modal/comfy_server.py::download_singularity_tiers
 """
 import os
 import subprocess
 import modal
 
-GPU_TYPE = os.environ.get("MODAL_GPU", "H100")  # L40S | A100-80GB | H100
 APP_NAME = os.environ.get("MODAL_APP_NAME", "zaude-comfy")
 VOLUME_NAME = os.environ.get("MODAL_VOLUME_NAME", "zaude-comfy-models")
 
@@ -51,93 +52,84 @@ comfy_image = (
 )
 
 
-@app.function(
-    image=comfy_image,
-    gpu=GPU_TYPE,
-    volumes={"/root/ComfyUI/models": models_vol},
-    scaledown_window=180,
-    timeout=1800,
-)
+def _launch_comfy():
+    for sub in ("unet", "diffusion_models", "vae", "clip", "text_encoders", "loras", "upscale_models", "checkpoints", "refmods"):
+        os.makedirs(f"/root/ComfyUI/models/{sub}", exist_ok=True)
+    subprocess.Popen(
+        ["python3", "/root/ComfyUI/main.py", "--listen", "0.0.0.0", "--port", "8188", "--preview-method", "auto"],
+        cwd="/root/ComfyUI",
+    )
+
+
+# Tier 1: Fast & Cheap (L40S 48 GB, 60s idle scale-to-zero)
+@app.function(image=comfy_image, gpu="L40S", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+@modal.concurrent(max_inputs=8)
+@modal.web_server(8188, startup_timeout=180)
+def comfy_fast():
+    _launch_comfy()
+
+
+# Tier 2: Balanced — RTX 3090 Baseline Quality at ~7x Speed (H100 80 GB, 60s idle scale-to-zero)
+@app.function(image=comfy_image, gpu="H100", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+@modal.concurrent(max_inputs=8)
+@modal.web_server(8188, startup_timeout=180)
+def comfy_balanced():
+    _launch_comfy()
+
+
+# Tier 3: High Quality Ultra — Full Unquantized BF16 Singularity v2 + Qwen3VL BF16 + VAE FP16 (H200 141 GB, 60s idle scale-to-zero)
+@app.function(image=comfy_image, gpu="H200", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+@modal.concurrent(max_inputs=4)
+@modal.web_server(8188, startup_timeout=180)
+def comfy_ultra():
+    _launch_comfy()
+
+
+# Backwards-compatible default alias (Balanced H100)
+@app.function(image=comfy_image, gpu="H100", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
 @modal.concurrent(max_inputs=8)
 @modal.web_server(8188, startup_timeout=180)
 def comfy_web():
-    """Starts ComfyUI on port 8188 with live step previews enabled."""
-    for sub in ("unet", "diffusion_models", "vae", "clip", "text_encoders", "loras", "upscale_models", "checkpoints", "refmods"):
-        os.makedirs(f"/root/ComfyUI/models/{sub}", exist_ok=True)
-    cmd = [
-        "python3",
-        "/root/ComfyUI/main.py",
-        "--listen", "0.0.0.0",
-        "--port", "8188",
-        "--preview-method", "auto",
-    ]
-    subprocess.Popen(cmd, cwd="/root/ComfyUI")
+    _launch_comfy()
 
 
-@app.function(
-    image=comfy_image,
-    volumes={"/root/ComfyUI/models": models_vol},
-    timeout=1800,
-)
-def download_open_models():
-    """Downloads fast open final-pass models (LTX 0.9.8, Wan 2.1 14B FLF2V, RealESRGAN 2x) onto the Modal Volume."""
-    downloads = [
-        (
-            "https://huggingface.co/calcuis/ltxv-gguf/resolve/main/ltxv-2b-0.9.8-distilled-q4_k_m.gguf",
-            "/root/ComfyUI/models/unet/ltxv-2b-0.9.8-distilled-q4_k_m.gguf",
-        ),
-        (
-            "https://huggingface.co/calcuis/ltxv-gguf/resolve/main/ltxv_0.9.5_vae_fp16.safetensors",
-            "/root/ComfyUI/models/vae/ltxv_0.9.5_vae_fp16.safetensors",
-        ),
-        (
-            "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-Q4_K_M.gguf",
-            "/root/ComfyUI/models/clip/t5-v1_1-xxl-encoder-Q4_K_M.gguf",
-        ),
-        (
-            "https://huggingface.co/city96/Wan2.1-FLF2V-14B-720P-gguf/resolve/main/wan2.1-flf2v-14b-720p-Q4_K_S.gguf",
-            "/root/ComfyUI/models/unet/wan2.1-flf2v-14b-720p-Q4_K_S.gguf",
-        ),
-        (
-            "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
-            "/root/ComfyUI/models/vae/wan_2.1_vae.safetensors",
-        ),
-        (
-            "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
-            "/root/ComfyUI/models/clip/umt5-xxl-encoder-Q4_K_M.gguf",
-        ),
-        (
-            "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
-            "/root/ComfyUI/models/loras/lightx2v_I2V_14B_480p_rank64_bf16.safetensors",
-        ),
-        (
-            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
-            "/root/ComfyUI/models/upscale_models/RealESRGAN_x2plus.pth",
-        ),
-    ]
+def _download_list(downloads):
     for url, dest in downloads:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest) and os.path.getsize(dest) > 1024:
-            print(f"[skip] {dest} already exists")
+        if os.path.exists(dest) and os.path.getsize(dest) > 1024 * 1024:
+            print(f"[skip] {dest} ({os.path.getsize(dest) / 1e9:.2f} GB) already exists")
             continue
         print(f"[download] {url} -> {dest}")
-        subprocess.run(["curl", "-L", "-C", "-", "--fail", "-o", dest, url], check=True)
+        subprocess.run(
+            ["curl", "-L", "-C", "-", "--retry", "5", "--retry-all-errors", "--fail", "-o", dest, url],
+            check=True,
+        )
     models_vol.commit()
-    print("All open models downloaded and committed to Modal Volume.")
 
 
-@app.function(
-    image=comfy_image,
-    volumes={"/root/ComfyUI/models": models_vol},
-    timeout=3600,
-)
-def download_minimax_h3():
-    """Downloads MiniMax-H3 Ref2VA (FP8 scaled) + Qwen3VL-32B + VAEs + 4-step Turbo LoRA onto Modal Volume."""
-    downloads = [
+@app.function(image=comfy_image, volumes={"/root/ComfyUI/models": models_vol}, timeout=3600)
+def download_singularity_tiers():
+    """Downloads Singularity v2 Balanced (pruned INT8) + Ultra (full BF16 + Qwen3VL BF16 + VAE FP16)."""
+    _download_list([
+        # Balanced (RTX 3090 baseline upgraded to Singularity v2 pruned INT8)
         (
-            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
-            "/root/ComfyUI/models/diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors",
+            "https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/resolve/main/Minimax-h3_Singularity_ref2va_v2_pruned_int8.safetensors",
+            "/root/ComfyUI/models/diffusion_models/Minimax-h3_Singularity_ref2va_v2_pruned_int8.safetensors",
         ),
+        # Ultra (Full unpruned, unquantized Singularity v2 BF16 + Full BF16 Qwen3VL + Full FP16 Video VAE)
+        (
+            "https://huggingface.co/WarmBloodAban/Minimax-h3_Singularity/resolve/main/Minimax-h3_Singularity_ref2va_v2_bf16.safetensors",
+            "/root/ComfyUI/models/diffusion_models/Minimax-h3_Singularity_ref2va_v2_bf16.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+            "/root/ComfyUI/models/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+        ),
+        (
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+            "/root/ComfyUI/models/vae/minimax_h3_video_vae_fp16.safetensors",
+        ),
+        # Ensure base INT8 encoder + VAEs + Turbo LoRA are present too
         (
             "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
             "/root/ComfyUI/models/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
@@ -154,13 +146,5 @@ def download_minimax_h3():
             "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
             "/root/ComfyUI/models/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
         ),
-    ]
-    for url, dest in downloads:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest) and os.path.getsize(dest) > 1024 * 1024:
-            print(f"[skip] {dest} already exists")
-            continue
-        print(f"[download] {url} -> {dest}")
-        subprocess.run(["curl", "-L", "-C", "-", "--fail", "-o", dest, url], check=True)
-    models_vol.commit()
-    print("MiniMax-H3 Ref2VA suite downloaded and committed to Modal Volume.")
+    ])
+    print("All Singularity v2 Balanced + Ultra BF16 models committed to Modal Volume.")

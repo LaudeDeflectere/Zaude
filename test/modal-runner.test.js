@@ -40,4 +40,32 @@ test('modalRunner picks optimal Modal GPU and final-pass settings per shot compl
   });
   assert.equal(fl2vPlan.gpu, 'A100-80GB');
   assert.equal(fl2vPlan.resolution, 720);
+
+  // 3-tier per-generation cost estimation scales fast < balanced < ultra
+  const cFast = mr.estimateModalCost({ tier: 'fast' });
+  const cBal = mr.estimateModalCost({ tier: 'balanced' });
+  const cUltra = mr.estimateModalCost({ tier: 'ultra' });
+  assert.equal(cFast.gpu, 'L40S');
+  assert.equal(cBal.gpu, 'H100');
+  assert.equal(cUltra.gpu, 'H200');
+  assert.ok(cFast.estCostUsd < cBal.estCostUsd);
+  assert.ok(cBal.estCostUsd < cUltra.estCostUsd);
+
+  // Tier endpoint derivation maps cleanly between fast / balanced / ultra
+  assert.equal(
+    mr.deriveTierEndpoint('https://trankilena--zaude-comfy-comfy-web.us-east.modal.run', 'ultra'),
+    'https://trankilena--zaude-comfy-comfy-ultra.us-east.modal.run',
+  );
+
+  // Singularity RefMod graph wires SatoDive EasyContextSegments + RefModContinuumBridge
+  const sg = mr.buildSingularityGraph({
+    prompt: 'Elias walks into the living room',
+    model: 'Minimax-h3_Singularity_ref2va_v2_bf16.safetensors',
+    clip: 'qwen3vl_32b_minimax_h3_bf16.safetensors',
+    videoVae: 'minimax_h3_video_vae_fp16.safetensors',
+    refmods: [{ file: 'mannimmate_2d_v1/elias_varga_2d_v2', name: 'Elias' }],
+  });
+  assert.equal(sg['10'].class_type, 'MiniMaxH3RefModsLoader');
+  assert.equal(sg['11'].class_type, 'MiniMaxH3RefModContinuumBridge');
+  assert.equal(sg['13'].class_type, 'MiniMaxH3EasyContextSegments_SatoDive');
 });

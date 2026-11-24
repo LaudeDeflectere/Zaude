@@ -11,6 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', 
 
 let currentMode = 'text-render';
 let currentBackend = 'remote'; // 'remote' (Tranklena) | 'local' (Rizzar) | 'modal' (Modal Cloud Final)
+let currentModalTier = 'balanced'; // 'fast' | 'balanced' | 'ultra'
 let localSetup = null;
 let modalStatus = null;
 let lastModalPlan = null;
@@ -271,7 +272,7 @@ function collectRequest() {
     backend: currentBackend,
     localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
     modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
-    modalGpu: ($('ai-modal-gpu') && $('ai-modal-gpu').value) || 'auto',
+    modalTier: currentModalTier,
     mode: currentMode,
     mannimmateDir: String(fd.get('mannimmateDir') || '').trim(),
     prompt: String(fd.get('prompt') || '').trim(),
@@ -313,17 +314,17 @@ function collectRequest() {
 function updateCommandPreview() {
   const req = collectRequest();
   if (req.backend === 'modal') {
-    const gpuTxt = req.modalGpu === 'auto'
-      ? (lastModalPlan ? `AI Pick: ${lastModalPlan.gpuLabel}` : 'Auto GPU')
-      : req.modalGpu;
+    const tierNames = { fast: '⚡ Fast & Cheap (L40S)', balanced: '⚖️ Balanced (H100)', ultra: '💎 High Quality (H200 BF16)' };
+    const tLabel = tierNames[currentModalTier] || '⚖️ Balanced (H100)';
     const badge = $('ai-route-badge');
     if (badge) {
-      badge.textContent = `Route: ☁️ Modal Cloud Final · ${gpuTxt} · ${req.resolution}p · ${req.steps || 8} steps${req.modalEndpoint ? ' · Endpoint ready' : ' · Click 🚀 Deploy or paste URL'}`;
+      badge.textContent = `Route: ☁️ Modal · ${tLabel} · ${req.resolution}p · ${req.steps || 6} steps${req.modalEndpoint ? '' : ' · Click 🚀 Deploy or paste URL'}`;
     }
     const el = $('ai-cmd-preview');
     if (el) {
-      el.textContent = `Modal ComfyUI (${gpuTxt}) ${req.modalEndpoint || '<modal-endpoint>'} --res ${req.resolution}p --seconds ${req.seconds} --steps ${req.steps || 8}`;
+      el.textContent = `Modal ComfyUI (${tLabel}) --res ${req.resolution}p --seconds ${req.seconds} --steps ${req.steps || 6}`;
     }
+    updateModalEstimate();
     return;
   }
   if (req.backend === 'local') {
@@ -431,18 +432,67 @@ async function refreshModalInfo() {
   if (currentBackend === 'modal') updateCommandPreview();
 }
 
+async function updateModalEstimate() {
+  if (!modalApi || !modalApi.estimate || currentBackend !== 'modal') return;
+  const form = $('t2v-form');
+  const resolution = form && form.elements.resolution ? Number(form.elements.resolution.value) : 640;
+  const seconds = form && form.elements.seconds ? Number(form.elements.seconds.value) : 7;
+  const steps = form && form.elements.steps ? Number(form.elements.steps.value) : 6;
+  const est = await modalApi.estimate({ tier: currentModalTier, resolution, seconds, steps });
+  if (!est || !est.ok) return;
+  const pill = $('ai-modal-cost-pill');
+  const planEl = $('ai-modal-plan');
+  if (pill) {
+    pill.textContent = `💰 Est. ~$${est.estCostUsd.toFixed(3)} · ~${est.estSec}s`;
+    pill.title = `${est.tierLabel} on ${est.gpuLabel} ($${est.hourlyUsd.toFixed(2)}/hr) · ${est.modelSummary}`;
+  }
+  if (planEl) {
+    planEl.textContent = `${est.tierLabel}: ${est.gpuLabel} · ${est.modelSummary} · ${est.description}`;
+  }
+}
+
+function setModalTier(tier) {
+  currentModalTier = ['fast', 'balanced', 'ultra'].includes(tier) ? tier : 'balanced';
+  document.querySelectorAll('[data-modal-tier]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.modalTier === currentModalTier);
+  });
+  const form = $('t2v-form');
+  if (form) {
+    if (currentModalTier === 'fast') {
+      form.elements.resolution.value = '480';
+      form.elements.steps.value = '4';
+      form.elements.seconds.value = '5';
+    } else if (currentModalTier === 'balanced') {
+      form.elements.resolution.value = '640';
+      form.elements.steps.value = '6';
+      form.elements.seconds.value = '7';
+    } else if (currentModalTier === 'ultra') {
+      form.elements.resolution.value = '720';
+      form.elements.steps.value = '10';
+      form.elements.seconds.value = '7';
+    }
+  }
+  updateCommandPreview();
+}
+
 async function applyModalPlan(useAi = false) {
   if (!modalApi || !modalApi.plan) return;
   const planEl = $('ai-modal-plan');
   const form = $('t2v-form');
-  if (useAi && planEl) planEl.textContent = '🤖 Asking connected AI to pick the optimal Modal GPU & final-pass settings…';
+  if (useAi && planEl) planEl.textContent = '🤖 Asking connected AI to pick the optimal Modal tier & settings…';
   const req = collectRequest();
   const plan = await modalApi.plan({ request: req, useAi });
   if (!plan || !plan.ok) return;
   lastModalPlan = plan;
+  const mappedTier = plan.gpu === 'H200' || Number(plan.resolution) >= 720 ? 'ultra'
+    : (plan.gpu === 'L40S' && Number(plan.resolution) <= 480 ? 'fast' : 'balanced');
+  currentModalTier = mappedTier;
+  document.querySelectorAll('[data-modal-tier]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.modalTier === currentModalTier);
+  });
   if (form) {
-    if (form.elements.resolution) form.elements.resolution.value = String(plan.resolution || 720);
-    if (form.elements.steps) form.elements.steps.value = String(plan.steps || 8);
+    if (form.elements.resolution) form.elements.resolution.value = String(plan.resolution || 640);
+    if (form.elements.steps) form.elements.steps.value = String(plan.steps || 6);
   }
   if (planEl) {
     const srcTag = plan.source && plan.source !== 'heuristic' ? `AI (${plan.source})` : 'Auto';
@@ -928,6 +978,13 @@ function init() {
     const backendBtn = e.target.closest('[data-ai-backend]');
     if (backendBtn) {
       setBackend(backendBtn.dataset.aiBackend);
+      return;
+    }
+
+    // 1-click Modal Quality Tier toggle (Fast & Cheap | Balanced | High Quality)
+    const tierBtn = e.target.closest('[data-modal-tier]');
+    if (tierBtn) {
+      setModalTier(tierBtn.dataset.modalTier);
       return;
     }
 

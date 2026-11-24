@@ -63,18 +63,20 @@
 
     <div class="ai-modal-bar" id="ai-modal-bar" hidden>
       <div class="ai-modal-row">
-        <select id="ai-modal-gpu" title="Modal GPU tier (Auto lets Zaude's AI pick the optimal GPU for your shot)">
-          <option value="auto" selected>🤖 Auto GPU (AI Pick)</option>
-          <option value="L40S">L40S · 48 GB (~$1.95/hr)</option>
-          <option value="A100-80GB">A100 · 80 GB (~$2.50/hr)</option>
-          <option value="H100">H100 · 80 GB (~$3.95/hr)</option>
-        </select>
-        <button type="button" class="ai-btn-purple" id="ai-modal-ai-pick" title="Ask Zaude's connected AI to pick the optimal Modal GPU, resolution, and steps for this final pass">🤖 AI Pick GPU &amp; Settings</button>
-        <input type="url" id="ai-modal-url" placeholder="https://<workspace>--zaude-comfy-comfy-web.modal.run" autocomplete="off">
-        <button type="button" id="ai-modal-deploy" title="Deploy modal/comfy_server.py to Modal with the selected GPU">🚀 Deploy</button>
+        <div class="ai-tier-switch" role="group" aria-label="Modal Quality Tier">
+          <button type="button" data-modal-tier="fast" title="L40S 48 GB · 480p · 4 steps · ~$0.01–$0.02/clip (60s auto-sleep)">⚡ Fast &amp; Cheap</button>
+          <button type="button" class="on" data-modal-tier="balanced" title="H100 80 GB · 640p · 6 steps · Singularity v2 INT8 (RTX 3090 baseline at 7× speed) · ~$0.05/clip">⚖️ Balanced</button>
+          <button type="button" data-modal-tier="ultra" title="H200 141 GB · 720p · 10 steps · Singularity v2 FULL BF16 + Qwen3VL BF16 + VAE FP16 · ~$0.16/clip">💎 High Quality</button>
+        </div>
+        <span class="ai-modal-cost-pill" id="ai-modal-cost-pill" title="Estimated Modal credit cost for this single generation">💰 Est. ~$0.05 · ~48s</span>
+        <button type="button" class="ai-btn-purple" id="ai-modal-ai-pick" title="Ask Zaude's connected AI to pick the optimal Modal tier &amp; settings for this shot">🤖 AI Pick</button>
+      </div>
+      <div class="ai-modal-row">
+        <input type="url" id="ai-modal-url" placeholder="https://<workspace>--zaude-comfy-comfy-balanced.us-east.modal.run" autocomplete="off">
+        <button type="button" id="ai-modal-deploy" title="Deploy all 3 Modal tiers (Fast L40S / Balanced H100 / Ultra H200)">🚀 Deploy</button>
         <button type="button" class="modal-stop-btn" id="ai-modal-stop-all" title="Cancel all Modal jobs &amp; stop all running Modal containers">⏹ Stop All</button>
       </div>
-      <div class="ai-modal-plan muted" id="ai-modal-plan">Draft on Rizzar/Tranklena → switch here for 720p Modal final pass ($0 when idle).</div>
+      <div class="ai-modal-plan muted" id="ai-modal-plan">⚖️ Balanced: H100 (80 GB) · Singularity v2 Pruned INT8 · 60s auto-sleep ($0 idle).</div>
     </div>
 
     <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">

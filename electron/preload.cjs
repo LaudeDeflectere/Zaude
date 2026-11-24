@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('zaudeModal', {
   stopAll: () => ipcRenderer.invoke('modal:stopAll'),
   saveConfig: (input) => ipcRenderer.invoke('modal:saveConfig', input),
   plan: (input) => ipcRenderer.invoke('modal:plan', input),
+  estimate: (input) => ipcRenderer.invoke('modal:estimate', input),
   deploy: (input) => ipcRenderer.invoke('modal:deploy', input),
   onEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
