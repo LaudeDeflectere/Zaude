@@ -136,14 +136,16 @@ function tokenize(text) {
     .filter((w) => w.length >= 3);
 }
 
-function findRelevantExamples(examples, { draft = '', mode = '', limit = 4 } = {}) {
+function findRelevantExamples(examples, { draft = '', mode = '', refmodCount = 0, limit = 4 } = {}) {
   const list = Array.isArray(examples) ? examples : [];
   const tokens = new Set(tokenize(draft));
   const normMode = String(mode || '').toLowerCase();
+  const targetChars = Number(refmodCount) || 0;
 
   const scored = list.map((ex) => {
     let score = 0;
     if (normMode && String(ex.mode || '').toLowerCase() === normMode) score += 6;
+    if (targetChars > 0 && Number(ex.characterSlots) === targetChars) score += 8;
     const exTokens = new Set([
       ...tokenize(ex.title),
       ...tokenize(ex.originalDraft),
@@ -263,9 +265,13 @@ function renderShotTemplate(template, refmods = []) {
     : [];
   const char1 = list[0] || 'the character';
   const char2 = list[1] || 'the second character';
+  const char3 = list[2] || 'the third character';
+  const char4 = list[3] || 'the fourth character';
   return String(template || '')
     .replace(/\{\{\s*CHARACTER\s*\}\}/g, char1)
-    .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, char2);
+    .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, char2)
+    .replace(/\{\{\s*CHARACTER_3\s*\}\}/g, char3)
+    .replace(/\{\{\s*CHARACTER_4\s*\}\}/g, char4);
 }
 
 function shotsAsExamples(shots = []) {
@@ -273,6 +279,7 @@ function shotsAsExamples(shots = []) {
     id: s.id,
     title: s.title,
     mode: s.mode || 'refmod',
+    characterSlots: Number(s.characterSlots) || 0,
     originalDraft: s.whatItDoes || s.title,
     enhancedPrompt: s.template || '',
     notes: s.whyItWorks || '',
@@ -417,7 +424,8 @@ function advancePrompt({
   const userExamples = dbFilePath ? loadPromptDb(dbFilePath) : STARTER_EXAMPLES;
   const lib = loadShotLibrary();
   const combinedExamples = [...userExamples, ...shotsAsExamples(lib.shots)];
-  const relevantExamples = findRelevantExamples(combinedExamples, { draft, mode, limit: 4 });
+  const refmodCount = Array.isArray(context && context.refmods) ? context.refmods.length : 0;
+  const relevantExamples = findRelevantExamples(combinedExamples, { draft, mode, refmodCount, limit: 4 });
   const allMasters = loadMasterPrompts(mastersFilePath);
   const idSet = new Set(Array.isArray(masterIds) ? masterIds : []);
   const selectedMasters = allMasters.filter((m) => idSet.has(m.id));

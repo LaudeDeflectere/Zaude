@@ -1382,10 +1382,35 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   flex-wrap: wrap;
   gap: 6px;
 }
-.pa-lib-cats {
+.pa-lib-cats,
+.pa-lib-casts {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+.pa-lib-cast {
+  border-color: rgba(168, 85, 247, 0.35);
+}
+.ai-bg-refmod-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 210px;
+  flex: 1;
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid #2f2a47;
+  background: #141122;
+}
+.ai-bg-refmod-box[hidden] { display: none; }
+.ai-bg-refmod-box select {
+  padding: 4px 7px;
+  border-radius: 5px;
+  border: 1px solid #35304d;
+  background: #0b0a12;
+  color: #ececf4;
+  font-size: 11px;
 }
 .pa-lib-cat {
   padding: 2px 7px;

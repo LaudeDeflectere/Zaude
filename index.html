@@ -201,6 +201,22 @@
           <input type="hidden" name="ref">
         </div>
 
+        <div class="ai-square-slot" data-modes="text-render,refmod,auto" data-slot="backgroundImage" data-pick-file="image" data-pick-target="backgroundImage" title="Consistent Background Picture (photo or 3D room render — locks exact set/room via --background / <Picture 1>)">
+          <div class="ai-square-box" id="ai-preview-backgroundImage">
+            <span class="ai-square-empty">🌆<br>BG Picture</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="backgroundImage" hidden title="Clear">×</button>
+          <input type="hidden" name="backgroundImage">
+        </div>
+
+        <label class="ai-bg-refmod-box" data-modes="refmod,auto" title="Lock a separate Location/Style RefMod as your multi-angle background set (attached visual-only, voice=0)">
+          <span>🧬 Background / Set RefMod <span class="muted">(multi-angle lock)</span></span>
+          <select name="backgroundRefmod" id="ai-bg-refmod">
+            <option value="">— None (prompt / picture only) —</option>
+          </select>
+          <span class="muted" style="font-size:10px">Tip: Use <strong>BG Picture</strong> for an exact room / 3D render still, or a <strong>Set RefMod</strong> for recurring multi-angle locations.</span>
+        </label>
+
         <div class="ai-square-slot" data-modes="coverage" data-slot="image" data-pick-file="image" data-pick-target="image" title="Click to choose scene reference image">
           <div class="ai-square-box" id="ai-preview-image">
             <span class="ai-square-empty">🖼️<br>Scene Image</span>
@@ -256,7 +272,8 @@
         </div>
         <div class="pa-lib-wrap" id="pa-lib-wrap">
           <div class="pa-lib-head">
-            <div class="pa-subhead" style="margin:0">🎬 Shot Library <span class="muted" id="pa-lib-count">(20 character-swappable templates · click Use to cast your selected RefMod)</span></div>
+            <div class="pa-subhead" style="margin:0">🎬 Shot Library <span class="muted" id="pa-lib-count">(30 character-swappable templates · adapts to your selected RefMod count)</span></div>
+            <div class="pa-lib-casts" id="pa-lib-casts"></div>
             <div class="pa-lib-cats" id="pa-lib-cats"></div>
           </div>
           <div class="pa-lib-grid" id="pa-lib-grid"></div>

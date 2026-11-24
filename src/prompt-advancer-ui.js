@@ -60,6 +60,7 @@ function initPromptAdvancerUi() {
   let mastersCache = [];
   let libraryCache = { shots: [], stylizePresets: [], backgroundRecipes: [], playbook: [] };
   let activeLibCat = 'All';
+  let activeLibCast = 'auto'; // 'auto' | 'all' | '1' | '2' | '3' | '0'
   const selectedMasters = new Set();
   let busy = false;
 
@@ -70,9 +71,13 @@ function initPromptAdvancerUi() {
     const refs = (context && Array.isArray(context.refmods)) ? context.refmods : [];
     const c1 = refs[0] || 'the character';
     const c2 = refs[1] || 'the second character';
+    const c3 = refs[2] || 'the third character';
+    const c4 = refs[3] || 'the fourth character';
     return String(template || '')
       .replace(/\{\{\s*CHARACTER\s*\}\}/g, c1)
-      .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, c2);
+      .replace(/\{\{\s*CHARACTER_2\s*\}\}/g, c2)
+      .replace(/\{\{\s*CHARACTER_3\s*\}\}/g, c3)
+      .replace(/\{\{\s*CHARACTER_4\s*\}\}/g, c4);
   }
 
   function renderStylizeShowcase() {
@@ -121,28 +126,56 @@ function initPromptAdvancerUi() {
   }
 
   function renderShotLibrary() {
+    const castsEl = $('pa-lib-casts');
     const catsEl = $('pa-lib-cats');
     const gridEl = $('pa-lib-grid');
     const countEl = $('pa-lib-count');
     if (!gridEl) return;
     const shots = libraryCache.shots || [];
-    const cats = ['All', ...Array.from(new Set(shots.map((s) => s.category || 'Shot')))];
+    const { context } = getFormContext(activeTarget);
+    const refs = (context && Array.isArray(context.refmods)) ? context.refmods : [];
+    const selCount = refs.length;
+    const autoTargetSlots = selCount >= 3 ? 3 : selCount; // 0 => all, 1 => 1-char, 2 => 2-char, 3+ => 3-char
+
+    if (castsEl) {
+      const autoLabel = autoTargetSlots > 0 ? `🎯 Auto (${autoTargetSlots} ${autoTargetSlots === 1 ? 'Char' : 'Chars'})` : '🎯 Auto (All)';
+      const castBtns = [
+        { id: 'auto', label: autoLabel },
+        { id: 'all', label: `All (${shots.length})` },
+        { id: '1', label: '🧑 1 Char' },
+        { id: '2', label: '👥 2 Chars' },
+        { id: '3', label: '👨‍👩‍👦 3 Chars' },
+        { id: '0', label: '🌆 BG Swap' },
+      ];
+      castsEl.innerHTML = castBtns.map((b) => `
+        <button type="button" class="pa-lib-cat pa-lib-cast ${activeLibCast === b.id ? 'on' : ''}" data-lib-cast="${esc(b.id)}">${esc(b.label)}</button>
+      `).join('');
+    }
+
+    const castFiltered = shots.filter((s) => {
+      const slots = Number(s.characterSlots) || 0;
+      if (activeLibCast === 'all') return true;
+      if (activeLibCast === 'auto') return autoTargetSlots === 0 ? true : slots === autoTargetSlots;
+      return slots === Number(activeLibCast);
+    });
+
+    const cats = ['All', ...Array.from(new Set(castFiltered.map((s) => s.category || 'Shot')))];
+    if (!cats.includes(activeLibCat)) activeLibCat = 'All';
     if (catsEl) {
       catsEl.innerHTML = cats.map((c) => `
         <button type="button" class="pa-lib-cat ${c === activeLibCat ? 'on' : ''}" data-lib-cat="${esc(c)}">${esc(c)}</button>
       `).join('');
     }
-    const filtered = activeLibCat === 'All' ? shots : shots.filter((s) => (s.category || 'Shot') === activeLibCat);
+    const filtered = activeLibCat === 'All' ? castFiltered : castFiltered.filter((s) => (s.category || 'Shot') === activeLibCat);
     if (countEl) {
-      const { context } = getFormContext(activeTarget);
-      const refs = (context && context.refmods) || [];
-      const castNote = refs.length ? `casting: ${refs.join(' + ')}` : 'pick a RefMod above or click Use to auto-cast';
-      countEl.textContent = `(${filtered.length}/${shots.length} consistent shots · ${castNote})`;
+      const castNote = refs.length ? `casting: ${refs.join(' + ')}` : 'pick 1, 2, or 3 RefMods above to auto-filter scenes';
+      countEl.textContent = `(${filtered.length}/${shots.length} shots · ${castNote})`;
     }
     gridEl.innerHTML = filtered.map((s) => {
+      const slots = Number(s.characterSlots) || 0;
       const slotBadge = s.mode === 'stylize'
         ? '🌆 BG Swap'
-        : (s.characterSlots === 2 ? '👥 2 Chars' : '🧑 Any Char');
+        : (slots === 3 ? '👨‍👩‍👦 3 Chars' : (slots === 2 ? '👥 2 Chars' : '🧑 1 Char'));
       return `
         <div class="pa-lib-card" data-lib-shot="${esc(s.id)}" title="Why it works: ${esc(s.whyItWorks || '')}">
           <div class="pa-lib-thumb-wrap">
@@ -165,6 +198,12 @@ function initPromptAdvancerUi() {
       `;
     }).join('');
   }
+
+  // Live-update the Shot Library whenever the user picks 1, 2, or 3+ RefMod characters!
+  document.addEventListener('zaude:refmods-changed', () => {
+    activeLibCast = 'auto';
+    renderShotLibrary();
+  });
 
   async function loadLibrary() {
     if (!api.listLibrary) return;
@@ -359,6 +398,13 @@ function initPromptAdvancerUi() {
         objTa.dispatchEvent(new Event('input', { bubbles: true }));
         objTa.focus();
       }
+      return;
+    }
+    // Shot Library cast-count filter (Auto / All / 1 Char / 2 Chars / 3 Chars / BG)
+    const libCastBtn = e.target.closest('[data-lib-cast]');
+    if (libCastBtn) {
+      activeLibCast = libCastBtn.dataset.libCast || 'auto';
+      renderShotLibrary();
       return;
     }
     // Shot Library category filter

@@ -75,6 +75,18 @@ function syncHiddenRefmodInputs() {
   const f2 = $('ai-refmod2-input');
   if (f1) f1.value = selectedRefmods[0] || '';
   if (f2) f2.value = selectedRefmods[1] || '';
+  document.dispatchEvent(new CustomEvent('zaude:refmods-changed', {
+    detail: { count: selectedRefmods.length, selected: [...selectedRefmods] },
+  }));
+}
+
+function populateBackgroundRefmodSelect() {
+  const sel = $('ai-bg-refmod');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">— None (prompt / picture only) —</option>` +
+    refmodEntries.map((m) => `<option value="${esc(m.file)}">${esc(m.name || m.firstName || m.file)} (${esc(m.file)})</option>`).join('');
+  if (prev && refmodEntries.some((m) => m.file === prev)) sel.value = prev;
 }
 
 function updateMissingPreviewsButton() {
@@ -93,6 +105,7 @@ function updateMissingPreviewsButton() {
 }
 
 function renderRefModGrid() {
+  populateBackgroundRefmodSelect();
   const grid = $('ai-refmod-grid');
   if (!grid) return;
   syncHiddenRefmodInputs();
@@ -311,6 +324,8 @@ function collectRequest() {
     model: String(fd.get('model') || '').trim(),
     lora: String(fd.get('lora') || '').trim(),
     ref: String(fd.get('ref') || '').trim(),
+    backgroundImage: String(fd.get('backgroundImage') || '').trim(),
+    backgroundRefmod: String(fd.get('backgroundRefmod') || '').trim(),
     firstFrame: String(fd.get('firstFrame') || '').trim(),
     lastFrame: String(fd.get('lastFrame') || '').trim(),
     refmods,
@@ -684,8 +699,8 @@ async function onSubmit() {
     if (req.mode === 'auto' && (req.stylizeAction === 'object' || req.stylizeAction === 'both') && !req.objectPrompt && !req.ref) {
       return setStatus('Describe the object or scene change you want to add.', true);
     }
-    if (req.mode === 'auto' && req.stylizeAction === 'background' && !req.objectPrompt && !req.ref) {
-      return setStatus('Describe the new background environment (or click a Background Recipe above).', true);
+    if (req.mode === 'auto' && req.stylizeAction === 'background' && !req.objectPrompt && !req.ref && !req.backgroundImage && !req.backgroundRefmod) {
+      return setStatus('Describe the new background, click a Background Recipe, or pick a BG Picture / Set RefMod.', true);
     }
     if (req.mode === 'coverage' && !req.image) {
       return setStatus('Pick a scene reference image first.', true);

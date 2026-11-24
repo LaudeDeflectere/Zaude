@@ -62,6 +62,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const preset = String((input && input.preset) || 'normal');
     const aspect = input && input.aspect === '9:16' ? '9:16' : '16:9';
     const ref = String((input && input.ref) || '').trim();
+    const bgImage = String((input && input.backgroundImage) || '').trim();
     if (!prompt) return { ok: false, error: 'Write a prompt describing the video.' };
     if (!Number.isFinite(seconds) || seconds < 1 || seconds > 60) {
       return { ok: false, error: 'Seconds must be between 1 and 60.' };
@@ -74,9 +75,13 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       '--preset', preset,
       '--fps', '24',
     ];
-    if (ref) args.push('--ref', ref);
+    const effectiveRef = ref || bgImage;
+    if (effectiveRef) args.push('--ref', effectiveRef);
+    const finalPrompt = (!ref && bgImage)
+      ? `${prompt}\nSet & Background Reference: strictly match the room, architecture, props, and lighting shown in <Picture 1>.`
+      : prompt;
     args.push(...commonTail());
-    return { ok: true, mode, args, promptContent: buildPromptFile(prompt, Math.round(seconds)) };
+    return { ok: true, mode, args, promptContent: buildPromptFile(finalPrompt, Math.round(seconds)) };
   }
 
   if (mode === 'refmod') {
@@ -89,6 +94,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const fps = [6, 12, 24].includes(Number(input && input.fps)) ? Number(input.fps) : 24;
     const latent = String((input && input.latent) || '').trim();
     const seedVideo = String((input && input.seedVideo) || '').trim();
+    const bgRefmod = String((input && input.backgroundRefmod) || '').trim();
 
     // Support repeatable `refmods: [{ file, name, identityStrength?, voiceStrength? }, ...]`
     // as well as legacy `refmod` / `refmod2` fields.
@@ -117,6 +123,15 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       }
     }
 
+    let finalPrompt = prompt;
+    if (bgRefmod) {
+      const bgSlotNum = slots.length + 1;
+      slots.push(`${bgRefmod}|Background Set|1.0|0.0`);
+      if (finalPrompt) {
+        finalPrompt = `${finalPrompt}\nSet & Background Reference: strictly match the exact room, architecture, props, and lighting of <Subject ${bgSlotNum}> (Background Set).`;
+      }
+    }
+
     if (!slots.length && subMode !== 'continue') {
       return { ok: false, error: 'Pick at least one RefMod character from the grid.' };
     }
@@ -130,7 +145,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const args = ['refmod', '--mode', subMode];
     for (const slot of slots) args.push('--refmod', slot);
     args.push(
-      '--prompt', prompt,
+      '--prompt', finalPrompt,
       '--quality', quality,
       '--seconds', String(seconds),
       '--fps', String(fps),
@@ -155,6 +170,8 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       ? input.stylizeAction
       : ((input && input.objectPrompt) ? ((input && (input.refmod || (input.refmods && input.refmods.length))) ? 'both' : 'object') : 'replace');
     const objectPrompt = String((input && input.objectPrompt) || '').trim();
+    const bgImage = String((input && input.backgroundImage) || '').trim();
+    const bgRefmod = String((input && input.backgroundRefmod) || '').trim();
     const bgMode = ['keep', 'sheet', 'scene', 'image'].includes(input && input.backgroundMode) ? input.backgroundMode : 'keep';
 
     // Collect repeatable RefMods (supports both `refmods: [...]` and single `refmod`)
@@ -182,8 +199,8 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     if ((action === 'object' || action === 'both') && !objectPrompt && !ref) {
       return { ok: false, error: 'Describe the object or scene change you want to add.' };
     }
-    if (action === 'background' && !objectPrompt && !ref) {
-      return { ok: false, error: 'Describe the new background environment (or pick a reference image).' };
+    if (action === 'background' && !objectPrompt && !ref && !bgImage && !bgRefmod) {
+      return { ok: false, error: 'Describe the new background environment or pick a Background Picture / RefMod.' };
     }
 
     // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement,
@@ -231,6 +248,13 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       for (const r of rmList) {
         args.push('--refmod', `${r.file}|${r.name}|1.0|0.0`);
       }
+    }
+    if (bgRefmod) {
+      args.push('--refmod', `${bgRefmod}|Background Set|1.0|0.0`);
+    }
+    if (bgImage) {
+      args.push('--background', bgImage);
+      if (objectPrompt) args.push('--background-text', objectPrompt);
     }
     if (ref) {
       args.push('--ref', ref);

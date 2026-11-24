@@ -97,13 +97,20 @@ test('promptAdvancer stores, ranks, rates, and injects working examples into AI 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('shot library ships 20 character-swappable shots, Stylize before/afters, and existing preview squares', () => {
+test('shot library ships 30 character-swappable shots (1/2/3-char), Stylize before/afters, and background control', () => {
   const lib = pa.loadShotLibrary();
   assert.equal(lib.ok, true);
-  assert.equal(lib.shots.length, 20);
+  assert.equal(lib.shots.length, 30);
   assert.equal(lib.stylizePresets.length, 4);
   assert.ok(lib.backgroundRecipes.length >= 5);
   assert.ok(lib.playbook.length >= 5);
+
+  const oneChar = lib.shots.filter((s) => s.characterSlots === 1);
+  const twoChar = lib.shots.filter((s) => s.characterSlots === 2);
+  const threeChar = lib.shots.filter((s) => s.characterSlots === 3);
+  assert.ok(oneChar.length >= 15);
+  assert.ok(twoChar.length >= 6);
+  assert.ok(threeChar.length >= 5);
 
   const rootDir = path.resolve(path.dirname(pa.DEFAULT_SHOT_LIBRARY_PATH), '..');
   for (const s of lib.shots) {
@@ -115,7 +122,7 @@ test('shot library ships 20 character-swappable shots, Stylize before/afters, an
     assert.ok(fs.existsSync(path.join(rootDir, p.afterPreview)), `Missing after preview: ${p.afterPreview}`);
   }
 
-  // Character template substitution works for 1-char and 2-char shots
+  // Character template substitution works for 1-char, 2-char, and 3-char shots
   const hero = lib.shots.find((s) => s.id === 'shot-01-hero-walk');
   const filledElias = pa.renderShotTemplate(hero.template, ['Elias Varga']);
   const filledNadia = pa.renderShotTemplate(hero.template, ['Nadia Krasavica']);
@@ -128,7 +135,22 @@ test('shot library ships 20 character-swappable shots, Stylize before/afters, an
   assert.match(filledTwo, /Subject 1 \(Elias\)/);
   assert.match(filledTwo, /Subject 2 \(Nadia\)/);
 
-  // Stylize Change Background builds valid RV2V command without requiring a RefMod
+  const heist = lib.shots.find((s) => s.id === 'shot-26-3c-heist-table');
+  const filledThree = pa.renderShotTemplate(heist.template, ['Elias', 'Nadia', 'Daniel']);
+  assert.match(filledThree, /Subject 1 \(Elias\)/);
+  assert.match(filledThree, /Subject 2 \(Nadia\)/);
+  assert.match(filledThree, /Subject 3 \(Daniel\)/);
+
+  // Relevant example ranking boosts matching RefMod cast count
+  const ranked3 = pa.findRelevantExamples(pa.shotsAsExamples(lib.shots), {
+    draft: 'three friends talking',
+    mode: 'refmod',
+    refmodCount: 3,
+    limit: 3,
+  });
+  assert.equal(ranked3[0].characterSlots, 3);
+
+  // Stylize Change Background builds valid RV2V command with --background picture lock
   const mannimmate = require('../electron/mannimmate.cjs');
   const bgCmd = mannimmate.buildCommand({
     mode: 'auto',
@@ -136,9 +158,24 @@ test('shot library ships 20 character-swappable shots, Stylize before/afters, an
     video: '/tmp/clip.mp4',
     start: 0,
     end: 5,
+    backgroundImage: '/tmp/my-3d-room.png',
     objectPrompt: 'A rain-drenched cyberpunk Tokyo alleyway at midnight with neon rim light',
   });
   assert.equal(bgCmd.ok, true);
+  assert.ok(bgCmd.args.includes('--background'));
+  assert.ok(bgCmd.args.includes('/tmp/my-3d-room.png'));
   assert.match(bgCmd.promptContent, /Replace ONLY the background/);
-  assert.match(bgCmd.promptContent, /cyberpunk Tokyo/);
+
+  // RefMod mode supports a separate visual-only Background Set RefMod
+  const bgRefCmd = mannimmate.buildCommand({
+    mode: 'refmod',
+    refmodMode: 'generate',
+    refmods: [{ file: 'elias_varga', name: 'Elias' }],
+    backgroundRefmod: 'mannimmate_shared_2d_style_v1',
+    prompt: 'Elias stands in the room looking around.',
+    seconds: 5,
+  });
+  assert.equal(bgRefCmd.ok, true);
+  assert.ok(bgRefCmd.args.includes('mannimmate_shared_2d_style_v1|Background Set|1.0|0.0'));
+  assert.ok(bgRefCmd.args.some((a) => /Background Set/.test(a)));
 });
