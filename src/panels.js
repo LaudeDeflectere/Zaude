@@ -2298,16 +2298,94 @@ export function helpPanel() {
     }
 
     if (tab === 'ai') {
+      const zaudeCinematicSystemPrompt = `SYSTEM INSTRUCTIONS FOR ZAUDE CINEMATIC MULTI-SHOT PROMPT WRITING (MiniMax-H3 Singularity v2, RefMods, Background Control & Qwen Image):
+Write strict physical action chains: Initial Posture -> Trigger -> Action -> Momentum -> Impact -> Final Pose.
+Always obey coordinate rules: screen-left/right (viewer frame), camera-left/right (lens axis), subject left/right (anatomy).
+Enforce 33% face close-ups and 67% environmental/prop shots to prevent uncanny face fatigue.
+For two-person dialogue, enforce the 180° axis rule with paired Over-The-Shoulder (OTS) compositions.
+DIALOGUE TIMING: one speaker per timed window; plan 2.0–2.5 words per second (never more than 3.0); start the first line 0.2–0.3 s in; finish at least 0.2 s before the shot ends; split long lines into separate windows. Do not add the 0.917 s continuation overlap yourself (Zaude FrameContinue handles latent overlap automatically).
+
+ZAUDE-SPECIFIC CONTINUITY & TOOLING RULES:
+- REFMODS: Bind recurring characters by their exact Zaude RefMod slug (e.g. elias_varga, nadia_krasavica). If a shot changes their clothes from their default RefMod look, ALWAYS negate the default first ("NOT in default outfit, instead wearing ...").
+- BACKGROUND CONTROL: Lock recurring sets via either a Background Picture (photo or 3D room render still -> Zaude BG Picture / --background / <Picture 1>) for exact single-angle rooms, OR a visual-only Background/Set RefMod (identity=1.0, voice=0.0) for multi-angle recurring locations.
+- SHOT MODES: Choose the optimal Zaude mode per shot:
+  * refmod: fresh shot with 1..N RefMod characters (auto-saves .h3latent.safetensors).
+  * continue: Zaude FrameContinue chaining seamlessly from the previous shot's saved latent (same camera/room/lighting, no jump).
+  * fl2v: Zaude FrameToFrame bridging an exact First Frame and Last Frame.
+  * stylize: RV2V edit on an existing clip (replace character | background swap | add object | both).
+  * text-render: pure environment/B-roll shot (or local LTX 2B fast draft).
+- ENGINE ROUTING: Draft & block on Tranklena (RTX 3090, 480p–640p, 6 steps) or Local Rizzar (LTX 2B, 480p, 8 steps); run final hero passes on Modal (fast L40S / balanced H100 / ultra H200 Full BF16). Never waste cloud credits on rough tests.
+- SCREEN LOCK: If any TV, phone, or monitor appears, explicitly state it stays brightly lit and ON the entire shot.
+
+PROMPT TEMPLATE FORMAT TO RETURN:
+
+zaude_cast:
+- <Subject 1>: refmod=<slug> | name=<Display Name> | identity=1.0 | voice=1.0
+- <Subject 2>: refmod=<slug> | name=<Display Name> | identity=1.0 | voice=1.0
+- background_lock: none | picture=<path/to/room_or_3d_still.png> | refmod=<set_slug|Background Set|1.0|0.0>
+
+subject_definitions:
+<Subject 1> is <Name> from RefMod (<slug>) [or <Picture 1>]: <keep exact RefMod face/hair/outfit OR "NOT in default outfit, instead wearing: precise hair, top garment, bottom garment, shoes">.
+<Subject 2> is <Name> from RefMod (<slug>) [or <Picture 2>]: <keep exact RefMod face/hair/outfit OR outfit override>.
+
+---
+
+zaude_shot_config:
+shot: 1
+engine: tranklena | local | modal:fast | modal:balanced | modal:ultra
+mode: refmod | continue | fl2v | stylize:replace | stylize:background | stylize:object | stylize:both | text-render
+cast_in_shot: <Subject 1>, <Subject 2>   # omit any character who does NOT appear in this shot
+speaking: <Subject 1>                    # or none
+background: keep | picture:<file> | refmod:<slug> | swap:<description>
+settings: 640p | 24fps | 5s | 6 steps | 16:9 | seed=<optional fixed seed>
+post: none | upscale-640p | realesrgan-2x
+
+style_definitions:
+keep same style,
+<Style medium, clean linework/film stock, volumetric lighting, Kelvin color palette, zero floating camera>
+
+retention_analysis:
+<Subject 1>, <Subject 2>: fully_preserved — maintain identities, hair, and clothing.
+RefMod usage: visible=<Name 1>,<Name 2>; speaking=<Name 1>.
+
+detailed_description:
+<Lighting direction, Kelvin temperature, camera mount invariant description, verbatim room/prop anchors, screens brightly ON if present>.
+
+[Shot 1] <Framing, camera mount, lens focal length (28mm/35mm/50mm/85mm)> lasting 00:00.000–00:05.000.
+summary: <One sentence: only what happens in this shot, never the whole story>.
+00:00.000–00:02.500:
+<Subject 1> (S1) <Initial Posture -> Trigger -> Action -> Momentum -> Impact -> Final Pose with hand/prop contact>, <d>[English] <2.0-2.5 words/sec dialogue line></d>
+
+00:02.500–00:05.000:
+<Subject 2> (S2) <reaction, eye-line shift, physical momentum, final pose>.
+
+overall_soundscape:
+<Room tone, concrete foley, footsteps on floor material, cloth rustle, clean dialogue>.
+
+non_diegetic_music:
+<Tempo, instrumentation, entrance timestamp — or "None" for pure diegetic realism>.
+
+For a longer script, separate shot blocks with --- and put zaude_shot_config: / style_definitions: / retention_analysis: / detailed_description: / [Shot N] / summary: / timed beats / overall_soundscape: / non_diegetic_music: inside each block.
+Only zaude_cast: and subject_definitions: are global. A character whose <Subject N> does not appear in a shot MUST be omitted from cast_in_shot, retention_analysis, and the beats of that shot.`;
+
       const sampleRefmod = `Medium two-shot in a warm dimly lit study with wooden bookshelves and a glowing green desk lamp. Subject 1 (Elias, NOT in his default coat, instead wearing a rumpled dark olive crewneck sweater) leans forward over an oak desk. Subject 2 (Daniel, NOT in his default jacket, instead wearing a heather grey hoodie) grips a ceramic mug. The desktop monitor stays brightly ON showing a blue spreadsheet. Slow 50mm push-in, shallow depth of field. Dialogue (0.8s–4.8s): Subject 1 whispers, "If we move tonight, nobody catches us."`;
       const sampleFight = `One continuous dark fantasy action shot on a 35mm lens. Open behind the blonde woman in the dim stone corridor. She lunges forward from screen-left and lands two quick blows; the monster barely flinches and swats her aside into the left wall. As it rears back, Subject 1 (Tony) rushes in from screen-right, steps between them, and lands one decisive strike. Camera jolts once on impact then steadies as the creature collapses onto the stone floor. overall_soundscape: Echoing footsteps, muted impact thuds, deep creature growl, sharp crack on Tony's strike, heavy floor thump. non_diegetic_music: Low tense drone builds then cuts out on impact.`;
       const sampleLtx = `Smooth cinematic 35mm dolly-in through a rain-slicked Tokyo alleyway at midnight. Cyan and magenta neon signs shimmer in deep asphalt puddles as light rain falls through mist. A lone silhouette under a clear vinyl umbrella walks steadily down the narrow lane while steam rises from a ramen vent. Consistent moody lighting, natural 24fps motion blur, single continuous shot.`;
 
       body.innerHTML = `<div class="help-section help-manual">
-        <h4>✨ Prompt Advancer, Master Prompts &amp; Learning DB</h4>
+        <h4>🎬 Long-Form Cinematic Story System Prompt (Full Zaude Syntax)</h4>
+        <p class="muted">Paste this system prompt into any AI agent (Claude, Codex, ChatGPT, Antigravity) to convert your story into a multi-shot Zaude script with RefMod casting, Background Picture / Set RefMod locks, FrameContinue / FL2V / Stylize routing, exact 2.0–2.5 wps dialogue timing, and engine selection.</p>
+        <div class="help-prompt-card">
+          <div class="help-prompt-head"><b>🎬 Zaude Multi-Shot Director System Prompt (RefMods + Backgrounds + FrameContinue + Modal/Tranklena)</b><button type="button" data-copy="${esc(zaudeCinematicSystemPrompt)}">📋 Copy System Prompt</button></div>
+          <pre class="help-code" style="max-height:340px;overflow:auto">${esc(zaudeCinematicSystemPrompt)}</pre>
+        </div>
+
+        <h4>✨ Prompt Advancer, 30-Shot Library &amp; Learning DB</h4>
         <ul class="help-list">
-          <li>Click the purple <b>✨ Advance Prompt</b> button above any prompt box to have your connected AI (Claude / Codex / OpenCode) upgrade your draft and ask clickable clarifying questions when details are ambiguous.</li>
-          <li><b>Directing Master Prompts</b> (saved in <code>prompts/master-prompts.json</code> so everyone with Zaude shares them): toggle pills like <b>🎥 Cinema Camera Rules</b>, <b>🥊 Better Fights &amp; Action</b>, <b>🎭 Dialogue &amp; Acting</b>, <b>🧬 Strict RefMod Lock</b>, <b>🔊 Rich Sound &amp; Foley</b>, or <b>💻 Local LTX 2B Tuned</b> before running!</li>
-          <li><b>📚 Prompt Database</b>: Click <b>⭐ Apply &amp; Save to DB</b> on prompts that rendered well. Zaude ranks your highest-rated working examples and feeds them back into future Prompt Advancer runs so the AI learns your style over time.</li>
+          <li>Click <b>🎬 Shot Library</b> or <b>✨ Advance Prompt</b> above any prompt box to browse <b>30 proven character-swappable shots</b> (1-Char, 2-Char, 3-Char, and Background Swap) with visual preview squares — the library auto-filters to match how many RefMods you select!</li>
+          <li><b>Background Control</b>: Drop a photo or 3D room render into <b>🌆 BG Picture</b> for exact single-angle set locks (<code>--background</code> / <code>&lt;Picture 1&gt;</code>), or pick a <b>🧬 Background / Set RefMod</b> (attached visual-only, <code>voice=0</code>) for recurring multi-angle sets.</li>
+          <li><b>Directing Master Prompts</b> (saved in <code>prompts/master-prompts.json</code>): toggle pills like <b>🎥 Cinema Camera Rules</b>, <b>🥊 Better Fights &amp; Action</b>, <b>🎭 Dialogue &amp; Acting</b>, <b>🧬 Strict RefMod Lock</b>, <b>🌆 Change Background</b>, or <b>🎬 Long-Form Cinematic Script</b> before advancing!</li>
+          <li><b>📚 Prompt Database</b>: Click <b>⭐ Apply &amp; Save to DB</b> on prompts that rendered well so future Prompt Advancer runs learn from your best shots.</li>
         </ul>
 
         <h4>Golden Rules for MiniMax-H3 (Tranklena)</h4>
@@ -2365,7 +2443,8 @@ export function helpPanel() {
 
     if (tab === 'folders') {
       const folders = [
-        { name: 'Master Prompts (Shared in App)', path: '/home/laude/Projects/Zaude/prompts/master-prompts.json', desc: 'Directing directives (Cinema Camera, Better Fights, RefMod Lock, etc.) used by ✨ Advance Prompt.' },
+        { name: 'Master Prompts (Shared in App)', path: '/home/laude/Projects/Zaude/prompts/master-prompts.json', desc: 'Directing directives (Cinema Camera, Better Fights, Zaude Multi-Shot Script, etc.) used by ✨ Advance Prompt.' },
+        { name: '30-Shot Library & Stylize Presets', path: '/home/laude/Projects/Zaude/prompts/shot-library.json', desc: '30 character-swappable 1/2/3-RefMod shots, Background Recipes, Stylize Before/Afters, and Singularity v2 Playbook.' },
         { name: 'Visual RefMods Library', path: '/home/laude/Projects/Zaude/refmods', desc: 'Character folders containing headshot.png and walk.mp4 hover previews for the RefMod grid.' },
         { name: 'Rendered AI Clips & Sidecars', path: '/home/laude/Videos/Zaude', desc: 'All generated MP4 clips plus their .json sidecars (storing saved_latent, RefMods, prompt, resolution).' },
         { name: 'Local ComfyUI & Models (Rizzar)', path: '/home/laude/ComfyUI', desc: 'Local ComfyUI install: models/unet/ (LTX 0.9.8 GGUF), models/vae/, models/clip/ (T5-XXL GGUF), custom_nodes/.' },

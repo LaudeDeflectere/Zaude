@@ -81,6 +81,14 @@
       "category": "Library",
       "description": "Locks lens, camera move, lighting, and timed 0s–5s beats so swapping any RefMod outputs the exact same shot.",
       "instructions": "Structure the prompt as a reusable, character-swappable shot template: use `Subject 1 (<Name>)` keeping their exact RefMod appearance, specify ONE fixed focal length and ONE motivated camera move, anchor concrete environment/props/lighting direction + Kelvin color temperature, choreograph explicit timed physical beats (0s–2s, 2s–4s, 4s–6s), and include `overall_soundscape:` and `non_diegetic_music:` so different characters always produce the same consistent shot."
+    },
+    {
+      "id": "long-form-cinematic-script",
+      "name": "Zaude Multi-Shot Script",
+      "icon": "🎬",
+      "category": "Directing",
+      "description": "Full Zaude cinematic syntax: Initial Posture→Impact→Final Pose, 180° OTS, 2.0–2.5 wps <d> dialogue, RefMods, BG locks & --- blocks.",
+      "instructions": "Write in Zaude's full Cinematic Multi-Shot syntax: enforce strict physical action chains (Initial Posture -> Trigger -> Action -> Momentum -> Impact -> Final Pose), obey coordinate rules (screen-left/right, camera-left/right, subject left/right), maintain 33% face close-ups / 67% environmental-prop shots and 180° paired OTS for two-person dialogue, pace dialogue at 2.0–2.5 words/sec (never >3.0, one speaker per window, start 0.2–0.3s in, end ≥0.2s before shot ends, wrap in <d>[English] ...</d>, never add the 0.917s continuation overlap). Include style_definitions:, subject_definitions: (with RefMod slugs and outfit overrides), retention_analysis: + RefMod usage, detailed_description:, [Shot N] with summary: and timed beats, overall_soundscape:, and non_diegetic_music:. Separate multiple shots with ---."
     }
   ]
 }
