@@ -280,34 +280,17 @@ function askAiForModalPlan({ request = {}, provider = 'auto' } = {}) {
   };
 }
 
-async function checkModalStatus({ endpointUrl = '', token = '' } = {}) {
+async function checkModalStatus({ endpointUrl = '' } = {}) {
   const cliInstalled = Boolean(safeRun('modal', ['--version']));
   const tokenFile = path.join(os.homedir(), '.modal.toml');
   const authenticated = fs.existsSync(tokenFile) || Boolean(process.env.MODAL_TOKEN_ID);
   const cleanUrl = String(endpointUrl || '').trim().replace(/\/+$/, '');
-  let reachable = false;
-  let gpuName = '';
-  let installedModels = [];
 
-  if (cleanUrl) {
-    try {
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`${cleanUrl}/system_stats`, { headers, signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        reachable = true;
-        const stats = await res.json();
-        const dev = stats && Array.isArray(stats.devices) && stats.devices[0];
-        if (dev && dev.name) gpuName = dev.name;
-      }
-      if (reachable) {
-        const mRes = await fetch(`${cleanUrl}/models/diffusion_models`, { headers, signal: AbortSignal.timeout(3000) });
-        if (mRes.ok) {
-          const list = await mRes.json();
-          if (Array.isArray(list)) installedModels = list;
-        }
-      }
-    } catch { /* container may be scaled to zero; that's normal on Modal */ }
-  }
+  // IMPORTANT: Never send an HTTP fetch to `cleanUrl` during status checks!
+  // On Modal serverless, ANY HTTP request cold-boots a GPU container and starts billing.
+  // Instead, inspect running containers via the zero-cost Modal control plane CLI.
+  const usage = cliInstalled && authenticated ? getModalUsage() : { activeContainers: 0 };
+  const reachable = Boolean(cleanUrl && usage.activeContainers > 0);
 
   return {
     ok: true,
@@ -315,8 +298,9 @@ async function checkModalStatus({ endpointUrl = '', token = '' } = {}) {
     authenticated,
     endpointUrl: cleanUrl,
     reachable,
-    gpuName,
-    installedModels,
+    activeContainers: usage.activeContainers || 0,
+    gpuName: '',
+    installedModels: [],
     scriptPath: DEFAULT_MODAL_SCRIPT,
     gpus: Object.values(MODAL_GPUS),
   };
@@ -820,8 +804,13 @@ async function stopAllModal({ endpointUrl = '', token = '' } = {}) {
   const base = String(endpointUrl || '').trim().replace(/\/+$/, '');
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // 1. Interrupt & clear ComfyUI queue if endpoint is reachable
-  if (base) {
+  // 1. Check active containers FIRST via zero-cost control plane.
+  // Never hit the HTTP endpoint if 0 containers are running (otherwise Modal would wake one up!).
+  const usage = getModalUsage();
+  const active = Array.isArray(usage.containers) ? usage.containers : [];
+
+  // 2. Interrupt & clear ComfyUI queue ONLY if a container is actually running
+  if (base && active.length > 0) {
     try {
       await fetch(`${base}/queue`, {
         method: 'POST',
@@ -837,9 +826,8 @@ async function stopAllModal({ endpointUrl = '', token = '' } = {}) {
     } catch { /* ignore */ }
   }
 
-  // 2. Terminate all active Modal containers
-  const usage = getModalUsage();
-  for (const c of (usage.containers || [])) {
+  // 3. Terminate all active Modal containers
+  for (const c of active) {
     if (!c.id) continue;
     const r = spawnSync('modal', ['container', 'stop', '-y', c.id], { encoding: 'utf8', timeout: 15000, windowsHide: true });
     if (r.status === 0) stopped.push(c.id);
