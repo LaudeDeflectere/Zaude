@@ -26,6 +26,7 @@ const zdFormat = require('./zd-format.cjs');
 const touchpad = require('./touchpad.cjs');
 const tipsStore = require('./tips.cjs');
 const promptAdvancer = require('./prompt-advancer.cjs');
+const scriptParser = require('./script-parser.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -655,6 +656,29 @@ function registerAiHandlers() {
     ...promptAdvancer.loadShotLibrary(),
     path: promptAdvancer.DEFAULT_SHOT_LIBRARY_PATH,
   }));
+  ipcMain.handle('ai:pickScript', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Import Multi-Shot Script (.md or .txt)',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Markdown & Text Scripts', extensions: ['md', 'txt', 'markdown'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (picked.canceled || !picked.filePaths || !picked.filePaths.length) {
+      return { ok: false, canceled: true };
+    }
+    const filePath = picked.filePaths[0];
+    try {
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const parsed = scriptParser.parseMultiShotScript(raw);
+      return { ...parsed, filePath, fileName: path.basename(filePath), rawText: raw };
+    } catch (e) {
+      return { ok: false, error: e.message || 'Could not read script file.' };
+    }
+  });
+  ipcMain.handle('ai:parseScript', (_e, rawText) => scriptParser.parseMultiShotScript(rawText));
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));

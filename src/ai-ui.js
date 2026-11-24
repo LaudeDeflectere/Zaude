@@ -1291,6 +1291,222 @@ function init() {
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 
+  // ---------- Multi-Shot Script (.md / .txt) Importer & Batch Queue ----------
+  let parsedScriptShots = [];
+
+  function buildRequestForScriptShot(shot) {
+    const form = $('t2v-form');
+    const engineChoice = ($('ai-script-engine') && $('ai-script-engine').value) || 'current';
+    let backend = currentBackend;
+    let modalTier = currentModalTier;
+    if (engineChoice === 'tranklena') backend = 'tranklena';
+    else if (engineChoice === 'local') backend = 'local';
+    else if (engineChoice === 'script' && shot.engine) {
+      if (shot.engine.startsWith('modal')) {
+        backend = 'modal';
+        const parts = shot.engine.split(':');
+        if (parts[1]) modalTier = parts[1];
+      } else if (shot.engine === 'local') backend = 'local';
+      else backend = 'tranklena';
+    }
+    const mode = shot.mode || (shot.refmods && shot.refmods.length ? 'refmod' : 'text-render');
+    const first = (shot.refmods && shot.refmods[0]) || null;
+    const second = (shot.refmods && shot.refmods[1]) || null;
+    return {
+      backend,
+      localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
+      modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
+      modalTier,
+      mode,
+      mannimmateDir: String((form && form.elements.mannimmateDir && form.elements.mannimmateDir.value) || '').trim(),
+      prompt: shot.prompt,
+      seconds: shot.seconds || 5,
+      resolution: shot.resolution || 640,
+      quality: String(shot.resolution || 640),
+      preset: 'normal',
+      aspect: shot.aspect || '16:9',
+      fps: shot.fps || 24,
+      steps: shot.steps || null,
+      seed: shot.seed || null,
+      refmods: shot.refmods || [],
+      refmod: first ? first.file : '',
+      refmodName: first ? first.name : '',
+      refmod2: second ? second.file : '',
+      refmod2Name: second ? second.name : '',
+      refmodMode: shot.refmodMode || 'generate',
+      stylizeAction: shot.stylizeAction || 'replace',
+      backgroundImage: shot.backgroundImage || '',
+      backgroundRefmod: shot.backgroundRefmod || '',
+    };
+  }
+
+  function renderScriptShots(parsed, fileName = '') {
+    const bar = $('ai-script-bar');
+    const sumEl = $('ai-script-summary');
+    const listEl = $('ai-script-list');
+    if (!listEl) return;
+    if (!parsed || !parsed.ok || !Array.isArray(parsed.shots) || !parsed.shots.length) {
+      parsedScriptShots = [];
+      if (bar) bar.hidden = true;
+      listEl.innerHTML = `<div class="muted" style="padding:8px">${esc((parsed && parsed.error) || 'No shots parsed yet.')}</div>`;
+      return;
+    }
+    parsedScriptShots = parsed.shots;
+    if (bar) bar.hidden = false;
+    const bgNote = parsed.backgroundLock && parsed.backgroundLock.type !== 'none'
+      ? ` · BG Lock: ${parsed.backgroundLock.type} (${parsed.backgroundLock.value})`
+      : '';
+    if (sumEl) {
+      sumEl.textContent = `${fileName ? `📄 ${fileName} · ` : ''}${parsed.shots.length} shot(s) parsed${bgNote}`;
+    }
+    listEl.innerHTML = parsed.shots.map((s, idx) => {
+      const castText = (s.refmods && s.refmods.length)
+        ? s.refmods.map((r) => r.name || r.file).join(', ')
+        : (s.castSlots && s.castSlots.length ? s.castSlots.map((n) => `Subject ${n}`).join(', ') : 'No RefMod');
+      const modeTag = s.refmodMode === 'continue' ? 'continue' : s.mode;
+      return `
+        <div class="ai-script-card" data-script-idx="${idx}">
+          <label class="ai-script-check">
+            <input type="checkbox" class="ai-script-cb" data-script-cb="${idx}" checked>
+            <strong>Shot ${esc(s.shotNumber)}</strong>
+          </label>
+          <div class="ai-script-card-body">
+            <div class="ai-script-card-top">
+              <span class="ai-script-sum">${esc(s.summary)}</span>
+              <span class="ai-script-pill">${esc(modeTag)}</span>
+              <span class="ai-script-pill">${esc(s.resolution)}p · ${esc(s.seconds)}s · ${esc(s.aspect)}</span>
+              <span class="ai-script-pill">🧑 ${esc(castText)}</span>
+            </div>
+            <div class="ai-script-preview muted">${esc(s.prompt.slice(0, 220))}${s.prompt.length > 220 ? '…' : ''}</div>
+          </div>
+          <div class="ai-script-card-btns">
+            <button type="button" data-script-load="${idx}" title="Load this shot into AI Studio to tweak before rendering">Load</button>
+            <button type="button" class="primary" data-script-run="${idx}" title="Queue just this shot">▶ Run</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function loadScriptShotIntoStudio(idx) {
+    const shot = parsedScriptShots[idx];
+    if (!shot) return;
+    const form = $('t2v-form');
+    currentMode = shot.mode === 'auto' ? 'auto' : (shot.refmods && shot.refmods.length ? 'refmod' : 'text-render');
+    if (shot.refmods && shot.refmods.length) {
+      selectedRefmods = shot.refmods.map((r) => r.file);
+      renderRefModGrid();
+    }
+    if (form) {
+      if (form.elements.prompt) form.elements.prompt.value = shot.prompt;
+      if (form.elements.seconds) form.elements.seconds.value = String(shot.seconds || 5);
+      if (form.elements.resolution) form.elements.resolution.value = String(shot.resolution || 640);
+      if (form.elements.aspect) form.elements.aspect.value = shot.aspect || '16:9';
+      if (form.elements.seed) form.elements.seed.value = shot.seed != null ? String(shot.seed) : '';
+      if (form.elements.refmodMode) form.elements.refmodMode.value = shot.refmodMode || 'generate';
+      if (form.elements.backgroundRefmod && shot.backgroundRefmod) {
+        form.elements.backgroundRefmod.value = shot.backgroundRefmod;
+      }
+    }
+    if (shot.backgroundImage) {
+      updateSquarePreview('backgroundImage', shot.backgroundImage, null, false);
+    }
+    applyModeVisibility();
+    updateCommandPreview();
+    setStatus(`Loaded Shot ${shot.shotNumber} ("${shot.summary}") into AI Studio.`);
+  }
+
+  const uploadBtn = $('ai-script-upload');
+  if (uploadBtn && api.pickScript) {
+    uploadBtn.addEventListener('click', async () => {
+      const res = await api.pickScript();
+      if (!res || res.canceled) return;
+      if ($('ai-script-text') && res.rawText) $('ai-script-text').value = res.rawText;
+      renderScriptShots(res, res.fileName || '');
+      if (res.ok) setStatus(`Imported ${res.shots.length} shot(s) from ${res.fileName}.`);
+      else setStatus(res.error || 'Could not parse script file.', true);
+    });
+  }
+
+  const parseBtn = $('ai-script-parse');
+  if (parseBtn && api.parseScript) {
+    parseBtn.addEventListener('click', async () => {
+      const raw = String(($('ai-script-text') && $('ai-script-text').value) || '');
+      const res = await api.parseScript(raw);
+      renderScriptShots(res);
+      if (res.ok) setStatus(`Parsed ${res.shots.length} shot(s) from pasted script.`);
+      else setStatus(res.error || 'Could not parse script.', true);
+    });
+  }
+
+  const clearScriptBtn = $('ai-script-clear');
+  if (clearScriptBtn) {
+    clearScriptBtn.addEventListener('click', () => {
+      if ($('ai-script-text')) $('ai-script-text').value = '';
+      renderScriptShots(null);
+    });
+  }
+
+  // Drag-and-drop .md / .txt file straight onto the script textarea
+  const dropZone = $('ai-script-drop');
+  if (dropZone && api.parseScript) {
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      const text = await file.text();
+      if ($('ai-script-text')) $('ai-script-text').value = text;
+      const res = await api.parseScript(text);
+      renderScriptShots(res, file.name);
+      if (res.ok) setStatus(`Dropped ${file.name} — parsed ${res.shots.length} shot(s).`);
+      else setStatus(res.error || 'Could not parse dropped file.', true);
+    });
+  }
+
+  const scriptListEl = $('ai-script-list');
+  if (scriptListEl) {
+    scriptListEl.addEventListener('click', async (e) => {
+      const loadBtn = e.target.closest('[data-script-load]');
+      if (loadBtn) {
+        loadScriptShotIntoStudio(Number(loadBtn.dataset.scriptLoad));
+        return;
+      }
+      const runBtn = e.target.closest('[data-script-run]');
+      if (runBtn) {
+        const shot = parsedScriptShots[Number(runBtn.dataset.scriptRun)];
+        if (!shot) return;
+        const req = buildRequestForScriptShot(shot);
+        const r = await api.mannimmateStart(req);
+        if (r && r.ok) setStatus(`Queued Shot ${shot.shotNumber} on ${req.backend}!`);
+        else setStatus((r && r.error) || 'Failed to queue shot.', true);
+      }
+    });
+  }
+
+  const queueAllBtn = $('ai-script-queue-all');
+  if (queueAllBtn) {
+    queueAllBtn.addEventListener('click', async () => {
+      const checked = Array.from(document.querySelectorAll('#ai-script-list .ai-script-cb:checked'))
+        .map((cb) => Number(cb.dataset.scriptCb))
+        .filter((idx) => parsedScriptShots[idx]);
+      if (!checked.length) return setStatus('Check at least one shot to queue.', true);
+      let queued = 0;
+      for (const idx of checked) {
+        const req = buildRequestForScriptShot(parsedScriptShots[idx]);
+        const r = await api.mannimmateStart(req);
+        if (r && r.ok) queued += 1;
+        else appendLog('ERR', `Shot ${parsedScriptShots[idx].shotNumber}: ${(r && r.error) || 'failed'}`);
+      }
+      setStatus(`Queued ${queued}/${checked.length} multi-shot clips into Zaude's render queue!`);
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('t2v-dialog').hidden) close();
   });

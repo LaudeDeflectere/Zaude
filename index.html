@@ -84,6 +84,7 @@
       <button type="button" data-ai-mode="refmod">RefMod → Video</button>
       <button type="button" data-ai-mode="auto">🎨 Stylize &amp; Objects</button>
       <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
+      <button type="button" data-ai-mode="script">📜 Multi-Shot (.md/.txt)</button>
     </div>
 
     <form id="t2v-form" class="t2v-form ai-studio-form">
@@ -94,6 +95,33 @@
         <button type="button" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
       </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
+
+      <div class="t2v-wide ai-script-panel" data-modes="script" id="ai-script-panel" hidden>
+        <div class="ai-prompt-head">
+          <span>📜 Import Multi-Shot Story Script <span class="muted">(.md or .txt separated by <code>---</code> or <code>[Shot N]</code>)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-script-upload">📂 Upload .md / .txt</button>
+            <button type="button" id="ai-script-parse">⚡ Parse Pasted Text</button>
+            <button type="button" id="ai-script-clear">Clear</button>
+          </span>
+        </div>
+        <div class="ai-script-drop" id="ai-script-drop">
+          <textarea id="ai-script-text" rows="5" placeholder="Drop a .md / .txt script file here, click 📂 Upload .md / .txt, or paste your Zaude multi-shot script (see Help → 🤖 AI &amp; Prompts for the full template)…"></textarea>
+        </div>
+        <div class="ai-script-bar" id="ai-script-bar" hidden>
+          <span id="ai-script-summary" class="muted"></span>
+          <label class="ai-script-engine-lbl">Run Engine:
+            <select id="ai-script-engine">
+              <option value="current" selected>Use top-bar Engine (safe default)</option>
+              <option value="tranklena">Force 🌐 Tranklena (RTX 3090)</option>
+              <option value="local">Force 💻 Local (Rizzar)</option>
+              <option value="script">Respect per-shot engine in script</option>
+            </select>
+          </label>
+          <button type="button" class="primary" id="ai-script-queue-all">🚀 Queue All Checked Shots</button>
+        </div>
+        <div class="ai-script-list" id="ai-script-list"></div>
+      </div>
 
       <div class="t2v-wide ai-stylize-panel" data-modes="auto">
         <div class="ai-prompt-head">
