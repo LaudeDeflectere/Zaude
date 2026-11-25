@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
   pickScript: () => ipcRenderer.invoke('ai:pickScript'),
   parseScript: (rawText) => ipcRenderer.invoke('ai:parseScript', rawText),
+  buildMultiShotPrompt: (input) => ipcRenderer.invoke('ai:script:buildAgentPrompt', input),
   saveSetSnapshot: (input) => ipcRenderer.invoke('ai:saveSetSnapshot', input),
   listCoverageAngles: () => ipcRenderer.invoke('ai:listCoverageAngles'),
   buildLocationRefMod: (input) => ipcRenderer.invoke('ai:buildLocationRefMod', input),

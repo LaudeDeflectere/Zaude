@@ -1441,8 +1441,67 @@ function init() {
     updateCommandPreview();
   };
 
-  // ---------- Multi-Shot Script (.md / .txt) Importer & Batch Queue ----------
+  // ---------- Multi-Shot Script (.md / .txt) Cast Picker, Live Prompt & Batch Queue ----------
   let parsedScriptShots = [];
+  let msSelectedCast = []; // ordered refmod file slugs: [Subject 1, Subject 2, ...]
+  let msBgPicture = '';
+  let msLastBuiltPrompt = '';
+
+  function renderMultiShotCastChips() {
+    const chipsEl = $('ai-ms-cast-chips');
+    const bgRmSel = $('ai-ms-bg-refmod');
+    if (bgRmSel) {
+      const prev = bgRmSel.value;
+      bgRmSel.innerHTML = '<option value="">— None —</option>' +
+        refmodEntries.map((m) => `<option value="${esc(m.file)}">${esc(m.name || m.firstName || m.file)}</option>`).join('');
+      if (prev) bgRmSel.value = prev;
+    }
+    if (!chipsEl) return;
+    if (!refmodEntries.length) {
+      chipsEl.innerHTML = '<span class="muted" style="font-size:11px">Loading RefMods…</span>';
+      return;
+    }
+    chipsEl.innerHTML = refmodEntries.map((m) => {
+      const idx = msSelectedCast.indexOf(m.file);
+      const onCls = idx >= 0 ? ' on' : '';
+      const numBadge = idx >= 0 ? `<b style="background:#8b5cf6;color:#fff;border-radius:999px;padding:0 5px;margin-right:4px">${idx + 1}</b>` : '';
+      const thumb = m.headshotUrl ? `<img src="${esc(m.headshotUrl)}" style="width:18px;height:18px;border-radius:4px;object-fit:cover;margin-right:4px">` : '';
+      return `<button type="button" class="ms-cast-chip${onCls}" data-ms-cast="${esc(m.file)}" style="display:inline-flex;align-items:center;height:28px;padding:0 8px;border-radius:999px;font-size:11px;border:1px solid ${idx >= 0 ? '#a78bfa' : 'rgba(255,255,255,.16)'};background:${idx >= 0 ? 'rgba(139,92,246,.28)' : 'rgba(255,255,255,.05)'}">${numBadge}${thumb}${esc(m.firstName || m.name || m.file)}</button>`;
+    }).join('');
+  }
+
+  async function refreshMultiShotAgentPrompt() {
+    if (!api || !api.buildMultiShotPrompt) return '';
+    const cast = msSelectedCast.map((file, idx) => {
+      const m = refmodEntries.find((x) => x.file === file);
+      return { file, name: m ? (m.name || m.firstName || `Subject ${idx + 1}`) : `Subject ${idx + 1}` };
+    });
+    const envPreset = $('ai-ms-env-preset')?.value || '';
+    const envCustom = ($('ai-ms-env-desc')?.value || '').trim();
+    const environment = envCustom || envPreset;
+    const bgRefmod = $('ai-ms-bg-refmod')?.value || '';
+    const res = await api.buildMultiShotPrompt({
+      cast,
+      environment,
+      bgPicture: msBgPicture,
+      bgRefmod,
+      maxFrames: 124,
+      fps: 24,
+    });
+    if (res && res.ok && res.prompt) {
+      msLastBuiltPrompt = res.prompt;
+      const pre = $('ai-ms-prompt-preview');
+      if (pre) pre.textContent = msLastBuiltPrompt;
+      const st = $('ai-ms-bg-status');
+      if (st) {
+        const castTxt = cast.length ? cast.map((c, i) => `${i + 1}:${c.name}`).join(', ') : 'No RefMods picked yet';
+        const bgTxt = msBgPicture ? `BG Pic: ${msBgPicture.split(/[\\/]/).pop()}` : (bgRefmod ? `Set RefMod: ${bgRefmod}` : (environment ? `Env: ${environment.slice(0, 48)}` : 'No environment lock'));
+        st.textContent = `Prompt ready → Cast [${castTxt}] · ${bgTxt} · Max 124f (5.1s) auto-continuation + dialogue-safe cuts.`;
+      }
+      return msLastBuiltPrompt;
+    }
+    return '';
+  }
 
   function buildRequestForScriptShot(shot) {
     const form = $('t2v-form');
@@ -1465,8 +1524,8 @@ function init() {
     return {
       backend,
       localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
-    localLora: String(fd.get('localLora') || '').trim(),
-    localLoraStrength: Number(fd.get('localLoraStrength') || 1.0),
+      localLora: String((form && form.elements.localLora && form.elements.localLora.value) || '').trim(),
+      localLoraStrength: Number((form && form.elements.localLoraStrength && form.elements.localLoraStrength.value) || 1.0),
       modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
       modalTier,
       mode,
@@ -1566,6 +1625,78 @@ function init() {
     applyModeVisibility();
     updateCommandPreview();
     setStatus(`Loaded Shot ${shot.shotNumber} ("${shot.summary}") into AI Studio.`);
+  }
+
+  // Wire Multi-Shot Cast Chips, Environment Picker, BG Picture, & Live Copyable Agent Prompt
+  const msPanel = $('ai-script-panel');
+  if (msPanel) {
+    msPanel.addEventListener('click', async (e) => {
+      const chip = e.target.closest('[data-ms-cast]');
+      if (chip) {
+        const slug = chip.dataset.msCast;
+        const i = msSelectedCast.indexOf(slug);
+        if (i >= 0) msSelectedCast.splice(i, 1);
+        else msSelectedCast.push(slug);
+        renderMultiShotCastChips();
+        await refreshMultiShotAgentPrompt();
+        return;
+      }
+      if (e.target.closest('#ai-ms-clear-cast')) {
+        msSelectedCast = [];
+        msBgPicture = '';
+        if ($('ai-ms-env-preset')) $('ai-ms-env-preset').value = '';
+        if ($('ai-ms-env-desc')) $('ai-ms-env-desc').value = '';
+        if ($('ai-ms-bg-refmod')) $('ai-ms-bg-refmod').value = '';
+        renderMultiShotCastChips();
+        await refreshMultiShotAgentPrompt();
+        return;
+      }
+      if (e.target.closest('#ai-ms-bg-pick') && api && api.pickFile) {
+        const picked = await api.pickFile('image');
+        if (picked && !picked.canceled && picked.path) {
+          msBgPicture = picked.path;
+          await refreshMultiShotAgentPrompt();
+        }
+        return;
+      }
+      if (e.target.closest('#ai-ms-toggle-preview')) {
+        const pre = $('ai-ms-prompt-preview');
+        if (pre) {
+          if (pre.hidden) await refreshMultiShotAgentPrompt();
+          pre.hidden = !pre.hidden;
+        }
+        return;
+      }
+      if (e.target.closest('#ai-ms-copy-prompt')) {
+        const btn = $('ai-ms-copy-prompt');
+        const txt = (await refreshMultiShotAgentPrompt()) || msLastBuiltPrompt;
+        if (txt && navigator.clipboard) {
+          await navigator.clipboard.writeText(txt).catch(() => {});
+          if (btn) {
+            const prev = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => { btn.textContent = prev; }, 1400);
+          }
+          setStatus('Copied Multi-Shot Agent System Prompt (with your numbered RefMods, environment & 124-frame continuation rules)!');
+        }
+      }
+    });
+    $('ai-ms-env-preset')?.addEventListener('change', (e) => {
+      if ($('ai-ms-env-desc') && e.target.value) $('ai-ms-env-desc').value = e.target.value;
+      refreshMultiShotAgentPrompt();
+    });
+    $('ai-ms-env-desc')?.addEventListener('input', () => refreshMultiShotAgentPrompt());
+    $('ai-ms-bg-refmod')?.addEventListener('change', () => refreshMultiShotAgentPrompt());
+    $('ai-mode-tabs')?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ai-mode="script"]');
+      if (b) {
+        renderMultiShotCastChips();
+        refreshMultiShotAgentPrompt();
+      }
+    });
+    document.addEventListener('zaude:refmods-changed', () => {
+      if (currentMode === 'script') renderMultiShotCastChips();
+    });
   }
 
   const uploadBtn = $('ai-script-upload');

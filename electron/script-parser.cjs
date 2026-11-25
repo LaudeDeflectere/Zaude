@@ -313,8 +313,116 @@ function assignLocationRefModSlot(characterRefMods = [], locationRefMod = '') {
   return { slots, locationSlotIndex: slotIdx, modKey: `mod_${slotIdx}` };
 }
 
+// Builds a live, copy-ready Agent System Prompt customized to the user's numbered RefMod cast,
+// chosen environment / BG Picture / Set RefMod, and strict 124-frame continuation + dialogue-safe cut rules.
+function buildMultiShotAgentPrompt({
+  cast = [],
+  environment = '',
+  bgPicture = '',
+  bgRefmod = '',
+  maxFrames = 124,
+  fps = 24,
+} = {}) {
+  const maxSec = Number((maxFrames / fps).toFixed(1));
+  const castList = (Array.isArray(cast) ? cast : []).filter((c) => c && c.file);
+  const castLines = castList.length
+    ? castList.map((c, idx) => `- <Subject ${idx + 1}>: refmod=${c.file} | name=${c.name || `Subject ${idx + 1}`} | identity=1.0 | voice=1.0`)
+    : ['- <Subject 1>: refmod=<pick_refmod_slug> | name=<Name 1> | identity=1.0 | voice=1.0'];
+
+  const bgLockLine = bgPicture
+    ? `- background_lock: picture=${bgPicture}`
+    : (bgRefmod ? `- background_lock: refmod=${bgRefmod}|Background Set|1.0|0.0` : '- background_lock: none');
+
+  const envAnchor = String(environment || '').trim() || (bgPicture ? `Match the exact room, architecture, props, and lighting of <Picture 1> (${bgPicture})` : 'Keep a single consistent verbatim room & lighting anchor across all shots');
+
+  const subjDefs = castList.length
+    ? castList.map((c, idx) => `<Subject ${idx + 1}> is ${c.name || `Subject ${idx + 1}`} from RefMod (${c.file}): keep exact RefMod face, hair, and outfit (or explicitly write "NOT in default outfit, instead wearing: ...").`)
+    : ['<Subject 1> is <Name 1> from RefMod (<slug>): keep exact RefMod face, hair, and outfit.'];
+
+  return `SYSTEM INSTRUCTIONS FOR ZAUDE MULTI-SHOT CONTINUATION SCRIPT (MiniMax-H3 · Max ${maxFrames} Frames / ${maxSec}s Chunks):
+Convert my story into a Zaude multi-shot script that Zaude will render sequentially and auto-stitch via latent continuation (\`mode: continue\`).
+
+CRITICAL CHUNK LENGTH & DIALOGUE-SAFE CUT RULES (STRICTLY OBEY):
+1. MAX ${maxFrames} FRAMES PER SHOT (${maxSec}s at ${fps}fps), NEVER LONGER — AND SHORTER IS GOOD!
+   - You are NOT required to fill all ${maxFrames} frames. Any shot can be 2.0s, 2.5s, 3.0s, 3.5s, 4.0s, 4.5s, or 5.0s!
+2. NEVER SPLIT A VOICE LINE ACROSS TWO GENERATIONS:
+   - Plan dialogue at 2.0–2.5 words per second (never > 3.0 wps). Start the first line 0.2–0.3s in, and finish at least 0.25s before the shot ends.
+   - Example: If Shot 1 has 2.8s of action and the next character has a 4.0s spoken line starting at t=3.0s (which would run past ${maxSec}s), CUT Shot 1 EARLY at 3.0s (fewer frames!) and start Shot 2 as \`mode: continue\` lasting 5.0s so the ENTIRE 4.0s voice line is spoken cleanly inside Shot 2!
+   - One speaker per timed window. Never overlap two speakers.
+3. AUTO-STITCH CONTINUATION CHAINING:
+   - Shot 1 of a scene uses \`mode: refmod\`.
+   - Every following shot in the SAME continuous scene uses \`mode: continue\` — Zaude automatically feeds Shot N's saved \`.h3latent.safetensors\` into Shot N+1 (do NOT add the 0.917s overlap yourself).
+   - Only switch back to \`mode: refmod\` when jumping to a brand-new location or time jump.
+4. CINEMATIC ACTION & CONTINUITY:
+   - Strict physical action chains: Initial Posture -> Trigger -> Action -> Momentum -> Impact -> Final Pose.
+   - Coordinate rules: screen-left/right, camera-left/right, subject left/right.
+   - 33% face close-ups / 67% medium, OTS, or environmental/prop shots; obey 180° axis rule for dialogue.
+   - Omit any <Subject N> from \`cast_in_shot\` and beats when they do not appear in that shot.
+   - ENVIRONMENT ANCHOR (repeat verbatim in every shot): ${envAnchor}
+
+RETURN THIS EXACT FORMAT (pasteable straight into Zaude's Multi-Shot tab):
+
+zaude_cast:
+${castLines.join('\n')}
+${bgLockLine}
+
+subject_definitions:
+${subjDefs.join('\n')}
+
+---
+
+zaude_shot_config:
+shot: 1
+engine: tranklena
+mode: refmod
+cast_in_shot: ${castList.length ? castList.map((_, i) => `<Subject ${i + 1}>`).join(', ') : '<Subject 1>'}
+speaking: <Subject 1>
+background: ${bgPicture ? `picture:${bgPicture}` : (bgRefmod ? `refmod:${bgRefmod}` : 'keep')}
+settings: 480p | ${fps}fps | 3s | 6 steps | 16:9
+
+style_definitions:
+keep same style, cinematic lighting, grounded camera mount, zero floating camera.
+
+detailed_description:
+${envAnchor}.
+
+[Shot 1] <Framing, camera mount, 35mm/50mm lens> lasting 00:00.000–00:03.000.
+summary: <One sentence of what happens ONLY in Shot 1 — cut cleanly BEFORE the next long voice line starts>.
+00:00.250–00:02.600:
+<Subject 1> (S1) <physical action>, <d>[English] <short complete line that finishes >=0.25s before cut></d>
+
+overall_soundscape:
+<Room tone, footsteps, foley, clean dialogue>.
+
+non_diegetic_music:
+None.
+
+---
+
+zaude_shot_config:
+shot: 2
+engine: tranklena
+mode: continue
+cast_in_shot: ${castList.length ? castList.map((_, i) => `<Subject ${i + 1}>`).join(', ') : '<Subject 1>'}
+speaking: ${castList.length >= 2 ? '<Subject 2>' : '<Subject 1>'}
+background: keep
+settings: 480p | ${fps}fps | 5s | 7 steps | 16:9
+
+[Shot 2] <Continuation framing> lasting 00:00.000–00:05.000.
+summary: <Full 4-second spoken line delivered cleanly inside this single continuation chunk>.
+00:00.250–00:04.500:
+${castList.length >= 2 ? '<Subject 2> (S2)' : '<Subject 1> (S1)'} <physical action>, <d>[English] <complete 4-second voice line></d>
+
+overall_soundscape:
+<Matching room tone, clean dialogue>.
+
+non_diegetic_music:
+None.`;
+}
+
 module.exports = {
   parseMultiShotScript,
   parseTimestampToSeconds,
   assignLocationRefModSlot,
+  buildMultiShotAgentPrompt,
 };

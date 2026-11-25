@@ -390,10 +390,26 @@ function registerAiHandlers() {
     });
   }
 
+  let lastCompletedShot = { latent: '', path: '', quality: '' };
+
   function pumpJobQueue() {
     if (activeJob || !jobQueue.length) return;
     const next = jobQueue.shift();
-    const { id, input, mannimmateDir, settings, send, estSec } = next;
+    const { id, mannimmateDir, settings, send, estSec } = next;
+    let input = next.input;
+    // Auto-chain Multi-Shot `mode: continue` shots to the just-finished previous shot's latent / video!
+    if (
+      input && input.mode === 'refmod' && input.refmodMode === 'continue'
+      && !input.latent && !input.seedVideo
+      && (lastCompletedShot.latent || lastCompletedShot.path)
+    ) {
+      const sameRes = !lastCompletedShot.quality || String(input.quality || input.resolution || '640') === lastCompletedShot.quality;
+      if (lastCompletedShot.latent && sameRes) {
+        input = { ...input, latent: lastCompletedShot.latent };
+      } else if (lastCompletedShot.path) {
+        input = { ...input, seedVideo: lastCompletedShot.path };
+      }
+    }
     const useLocal = Boolean(input && input.backend === 'local');
     const useModal = Boolean(input && input.backend === 'modal');
     const useEsrgan = Boolean(input && input.mode === 'upscale-esrgan');
@@ -557,6 +573,13 @@ function registerAiHandlers() {
           latentsLib.saveLatentName(latentNamesFile(), result.latent, latentLabel);
         }
         if (result.path) pickedMediaDirs.add(path.dirname(result.path));
+        if (result.latent || result.path) {
+          lastCompletedShot = {
+            latent: result.latent || '',
+            path: result.path || '',
+            quality: String((input && (input.quality || input.resolution)) || ''),
+          };
+        }
         send({
           type: 'done',
           path: result.path,
@@ -788,6 +811,10 @@ function registerAiHandlers() {
     }
   });
   ipcMain.handle('ai:parseScript', (_e, rawText) => scriptParser.parseMultiShotScript(rawText));
+  ipcMain.handle('ai:script:buildAgentPrompt', (_e, input) => ({
+    ok: true,
+    prompt: scriptParser.buildMultiShotAgentPrompt(input || {}),
+  }));
 
   // ---------- Pillar 1: Room Acoustics Presets & Continuous Room-Tone Bed ----------
   ipcMain.handle('audio:listRoomPresets', () => ({ ok: true, presets: roomAcoustics.listRoomPresets() }));

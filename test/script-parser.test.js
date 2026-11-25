@@ -157,3 +157,22 @@ test('locationRefMod assigns to next free mod_K slot without colliding with char
   assert.equal(sg['11b'].inputs.curve_direction, 'concept_at_start');
   assert.deepEqual(sg['12'].inputs.ref2va_model, ['11b', 0]);
 });
+
+test('buildMultiShotAgentPrompt embeds numbered RefMods, environment/BG lock, and 124-frame dialogue-safe continuation rules', () => {
+  const prompt = sp.buildMultiShotAgentPrompt({
+    cast: [
+      { file: 'karlsten_malco', name: 'Karlsten' },
+      { file: 'elias_varga', name: 'Elias' },
+    ],
+    environment: 'Bright sunlit high school hallway with lockers',
+    bgPicture: '/tmp/school_hallway.png',
+    maxFrames: 124,
+    fps: 24,
+  });
+  assert.match(prompt, /<Subject 1>: refmod=karlsten_malco \| name=Karlsten/);
+  assert.match(prompt, /<Subject 2>: refmod=elias_varga \| name=Elias/);
+  assert.match(prompt, /background_lock: picture=\/tmp\/school_hallway\.png/);
+  assert.match(prompt, /MAX 124 FRAMES PER SHOT/);
+  assert.match(prompt, /NEVER SPLIT A VOICE LINE ACROSS TWO GENERATIONS/);
+  assert.match(prompt, /mode: continue/);
+});
