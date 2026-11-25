@@ -291,6 +291,83 @@ export function createActions(store, engine) {
     commit(T.changeSpeed(get().clips, sel.id), sel.name + ' speed changed');
   }
 
+  function setSpeed(targetSpeed, live = false) {
+    const sel = selectedClip();
+    if (!sel) return needSelection();
+    const next = T.setSpeed(get().clips, sel.id, targetSpeed);
+    if (!next) return;
+    const after = T.findClip(next, sel.id);
+    const msg = `${sel.name} Time Warp ${after.speed.toFixed(2)}× (${after.dur.toFixed(2)}s)`;
+    if (live) liveChange('speed:' + sel.id, next, msg);
+    else commit(next, msg);
+  }
+
+  function matchAudioDuration() {
+    const s = get();
+    const selIds = s.selectedIds && s.selectedIds.length ? s.selectedIds : (s.selected ? [s.selected] : []);
+    const selClips = selIds.map((id) => T.findClip(s.clips, id)).filter(Boolean);
+    const vClip = selClips.find((c) => c.kind === 'video') || (selectedClip() && selectedClip().kind === 'video' ? selectedClip() : null);
+    const aClip = selClips.find((c) => c.kind === 'audio') || s.clips.find((c) => c.kind === 'audio');
+    if (!vClip || !aClip) return log('Select a video clip and an audio clip to match duration.');
+    const targetSpeed = Math.max(0.25, Math.min(4.0, T.sourceUsed(vClip) / Math.max(0.1, aClip.dur)));
+    const next = T.setSpeed(s.clips, vClip.id, targetSpeed);
+    if (next) {
+      const after = T.findClip(next, vClip.id);
+      commit(next, `⏱️ Time-warped "${vClip.name}" to ${after.speed.toFixed(2)}× (${after.dur.toFixed(2)}s) to match "${aClip.name}"`);
+    }
+  }
+
+  function insertAudioClip({ path: filePath, url, name, dur }) {
+    const s = get();
+    const duration = Math.max(0.5, Number(dur) || 4);
+    const startAt = Math.max(0, Number(s.playhead) || 0);
+    const audioTracks = T.ensureTracksForClips(s.tracks, s.clips).filter((t) => t.kind === 'audio');
+    let targetTrack = audioTracks[0] ? audioTracks[0].id : 'A1';
+    for (const tr of audioTracks) {
+      const conflict = s.clips.some((c) => c.track === tr.id && c.start < startAt + duration && T.clipEnd(c) > startAt);
+      if (!conflict) { targetTrack = tr.id; break; }
+    }
+    const id = 'c' + Math.random().toString(36).slice(2, 9);
+    const newClip = {
+      id,
+      kind: 'audio',
+      track: targetTrack,
+      name: name || (filePath ? filePath.split(/[\\/]/).pop() : 'voice.wav'),
+      path: filePath,
+      url: url || null,
+      start: startAt,
+      dur: duration,
+      srcIn: 0,
+      srcDur: duration,
+      speed: 1,
+      volume: 100,
+      muted: false,
+      hasAudio: true,
+    };
+    commit([...s.clips, newClip], `🎙️ Added "${newClip.name}" (${duration.toFixed(2)}s) to ${targetTrack}`);
+    store.set({ selected: id, selectedIds: [id] });
+    return newClip;
+  }
+
+  function replaceClipWithSynced({ clipId, path: filePath, url, dur }) {
+    const s = get();
+    const old = T.findClip(s.clips, clipId);
+    if (!old) return;
+    const nextDur = Number(dur) > 0 ? Number(dur) : old.dur;
+    const next = s.clips.map((c) => (c.id === clipId ? {
+      ...c,
+      path: filePath,
+      url: url || c.url,
+      srcIn: 0,
+      srcDur: nextDur,
+      dur: nextDur,
+      speed: 1,
+      hasAudio: true,
+      muted: false,
+    } : c));
+    commit(next, `🗣️ Replaced "${old.name}" with lip-synced clip (${nextDur.toFixed(2)}s)`);
+  }
+
   function dissolve() {
     const sel = selectedClip();
     if (!sel) return needSelection();
@@ -1103,7 +1180,7 @@ export function createActions(store, engine) {
   }
 
   return {
-    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
+    undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, setSpeed, matchAudioDuration, insertAudioClip, replaceClipWithSynced, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
     setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime, addTrack,
     detectBeats, setBeatGrid, addBeatMarker, moveBeatMarker, removeBeatMarker, clearBeats,
     setClipFade, upsertVolumeKeyframe, removeVolumeKeyframe, clearVolumeKeyframes,

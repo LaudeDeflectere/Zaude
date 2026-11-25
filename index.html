@@ -17,6 +17,7 @@
     <button id="aichat-open" class="ai" title="Open AI Chat assistant (Claude, Codex, OpenCode, MCP)">AI Chat</button>
     <button id="help-open" title="Open Help, Shortcuts, MCP Setup &amp; AI Tips">Help &amp; Tips</button>
     <button id="t2v-open" class="ai" title="Open Mannimmate AI Studio (Text to Video, RefMod, Restyle, Coverage)">✨ AI Studio</button>
+    <button id="audio-portal-open" class="ai" title="Audio-First Studio: Generate/Record Dialogue Audio → Time Warp Clip → Lip-Sync">🎙️ Audio &amp; Lip-Sync</button>
     <button id="advisor-open" class="ai" title="Analyze local GPU, RAM &amp; Storage, search newest AI video models, and 1-click install">🖥️ Local GPU</button>
     <span class="modal-usage-group" id="modal-usage-group" title="Live Modal.com cloud GPU usage &amp; billing (click to refresh)">
       <button type="button" id="modal-usage-btn" class="modal-usage-pill"><span class="modal-dot" id="modal-usage-dot"></span><span id="modal-usage-text">☁️ Modal: …</span></button>
@@ -683,6 +684,89 @@
         <button type="submit" class="primary" id="rmc-submit">🚀 Build RefMod on Tranklena</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 🎙️ Audio-First & Lip-Sync Control Portal -->
+<div id="audio-portal-dialog" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ap-title" style="max-width:780px">
+    <div class="modal-head">
+      <h2 id="ap-title">🎙️ Audio-First &amp; Lip-Sync Studio</h2>
+      <button type="button" id="ap-close">Close</button>
+    </div>
+
+    <div class="ap-body" style="display:flex;flex-direction:column;gap:14px;padding:6px 2px">
+      <!-- Step 1: Create / Record / Import Audio -->
+      <div class="ap-card" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b>1. Create Dialogue Audio First <span class="muted">(lands directly on timeline Audio track)</span></b>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="ap-record-btn" class="ai">🎤 Record Mic</button>
+            <button type="button" id="ap-import-btn">📂 Import Audio</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-bottom:8px">
+          <label>Character Voice (RefMod)
+            <select id="ap-refmod">
+              <option value="">— Generic Studio Voice —</option>
+            </select>
+          </label>
+          <label>Delivery / Tone
+            <input type="text" id="ap-delivery" value="natural, clear, intimate close-mic speech" placeholder="e.g. calm whisper, urgent, sarcastic">
+          </label>
+          <label>Length (s)
+            <input type="number" id="ap-seconds" min="2" max="15" step="1" value="4">
+          </label>
+        </div>
+        <label style="display:block;margin-bottom:8px">Dialogue Line
+          <textarea id="ap-dialogue" rows="2" placeholder="Type the exact words the character should speak (plan ~2.0–2.5 words/sec)…"></textarea>
+        </label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button type="button" id="ap-gen-voice" class="primary">🎙️ Generate Voice Audio on Tranklena</button>
+          <span class="muted" id="ap-voice-status" style="font-size:12px">Fast 320p · 4-step audio-first pass → 48 kHz WAV on timeline</span>
+        </div>
+      </div>
+
+      <!-- Step 2: Manual Time Warp (Speed Sync) -->
+      <div class="ap-card" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b>2. Time Warp Video Clip to Match Audio <span class="muted">(manual slider or 1-click match)</span></b>
+          <button type="button" id="ap-match-audio" class="ai">🎯 Auto-Match Video to Audio Duration</button>
+        </div>
+        <div id="ap-pair-summary" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="background:rgba(0,0,0,.28);border-radius:8px;padding:8px;font-size:12px" id="ap-video-badge">🎬 Video: <i>Select a video clip on the timeline</i></div>
+          <div style="background:rgba(0,0,0,.28);border-radius:8px;padding:8px;font-size:12px" id="ap-audio-badge">🔊 Audio: <i>Select an audio clip on the timeline</i></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="muted" style="font-size:12px;white-space:nowrap">⏱️ Time Warp:</span>
+          <input type="range" id="ap-speed-range" min="0.25" max="4.0" step="0.05" value="1.00" style="flex:1">
+          <input type="number" id="ap-speed-num" min="0.25" max="4.0" step="0.05" value="1.00" style="width:74px">
+          <span class="muted" id="ap-delta-badge" style="font-size:12px;min-width:95px;text-align:right">—</span>
+        </div>
+      </div>
+
+      <!-- Step 3: Lip-Sync Selected Video + Audio -->
+      <div class="ap-card" style="background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.3);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <b>3. Lip-Sync Selected Video + Audio</b>
+            <div class="muted" style="font-size:11px">Select 1 Video + 1 Audio on the timeline (Ctrl+Click both) — Zaude bakes your Time Warp &amp; trims, runs LatentSync 1.6 / MuseTalk on Tranklena, and swaps the synced video in-place.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="ap-room-preset" title="Optional room acoustics match on synced audio">
+              <option value="none">Acoustics: Dry / Original</option>
+              <option value="dim-bar">🍺 Dim Bar</option>
+              <option value="small-office">🖨️ Small Office</option>
+              <option value="outdoor-street">🌳 Outdoor Street</option>
+              <option value="hallway">🚪 Hallway</option>
+              <option value="podcast-booth">🎙️ Podcast Booth</option>
+            </select>
+            <button type="button" id="ap-run-lipsync" class="primary">🗣️ Lip-Sync Selected Pair</button>
+          </div>
+        </div>
+        <div class="muted" id="ap-lipsync-status" style="font-size:12px;margin-top:8px">Tip: You can also Ctrl+Click any Audio + Video clip on the timeline and right-click → <b>🗣️ Lip-Sync</b> directly!</div>
+      </div>
+    </div>
   </div>
 </div>
 

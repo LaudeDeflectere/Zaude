@@ -427,10 +427,60 @@ function runLipSyncJob({
   return { promise, cancel };
 }
 
+// Pre-bakes a timeline video clip's trim (srcIn, dur) and manual Time Warp (speed: 0.25x..4.0x)
+// into a clean 25 FPS MP4 plate so lip-sync matches the exact time-warped timing on the timeline.
+function prepareTimeWarpedClip({ videoPath, srcIn = 0, dur = 0, speed = 1, outPath, ffmpeg = 'ffmpeg' }) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  const spd = Math.max(0.25, Math.min(4.0, Number(speed) || 1));
+  const start = Math.max(0, Number(srcIn) || 0);
+  const timelineDur = Math.max(0.25, Number(dur) || 0);
+  const srcSpan = timelineDur > 0 ? timelineDur * spd : 0;
+  const vf = Math.abs(spd - 1) > 0.005
+    ? `setpts=PTS/${spd.toFixed(4)},fps=25`
+    : 'fps=25';
+  const args = ['-hide_banner', '-y'];
+  if (start > 0.005) args.push('-ss', start.toFixed(3));
+  args.push('-i', videoPath);
+  if (srcSpan > 0.05) args.push('-t', srcSpan.toFixed(3));
+  args.push(
+    '-vf', vf,
+    '-an',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
+    outPath,
+  );
+  return new Promise((resolve) => {
+    execFile(ffmpeg, args, { windowsHide: true }, (err, _out, stderr) => {
+      if (err) return resolve({ ok: false, error: (stderr || err.message || 'FFmpeg time-warp failed').slice(0, 300) });
+      resolve({ ok: true, path: outPath });
+    });
+  });
+}
+
+// Trims an audio clip to its exact timeline range (srcIn..srcIn+dur) as 48 kHz WAV for lip-sync.
+function prepareTrimmedAudio({ audioPath, srcIn = 0, dur = 0, outPath, ffmpeg = 'ffmpeg' }) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  const start = Math.max(0, Number(srcIn) || 0);
+  const span = Math.max(0, Number(dur) || 0);
+  const args = ['-hide_banner', '-y'];
+  if (start > 0.005) args.push('-ss', start.toFixed(3));
+  args.push('-i', audioPath);
+  if (span > 0.05) args.push('-t', span.toFixed(3));
+  args.push('-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', outPath);
+  return new Promise((resolve) => {
+    execFile(ffmpeg, args, { windowsHide: true }, (err, _out, stderr) => {
+      if (err) return resolve({ ok: false, error: (stderr || err.message || 'FFmpeg audio trim failed').slice(0, 300) });
+      resolve({ ok: true, path: outPath });
+    });
+  });
+}
+
 module.exports = {
   detectLipSyncEngine,
   computeLoopRepeats,
   prepareLoopedPlate,
+  prepareTimeWarpedClip,
+  prepareTrimmedAudio,
+  probeDuration,
   buildLatentSyncGraph,
   runLipSyncJob,
 };

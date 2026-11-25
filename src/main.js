@@ -9,6 +9,7 @@ import { installScrub } from './scrub.js';
 import { createThumbCache } from './thumbs.js';
 import { createWaveformCache } from './waveform.js';
 import { installAgentBridge } from './agent-bridge.js';
+import { initAudioPortal } from './audio-portal.js';
 
 const store = createStore(initialState());
 const engine = createEngine(store);
@@ -43,6 +44,7 @@ ctx.workspace = workspace;
 workspace.init();
 installScrub(workspaceEl, { store, actions });
 installAgentBridge({ store, actions, workspace });
+initAudioPortal({ store, actions });
 
 document.getElementById('windows-open').addEventListener('click', (e) => {
   workspace.openWindowsMenu(e.currentTarget);

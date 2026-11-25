@@ -879,22 +879,148 @@ function registerAiHandlers() {
     const settings = loadSettings();
     const outDir = settings.outDir || defaultOutDir();
     const previewDir = path.join(app.getPath('userData'), 'ai-previews');
+    const workDir = path.join(app.getPath('userData'), 'ai-lipsync-work');
+    fs.mkdirSync(workDir, { recursive: true });
+    const jobTag = `ls-${Date.now().toString(36)}`;
+
+    // Pre-bake manual Time Warp (speed) + timeline trim on the video clip if needed
+    let effectiveVideo = input.videoPath;
+    const vSpeed = Number(input.videoSpeed) || 1;
+    const vSrcIn = Number(input.videoSrcIn) || 0;
+    const vDur = Number(input.videoDur) || 0;
+    if (effectiveVideo && (Math.abs(vSpeed - 1) > 0.005 || vSrcIn > 0.01 || vDur > 0)) {
+      const warpedPath = path.join(workDir, `${jobTag}_warped.mp4`);
+      const w = await lipsync.prepareTimeWarpedClip({
+        videoPath: effectiveVideo,
+        srcIn: vSrcIn,
+        dur: vDur,
+        speed: vSpeed,
+        outPath: warpedPath,
+      });
+      if (!w.ok) return { ok: false, error: `Could not prepare time-warped clip: ${w.error}` };
+      effectiveVideo = warpedPath;
+    }
+
+    // Pre-trim the audio clip to its exact timeline range if trimmed
+    let effectiveAudio = input.audioPath;
+    const aSrcIn = Number(input.audioSrcIn) || 0;
+    const aDur = Number(input.audioDur) || 0;
+    if (effectiveAudio && (aSrcIn > 0.01 || aDur > 0)) {
+      const trimmedAudio = path.join(workDir, `${jobTag}_audio.wav`);
+      const t = await lipsync.prepareTrimmedAudio({
+        audioPath: effectiveAudio,
+        srcIn: aSrcIn,
+        dur: aDur,
+        outPath: trimmedAudio,
+      });
+      if (!t.ok) return { ok: false, error: `Could not prepare trimmed audio: ${t.error}` };
+      effectiveAudio = trimmedAudio;
+    }
+
     const job = lipsync.runLipSyncJob({
-      videoPath: input.videoPath,
-      audioPath: input.audioPath,
+      videoPath: effectiveVideo,
+      audioPath: effectiveAudio,
       loopMode: input.loopMode || 'ping-pong',
       roomPreset: input.roomPreset || 'none',
       roomIntensity: input.roomIntensity != null ? input.roomIntensity : 1.0,
+      speakerBbox: input.speakerBbox || null,
       outDir,
       previewDir,
-      jobId: `ls-${Date.now().toString(36)}`,
+      jobId: jobTag,
       onEvent: (ev) => {
         if (!event.sender.isDestroyed()) event.sender.send('ai:job', { ...ev, mode: 'lipsync' });
       },
     });
     const res = await job.promise;
     if (!res || !res.ok) return res;
-    return { ...res, name: path.basename(res.output), url: mediaUrlFor(res.output) };
+    pickedMediaDirs.add(path.dirname(res.output));
+    const dur = await lipsync.probeDuration(res.output);
+    return { ...res, name: path.basename(res.output), url: mediaUrlFor(res.output), dur };
+  });
+
+  // Audio-First Studio: generate clean dialogue audio using a Character RefMod on Tranklena (320p · 4 steps -> 48 kHz WAV)
+  ipcMain.handle('ai:audio:generateVoice', async (event, input = {}) => {
+    const settings = loadSettings();
+    const mannimmateDir = settings.mannimmateDir;
+    const outDir = path.join(settings.outDir || defaultOutDir(), 'voice_audio');
+    fs.mkdirSync(outDir, { recursive: true });
+    const dialogue = String(input.dialogue || '').trim();
+    if (!dialogue) return { ok: false, error: 'Enter the dialogue line you want to generate.' };
+    const delivery = String(input.delivery || 'natural, clear, intimate close-mic speech').trim();
+    const refmodFile = String(input.refmod || '').trim();
+    const refmodName = String(input.refmodName || 'Speaker').trim();
+    const seconds = Math.max(2, Math.min(15, Math.round(Number(input.seconds) || 4)));
+
+    const prompt = refmodFile
+      ? `Close-up quiet studio portrait of ${refmodName} speaking directly to camera in a clean quiet room with ${delivery} delivery. Dialogue (0.2s–${(seconds - 0.2).toFixed(1)}s): ${refmodName} says, "${dialogue}". overall_soundscape: Clean studio dialogue, zero background music, zero crowd noise. non_diegetic_music: None.`
+      : `Quiet neutral studio voiceover recording with ${delivery} delivery. Dialogue (0.2s–${(seconds - 0.2).toFixed(1)}s): Speaker says, "${dialogue}". overall_soundscape: Clean studio dialogue, zero music. non_diegetic_music: None.`;
+
+    const req = {
+      mode: refmodFile ? 'refmod' : 'text-render',
+      prompt,
+      seconds,
+      quality: '320',
+      resolution: 320,
+      steps: 4,
+      fps: 24,
+      refmods: refmodFile ? [{ file: refmodFile, name: refmodName, identityStrength: 0.7, voiceStrength: 1.0 }] : [],
+    };
+    const jobId = `voice-${Date.now().toString(36)}`;
+    const job = mannimmate.runJob({
+      mannimmateDir,
+      python: settings.python,
+      request: req,
+      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+      previewDir: previewRoot(),
+      jobId,
+      outDir,
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:job', { ...ev, mode: 'voice-audio' });
+      },
+    });
+    const res = await job.promise;
+    if (!res || !res.ok || !res.path) {
+      return { ok: false, error: (res && res.error) || 'Voice generation failed.' };
+    }
+    const slug = refmodsLib.slugForRefMod(refmodName || 'voice').slice(0, 20);
+    const wavPath = path.join(outDir, `${slug}_${Date.now().toString(36)}.wav`);
+    const { spawnSync } = require('node:child_process');
+    const ext = spawnSync('ffmpeg', [
+      '-hide_banner', '-y', '-i', res.path,
+      '-vn', '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le',
+      wavPath,
+    ], { windowsHide: true, timeout: 30000 });
+    if (ext.status !== 0 || !fs.existsSync(wavPath)) {
+      return { ok: false, error: 'Generated video had no extractable audio track.' };
+    }
+    pickedMediaDirs.add(outDir);
+    const dur = await lipsync.probeDuration(wavPath);
+    return { ok: true, path: wavPath, url: mediaUrlFor(wavPath), name: path.basename(wavPath), dur: dur || seconds };
+  });
+
+  // Save a microphone recording (webm/ogg bytes from renderer MediaRecorder) as 48 kHz WAV
+  ipcMain.handle('ai:audio:saveRecording', async (_e, { bytes, name = 'mic_recording' } = {}) => {
+    if (!bytes || !bytes.length) return { ok: false, error: 'Empty recording.' };
+    const settings = loadSettings();
+    const outDir = path.join(settings.outDir || defaultOutDir(), 'voice_audio');
+    fs.mkdirSync(outDir, { recursive: true });
+    const stamp = Date.now().toString(36);
+    const clean = String(name || 'mic').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 32) || 'mic';
+    const rawPath = path.join(outDir, `${clean}_${stamp}.webm`);
+    const wavPath = path.join(outDir, `${clean}_${stamp}.wav`);
+    fs.writeFileSync(rawPath, Buffer.from(bytes));
+    const { spawnSync } = require('node:child_process');
+    const conv = spawnSync('ffmpeg', ['-hide_banner', '-y', '-i', rawPath, '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath], {
+      windowsHide: true,
+      timeout: 20000,
+    });
+    try { fs.unlinkSync(rawPath); } catch { /* ignore */ }
+    if (conv.status !== 0 || !fs.existsSync(wavPath)) {
+      return { ok: false, error: 'Could not convert microphone recording to WAV.' };
+    }
+    pickedMediaDirs.add(outDir);
+    const dur = await lipsync.probeDuration(wavPath);
+    return { ok: true, path: wavPath, url: mediaUrlFor(wavPath), name: path.basename(wavPath), dur };
   });
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));

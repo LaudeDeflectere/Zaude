@@ -182,6 +182,21 @@ export function slipClip(clips, id, deltaSource) {
   return clips.map((x) => (x.id === id ? { ...x, srcIn } : { ...x }));
 }
 
+// Set a clip's speed continuously (Time Warp: 0.25x to 4.0x). Resizes clip duration to match and shifts later clips on its track.
+export function setSpeed(clips, id, targetSpeed) {
+  const c = findClip(clips, id);
+  if (!c) return null;
+  const speed = Math.max(0.25, Math.min(4.0, Math.round((Number(targetSpeed) || 1) * 100) / 100));
+  const newDur = Math.max(MIN_CLIP_DUR, sourceUsed(c) / speed);
+  const delta = newDur - c.dur;
+  const end = clipEnd(c);
+  return clips.map((x) => {
+    if (x.id === id) return { ...x, speed, dur: newDur };
+    if (x.track === c.track && x.start >= end - EPS) return { ...x, start: Math.max(0, x.start + delta) };
+    return { ...x };
+  });
+}
+
 // Cycle the clip's speed. The clip gets longer or shorter on the timeline and later clips on its track move.
 export function changeSpeed(clips, id) {
   const c = findClip(clips, id);

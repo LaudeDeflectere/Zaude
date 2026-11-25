@@ -836,6 +836,10 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       .map((id) => T.findClip(sNow.clips, id))
       .filter((c) => c && c.kind === 'video' && c.path)
       .sort((a, b) => a.start - b.start);
+    const selAudioClips = selIds
+      .map((id) => T.findClip(sNow.clips, id))
+      .filter((c) => c && c.kind === 'audio' && c.path);
+    const canPairLipSync = selVideoClips.length === 1 && selAudioClips.length === 1 && Boolean(window.zaudeAI && window.zaudeAI.lipSyncClip);
     const canFrameToFrame = selVideoClips.length === 2 && Boolean(window.zaudeAI && window.zaudeAI.extractFrame);
 
     const isVideo = clip.kind === 'video';
@@ -864,7 +868,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-refmod" class="menu-ai">✨ Upscale &amp; Fix Faces · 640p${upSuffix}</button>` : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">${fastUpLabel}${upSuffix}</button>` : ''}
       ${(canUpscale && upCaps.hasSeedVR2) ? `<button role="menuitem" data-ctx="upscale-seedvr2" class="menu-ai">💎 Hero Diffusion Upscale · SeedVR2 1080p${upSuffix}</button>` : ''}
-      ${canFrameContinue ? '<button role="menuitem" data-ctx="lipsync-clip" class="menu-ai">🗣️ Reuse &amp; Lip-Sync Clip (Tranklena)</button>' : ''}
+      ${canPairLipSync ? `<button role="menuitem" data-ctx="lipsync-pair" class="menu-ai">🗣️ Lip-Sync "${esc(selVideoClips[0].name)}" to "${esc(selAudioClips[0].name)}"</button>` : ''}
+      ${canFrameContinue ? '<button role="menuitem" data-ctx="lipsync-clip" class="menu-ai">🗣️ Reuse &amp; Lip-Sync Clip (pick audio…)</button>' : ''}
       ${(canFrameToFrame || canFrameContinue || canUpscale) ? '<div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
       ${isMedia ? `<button role="menuitem" data-ctx="mute">${clip.muted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}
@@ -982,6 +987,26 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         const insertAt = gap >= 0.5 ? T.clipEnd(c1) : T.clipEnd(c1);
         if (window.__zaudeOpenFrameToFrame) {
           window.__zaudeOpenFrameToFrame({ firstFrame: f1, lastFrame: f2, seconds, insertAt });
+        }
+      } else if (act === 'lipsync-pair' && canPairLipSync) {
+        const vClip = selVideoClips[0];
+        const aClip = selAudioClips[0];
+        actions.log(`🗣️ Lip-syncing "${vClip.name}" (${(vClip.speed || 1).toFixed(2)}×) to "${aClip.name}" (${aClip.dur.toFixed(2)}s) on Tranklena…`);
+        const res = await window.zaudeAI.lipSyncClip({
+          videoPath: vClip.path,
+          videoSrcIn: Number(vClip.srcIn) || 0,
+          videoDur: Number(vClip.dur) || 0,
+          videoSpeed: Number(vClip.speed) || 1,
+          audioPath: aClip.path,
+          audioSrcIn: Number(aClip.srcIn) || 0,
+          audioDur: Number(aClip.dur) || 0,
+          roomPreset: vClip.roomPreset || aClip.roomPreset || 'none',
+          roomIntensity: vClip.roomIntensity != null ? vClip.roomIntensity : 1.0,
+        });
+        if (res && res.ok && res.output) {
+          actions.replaceClipWithSynced({ clipId: vClip.id, path: res.output, url: res.url, dur: res.dur || aClip.dur });
+        } else {
+          actions.log(`Lip-sync failed: ${(res && res.error) || 'unknown error'}`);
         }
       } else if (act === 'lipsync-clip' && window.zaudeAI && window.zaudeAI.pickAudioFile && window.zaudeAI.lipSyncClip) {
         const picked = await window.zaudeAI.pickAudioFile();
@@ -1767,10 +1792,23 @@ export function inspectorPanel({ store, actions }) {
       const preset = (clip && clip.roomPreset && clip.roomPreset !== 'none') ? clip.roomPreset : 'dim-bar';
       actions.addRoomToneBed(preset);
     }
+    if (act.dataset.act === 'timewarp-preset') {
+      const sp = Number(act.dataset.speed);
+      if (Number.isFinite(sp)) actions.setSpeed(sp, false);
+    }
+    if (act.dataset.act === 'timewarp-match-audio') {
+      actions.matchAudioDuration();
+    }
     if (act.dataset.act === 'delete') actions.deleteSelected();
   });
 
   root.addEventListener('change', (e) => {
+    const twInput = e.target.closest('[data-timewarp-range],[data-timewarp-num]');
+    if (twInput) {
+      const sp = Number(twInput.value);
+      if (Number.isFinite(sp)) actions.setSpeed(sp, false);
+      return;
+    }
     const fadeInput = e.target.closest('[data-fade-input]');
     if (fadeInput) {
       const s = store.get();
@@ -2132,7 +2170,20 @@ export function inspectorPanel({ store, actions }) {
             <button class="kf-del" data-act="vol-kf-del" data-kf-id="${esc(k.id)}" title="Delete keyframe">×</button>
           </div>`).join('')}</div>` : ''}` : '';
 
+      const curSpeed = Number(c.speed) || 1;
+      const timeWarpHtml = isMedia ? `
+        <div class="lbl">⏱️ Time Warp · Speed <span class="muted">(${curSpeed.toFixed(2)}× · ${c.dur.toFixed(2)}s)</span></div>
+        <div class="exp-two-col" style="align-items:center">
+          <input type="range" min="0.25" max="4.0" step="0.05" value="${curSpeed.toFixed(2)}" data-timewarp-range="1" title="Drag to slow down (0.25×) or speed up (4.0×) to match dialogue audio">
+          <input type="number" min="0.25" max="4.0" step="0.05" value="${curSpeed.toFixed(2)}" data-timewarp-num="1" style="width:72px" title="Exact speed multiplier">
+        </div>
+        <div class="insp-row" style="flex-wrap:wrap;gap:4px">
+          ${[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((sp) => `<button type="button" class="${Math.abs(curSpeed - sp) < 0.02 ? 'on' : ''}" data-act="timewarp-preset" data-speed="${sp}">${sp}×</button>`).join('')}
+          ${isVideo ? '<button type="button" class="ai" data-act="timewarp-match-audio" title="Auto-warp this video clip speed to match your selected audio clip duration">🎯 Match Audio</button>' : ''}
+        </div>` : '';
+
       bodyHtml = `
+        ${timeWarpHtml}
         ${isMedia ? scrubField('volume') : ''}
         ${audioEnvHtml}
         ${isVideo ? scrubField('opacity') : ''}

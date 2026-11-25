@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   buildLocationRefMod: (input) => ipcRenderer.invoke('ai:buildLocationRefMod', input),
   pickAudioFile: () => ipcRenderer.invoke('ai:pickAudioFile'),
   lipSyncClip: (input) => ipcRenderer.invoke('ai:lipSyncClip', input),
+  generateVoiceAudio: (input) => ipcRenderer.invoke('ai:audio:generateVoice', input),
+  saveAudioRecording: (input) => ipcRenderer.invoke('ai:audio:saveRecording', input),
   extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
   trimSeedClip: (input) => ipcRenderer.invoke('ai:trimSeedClip', input),
   clipLatent: (filePath) => ipcRenderer.invoke('ai:clipLatent', filePath),

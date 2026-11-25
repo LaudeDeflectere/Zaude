@@ -81,3 +81,26 @@ test('Stylize (auto) supports RefMod + Background Change + per-RefMod clothes ov
   assert.ok(promptIdx >= 0);
   assert.match(rmCmd.args[promptIdx + 1], /NOT in default outfit, instead wearing: red flannel shirt and denim jacket/);
 });
+
+test('continuous Time Warp (setSpeed) resizes clip duration and shifts downstream clips cleanly', () => {
+  const clips = [
+    { id: 'v1', kind: 'video', track: 'V1', start: 0, dur: 4, srcIn: 0, srcDur: 4, speed: 1, name: 'Talk' },
+    { id: 'v2', kind: 'video', track: 'V1', start: 4, dur: 3, srcIn: 0, srcDur: 3, speed: 1, name: 'Next' },
+  ];
+  // Slow down v1 to 0.5x -> dur becomes 8s, v2 shifts to start=8s
+  const slowed = T.setSpeed(clips, 'v1', 0.5);
+  assert.equal(T.findClip(slowed, 'v1').speed, 0.5);
+  assert.equal(T.findClip(slowed, 'v1').dur, 8);
+  assert.equal(T.findClip(slowed, 'v2').start, 8);
+
+  // Speed up v1 to 2.0x -> dur becomes 2s, v2 shifts to start=2s
+  const sped = T.setSpeed(slowed, 'v1', 2.0);
+  assert.equal(T.findClip(sped, 'v1').speed, 2.0);
+  assert.equal(T.findClip(sped, 'v1').dur, 2);
+  assert.equal(T.findClip(sped, 'v2').start, 2);
+
+  // Verify lipsync exposes prepareTimeWarpedClip & prepareTrimmedAudio
+  const lipsync = require('../electron/lipsync.cjs');
+  assert.equal(typeof lipsync.prepareTimeWarpedClip, 'function');
+  assert.equal(typeof lipsync.prepareTrimmedAudio, 'function');
+});
