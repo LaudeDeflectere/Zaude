@@ -39,7 +39,7 @@ function readClipMeta(videoPath) {
   }
   if (fs.existsSync(videoPath) && (!out.duration || !out.refmods.length)) {
     try {
-      const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:format_tags=prompt', '-of', 'json', videoPath], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+      const r = spawnSync('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', videoPath], { encoding: 'utf8', timeout: 8000, windowsHide: true });
       const probeData = JSON.parse(String(r.stdout || '{}'));
       const d = Number(probeData && probeData.format && probeData.format.duration);
       if (!out.duration && d > 0) out.duration = d;
@@ -50,7 +50,7 @@ function readClipMeta(videoPath) {
           if (node && /RefModsLoader/i.test(String(node.class_type || '')) && node.inputs) {
             for (let i = 1; i <= 8; i++) {
               const mod = node.inputs[`mod_${i}`];
-              if (mod && mod !== 'None' && mod !== 'none') {
+              if (mod && !/^\(?none\)?$/i.test(String(mod).trim())) {
                 const cleanFile = String(mod).replace(/\\/g, '/').replace(/\.safetensors$/i, '');
                 const baseName = cleanFile.split('/').pop().replace(/_(?:cbphoto|photo|2d).*$/i, '');
                 out.refmods.push({
