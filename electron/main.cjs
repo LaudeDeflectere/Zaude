@@ -987,10 +987,10 @@ function registerAiHandlers() {
       mode: refmodFile ? 'refmod' : 'text-render',
       prompt,
       seconds,
-      quality: '320',
-      resolution: 320,
+      quality: '360',
+      resolution: 360,
       steps: 4,
-      fps: 24,
+      fps: 6, // 6 fps = 4x fewer video frames while keeping full-rate 48 kHz audio!
       refmods: refmodFile ? [{ file: refmodFile, name: refmodName, identityStrength: 0.7, voiceStrength: 1.0 }] : [],
     };
     const jobId = `voice-${Date.now().toString(36)}`;

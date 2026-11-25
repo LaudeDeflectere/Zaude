@@ -115,7 +115,7 @@ export function initAudioPortal({ store, actions }) {
       return;
     }
     btn.disabled = true;
-    if (st) st.textContent = `Generating ${seconds}s voice audio on Tranklena (320p · 4 steps)…`;
+    if (st) st.textContent = `Generating ${seconds}s voice audio on Tranklena (360p · 6fps · 4 steps)…`;
     try {
       const res = await api.generateVoiceAudio({ dialogue, delivery, seconds, refmod, refmodName });
       if (res && res.ok && res.path) {
