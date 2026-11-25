@@ -55,7 +55,25 @@ export function installScrub(root, { store, actions }) {
       }
       return;
     }
-    if (blk && e.ctrlKey) {
+    // Trackpad pinch-to-zoom (ctrlKey + vertical deltaY) anywhere on the timeline zooms seconds <-> minutes anchored at cursor
+    const onTimeline = e.target.closest('.timeline .scroller');
+    if (onTimeline && e.ctrlKey && !e.shiftKey && !e.altKey) {
+      const { vertical } = dominantScroll(e);
+      if (vertical) {
+        e.preventDefault();
+        const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+        const factor = Math.exp(-dy * 0.008);
+        const oldPps = s.pps || 40;
+        const nextPps = Math.min(4000, Math.max(0.5, oldPps * factor));
+        const rect = onTimeline.getBoundingClientRect();
+        const cursorX = Math.max(0, e.clientX - rect.left - 86);
+        const timeAtCursor = (onTimeline.scrollLeft + cursorX) / oldPps;
+        actions.setZoom(nextPps);
+        onTimeline.scrollLeft = Math.max(0, timeAtCursor * nextPps - cursorX);
+        return;
+      }
+    }
+    if (blk && e.ctrlKey && e.shiftKey) {
       const { vertical, px } = dominantScroll(e);
       if (vertical) {
         e.preventDefault();
@@ -67,11 +85,10 @@ export function installScrub(root, { store, actions }) {
       }
     }
     // length, move, and slip on the selected clip
-    const onTimeline = e.target.closest('.timeline .scroller');
     const mode = onTimeline ? gestureMode(e) : null;
     if (mode) {
       const { px } = { px: e.deltaX * (e.deltaMode === 1 ? 16 : 1) };
-      if (Math.abs(px) <= Math.abs(e.deltaY)) { e.preventDefault(); return; } // pinch and vertical scroll
+      if (Math.abs(px) <= Math.abs(e.deltaY)) { e.preventDefault(); return; }
       e.preventDefault();
       actions.gesture(mode, px);
     }

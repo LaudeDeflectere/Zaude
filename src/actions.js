@@ -3,7 +3,7 @@
 import * as T from './timeline.js';
 
 const SNAP_PX = 8;
-export const PPS_MIN = 1;     // whole project visible in a few minutes
+export const PPS_MIN = 0.5;   // zoom out to see 1-minute, 2-minute, 3-minute+ intervals
 export const PPS_MAX = 4000;  // single frames are visible
 const SAVE_DELAY_MS = 800;
 const GESTURE_IDLE_MS = 300;

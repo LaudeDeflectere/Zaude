@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', 
 const TRACKS = [
   { id: 'V2', label: 'Video 2' }, { id: 'V1', label: 'Video 1' }, { id: 'A1', label: 'Audio 1' }, { id: 'A2', label: 'Audio 2' },
 ];
-const RULER_STEPS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+const RULER_STEPS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 180, 300, 600];
 
 function el(html) {
   const wrap = document.createElement('div');
@@ -1222,12 +1222,60 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           );
         }
       } else {
-        // Floating ("in the air") clip drag: flies freely over other clips, snaps only where space is free,
-        // and returns cleanly to original spot if released over an occupied area.
+        // Hybrid clip drag:
+        // - Default: old magnetic flush-slide along track so clips kiss cleanly with ZERO 1-frame gaps!
+        // - Hover / Air mode: hold Alt, drag onto another compatible track, or pull >36px past a blocking neighbor
+        //   to lift the clip "in the air", fly over blocking clips, and snap flush wherever space is free.
         const ids = s.selectedIds && s.selectedIds.length > 1 && s.selectedIds.includes(clipId)
           ? s.selectedIds
           : [clipId];
+        const totalDeltaSec = (ev.clientX - x0) / s.pps;
+        const rawStart = Math.max(0, start0 + totalDeltaSec);
+        const hoverTrack = findTrackUnderY(ev.clientY);
+        const targetTrack = (hoverTrack && T.isTrackCompatible(clip, hoverTrack)) ? hoverTrack : track0;
+        const others = s.clips.filter((x) => !ids.includes(x.id));
+        const beatPts = (s.beats && s.beats.enabled && s.beats.snap && Array.isArray(s.beats.markers))
+          ? s.beats.markers.map((m) => m.time)
+          : [];
+        const snapThresh = 16 / s.pps; // generous 16px magnetic snap so clips kiss flush with 0.000s gap
 
+        const snapFlush = (candidateStart, dur) => {
+          if (!s.snap) return Math.max(0, candidateStart);
+          const sStart = T.snapTime(others, candidateStart, true, snapThresh, beatPts);
+          const sEnd = T.snapTime(others, candidateStart + dur, true, snapThresh, beatPts);
+          const dStart = Math.abs(sStart - candidateStart);
+          const dEnd = Math.abs(sEnd - (candidateStart + dur));
+          if (dStart <= dEnd && dStart <= snapThresh) return Math.max(0, sStart);
+          if (dEnd <= snapThresh) return Math.max(0, sEnd - dur);
+          return Math.max(0, candidateStart);
+        };
+
+        // Check if we should enter floating "in the air" hover mode
+        const wantsAir = Boolean(airGhosts)
+          || ev.altKey
+          || (ids.length === 1 && targetTrack !== clip.track)
+          || (ids.length === 1 && !T.canPlaceClip(s.clips, clipId, clip.track, rawStart) && Math.abs((rawStart - clip.start) * s.pps) > 36);
+
+        if (!wantsAir) {
+          // Classic flush magnetic slide along track (zero 1-frame gaps!)
+          if (ids.length === 1) {
+            const targetStart = snapFlush(rawStart, clip.dur);
+            const next = T.moveClip(s.clips, clipId, targetStart - clip.start);
+            if (next) {
+              const after = T.findClip(next, clipId);
+              actions.liveClips('drag-move:' + clipId, next, `${clip.name} on ${after.track} at ${after.start.toFixed(2)} s`);
+            }
+          } else {
+            const next = T.moveClips(s.clips, ids, dt);
+            if (next) {
+              const after = T.findClip(next, clipId);
+              actions.liveClips('drag-move:' + ids.join(','), next, `Moved ${ids.length} clips (first at ${after.start.toFixed(2)} s)`);
+            }
+          }
+          return;
+        }
+
+        // Floating ("in the air") hover mode: flies freely over blocking clips, snaps flush where space is free
         if (!airGhosts) {
           airGhosts = [];
           for (const id of ids) {
@@ -1244,27 +1292,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
           }
         }
 
-        const totalDeltaSec = (ev.clientX - x0) / s.pps;
         if (ids.length === 1) {
-          const rawStart = Math.max(0, start0 + totalDeltaSec);
-          const hoverTrack = findTrackUnderY(ev.clientY);
-          const targetTrack = (hoverTrack && T.isTrackCompatible(clip, hoverTrack)) ? hoverTrack : track0;
-          // Snap against all OTHER clips + beats (ignoring the clip being dragged)
-          const others = s.clips.filter((x) => x.id !== clipId);
-          const beatPts = (s.beats && s.beats.enabled && s.beats.snap && Array.isArray(s.beats.markers))
-            ? s.beats.markers.map((m) => m.time)
-            : [];
-          const snapThresh = 10 / s.pps;
-          let targetStart = rawStart;
-          if (s.snap) {
-            const snappedStart = T.snapTime(others, rawStart, true, snapThresh, beatPts);
-            const snappedEnd = T.snapTime(others, rawStart + clip.dur, true, snapThresh, beatPts);
-            if (Math.abs(snappedStart - rawStart) <= Math.abs(snappedEnd - (rawStart + clip.dur))) {
-              targetStart = Math.max(0, snappedStart);
-            } else {
-              targetStart = Math.max(0, snappedEnd - clip.dur);
-            }
-          }
+          const targetStart = snapFlush(rawStart, clip.dur);
           const valid = T.canPlaceClip(s.clips, clipId, targetTrack, targetStart);
           const rowEl = findTrackRow(targetTrack);
           const ghost = airGhosts[0];

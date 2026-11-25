@@ -12,8 +12,9 @@ if (!process.env.PULSE_PROP) process.env.PULSE_PROP = 'application.name=Zaude';
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 if (process.platform === 'linux' && process.env.__NV_PRIME_RENDER_OFFLOAD === '1') {
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
   app.commandLine.appendSwitch('use-gl', 'angle');
-  app.commandLine.appendSwitch('use-angle', 'gl-egl');
+  app.commandLine.appendSwitch('use-angle', 'vulkan');
 }
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
