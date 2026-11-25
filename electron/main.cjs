@@ -484,6 +484,8 @@ function registerAiHandlers() {
         resolution: input.resolution || 480,
         aspect: input.aspect || '16:9',
         steps: input.steps || 0,
+        lora: input.localLora || '',
+        loraStrength: input.localLoraStrength || 1.0,
         seed: input.seed || 1001,
         outDir: settings.outDir,
         previewDir: previewRoot(),

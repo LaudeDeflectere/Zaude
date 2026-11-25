@@ -91,9 +91,12 @@
     <form id="t2v-form" class="t2v-form ai-studio-form">
       <div class="t2v-wide ai-preset-bar" id="ai-preset-bar">
         <span class="muted">Presets:</span>
-        <button type="button" data-ai-preset="prod-16x9" title="RTX 3090 production sweet spot: 640p, 6 steps, 4-step Turbo LoRA, 7s, 24fps">🚀 Production (640p · 6 steps · 7s)</button>
-        <button type="button" data-ai-preset="prod-9x16" title="Portrait Short: 9:16, 640p, 6 steps, 7s">📱 Portrait Short (9:16 · 640p · 6 steps)</button>
-        <button type="button" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
+        <button type="button" data-minimax-only="1" data-ai-preset="prod-16x9" title="RTX 3090 production sweet spot: 640p, 6 steps, 4-step Turbo LoRA, 7s, 24fps">🚀 Production (640p · 6 steps · 7s)</button>
+        <button type="button" data-minimax-only="1" data-ai-preset="prod-9x16" title="Portrait Short: 9:16, 640p, 6 steps, 7s">📱 Portrait Short (9:16 · 640p · 6 steps)</button>
+        <button type="button" data-minimax-only="1" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-fast" title="Ultra-fast LTX sketch: 320p, 4 steps, 2s">⚡ LTX Fast Sketch (320p · 4 steps · 2s)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-480" title="Balanced LTX clip: 480p, 8 steps, 4s">🎬 LTX 480p (480p · 8 steps · 4s)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-portrait" title="Portrait LTX clip: 9:16, 480p, 8 steps, 3s">📱 LTX Portrait (9:16 · 480p · 8 steps)</button>
       </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
 
@@ -232,7 +235,7 @@
       </label>
 
       <div class="t2v-wide ai-media-squares" data-modes="text-render,refmod,auto,coverage">
-        <div class="ai-square-slot" data-modes="refmod" data-slot="firstFrame" data-pick-file="image" data-pick-target="firstFrame" title="First Frame (optional — or right-click 2 clips → FrameToFrame)">
+        <div class="ai-square-slot" data-modes="text-render,refmod" data-slot="firstFrame" data-pick-file="image" data-pick-target="firstFrame" title="First Frame (optional — locks opening frame for LTX &amp; MiniMax FL2V)">
           <div class="ai-square-box" id="ai-preview-firstFrame">
             <span class="ai-square-empty">⏮️<br>First Frame</span>
           </div>
@@ -240,7 +243,7 @@
           <input type="hidden" name="firstFrame">
         </div>
 
-        <div class="ai-square-slot" data-modes="refmod" data-slot="lastFrame" data-pick-file="image" data-pick-target="lastFrame" title="Last Frame (optional — or right-click 2 clips → FrameToFrame)">
+        <div class="ai-square-slot" data-modes="text-render,refmod" data-slot="lastFrame" data-pick-file="image" data-pick-target="lastFrame" title="Last Frame (optional — locks closing frame for LTX &amp; MiniMax FL2V)">
           <div class="ai-square-box" id="ai-preview-lastFrame">
             <span class="ai-square-empty">⏭️<br>Last Frame</span>
           </div>
@@ -248,7 +251,7 @@
           <input type="hidden" name="lastFrame">
         </div>
 
-        <div class="ai-square-slot" data-modes="auto" data-slot="video" data-pick-file="video" data-pick-target="video" title="Click to choose source video">
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="auto" data-slot="video" data-pick-file="video" data-pick-target="video" title="Click to choose source video">
           <div class="ai-square-box" id="ai-preview-video">
             <span class="ai-square-empty">🎬<br>Source Video</span>
           </div>
@@ -256,7 +259,7 @@
           <input type="hidden" name="video">
         </div>
 
-        <div class="ai-square-slot" data-modes="text-render,auto" data-slot="ref" data-pick-file="image" data-pick-target="ref" title="Click to choose reference image (optional for Text→Video)">
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="text-render,auto" data-slot="ref" data-pick-file="image" data-pick-target="ref" title="Click to choose reference image (optional for Text→Video)">
           <div class="ai-square-box" id="ai-preview-ref">
             <span class="ai-square-empty">🖼️<br>Ref Image</span>
           </div>
@@ -264,7 +267,7 @@
           <input type="hidden" name="ref">
         </div>
 
-        <div class="ai-square-slot" data-modes="text-render,refmod,auto" data-slot="backgroundImage" data-pick-file="image" data-pick-target="backgroundImage" title="Consistent Background Picture (photo or 3D room render — locks exact set/room via --background / <Picture 1>)">
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="text-render,refmod,auto" data-slot="backgroundImage" data-pick-file="image" data-pick-target="backgroundImage" title="Consistent Background Picture (photo or 3D room render — locks exact set/room via --background / <Picture 1>)">
           <div class="ai-square-box" id="ai-preview-backgroundImage">
             <span class="ai-square-empty">🌆<br>BG Picture</span>
           </div>
@@ -272,7 +275,7 @@
           <input type="hidden" name="backgroundImage">
         </div>
 
-        <label class="ai-bg-refmod-box" data-modes="refmod,auto" title="Lock a separate Location/Style RefMod as your multi-angle background set (attached visual-only, voice=0)">
+        <label class="ai-bg-refmod-box" data-minimax-only="1" data-modes="refmod,auto" title="Lock a separate Location/Style RefMod as your multi-angle background set (attached visual-only, voice=0)">
           <span>🧬 Background / Set RefMod <span class="muted">(multi-angle lock)</span></span>
           <select name="backgroundRefmod" id="ai-bg-refmod">
             <option value="">— None (prompt / picture only) —</option>
@@ -280,7 +283,18 @@
           <span class="muted" style="font-size:10px">Tip: Use <strong>BG Picture</strong> for an exact room / 3D render still, or a <strong>Set RefMod</strong> for recurring multi-angle locations.</span>
         </label>
 
-        <div class="ai-square-slot" data-modes="coverage" data-slot="image" data-pick-file="image" data-pick-target="image" title="Click to choose scene reference image">
+        <div class="ai-bg-refmod-box" data-local-only="1" id="ai-local-lora-wrap" hidden title="Optional LoRA from ~/ComfyUI/models/loras/ applied to LTX generation">
+          <span>🎛️ LTX LoRA <span class="muted">(optional · from models/loras/)</span></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select name="localLora" id="ai-local-lora" style="flex:1">
+              <option value="">— None (Base LTX model) —</option>
+            </select>
+            <input name="localLoraStrength" id="ai-local-lora-strength" type="number" min="0" max="2" step="0.1" value="1.0" style="width:62px" title="LoRA strength (0–2)">
+          </div>
+          <span class="muted" style="font-size:10px">Tip: Drop First Frame &amp;/or Last Frame on the left to lock start/end keyframes in LTX.</span>
+        </div>
+
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="coverage" data-slot="image" data-pick-file="image" data-pick-target="image" title="Click to choose scene reference image">
           <div class="ai-square-box" id="ai-preview-image">
             <span class="ai-square-empty">🖼️<br>Scene Image</span>
           </div>
@@ -288,7 +302,7 @@
           <input type="hidden" name="image">
         </div>
 
-        <label class="ai-coverage-target" data-modes="coverage">Coverage Target (optional)
+        <label class="ai-coverage-target" data-minimax-only="1" data-modes="coverage">Coverage Target (optional)
           <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
         </label>
       </div>
@@ -298,12 +312,12 @@
           <span>Prompt</span>
           <span class="ai-prompt-helpers">
             <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and Shot Library">✨ Advance Prompt</button>
-            <button type="button" id="ai-shot-lib-btn" data-shot-library-toggle="prompt" title="Browse 20 proven character-swappable shots &amp; background templates with visual squares">🎬 Shot Library</button>
+            <button type="button" data-minimax-only="1" id="ai-shot-lib-btn" data-shot-library-toggle="prompt" title="Browse 30 proven character-swappable shots &amp; background templates with visual squares">🎬 Shot Library</button>
             <button type="button" id="ai-prompt-db-btn" data-prompt-db-toggle="prompt" title="Open Prompt Database of proven working examples">📚 Prompt DB</button>
-            <button type="button" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
-            <button type="button" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
-            <button type="button" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
-            <button type="button" data-prompt-snip="room" title="Insert verbatim room/prop anchor">+ Room anchor</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="room" title="Insert verbatim room/prop anchor">+ Room anchor</button>
           </span>
         </div>
         <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
@@ -402,7 +416,7 @@
           </select>
         </label>
 
-        <label class="ai-sm" data-modes="text-render,auto">Preset
+        <label class="ai-sm" data-minimax-only="1" data-modes="text-render,auto">Preset
           <select name="quality">
             <option value="draft">Draft</option>
             <option value="normal" selected>Normal</option>

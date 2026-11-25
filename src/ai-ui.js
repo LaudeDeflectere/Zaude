@@ -291,6 +291,9 @@ function applyStylizeActionVisibility() {
 
 function applyModeVisibility() {
   const form = $('t2v-form');
+  const isLocal = currentBackend === 'local';
+  const tabs = $('ai-mode-tabs');
+  if (tabs) tabs.hidden = isLocal;
   $('ai-mode-tabs').querySelectorAll('button').forEach((btn) => {
     btn.classList.toggle('on', btn.dataset.aiMode === currentMode);
   });
@@ -298,9 +301,16 @@ function applyModeVisibility() {
     const allowed = el.dataset.modes.split(',');
     el.hidden = !allowed.includes(currentMode);
   });
+  // In Local LTX mode, hide MiniMax-H3-only controls and reveal LTX-specific controls (LoRA, LTX presets)
+  form.querySelectorAll('[data-minimax-only]').forEach((el) => {
+    if (isLocal) el.hidden = true;
+  });
+  form.querySelectorAll('[data-local-only]').forEach((el) => {
+    el.hidden = !isLocal;
+  });
   const refmodMode = form.elements.refmodMode ? form.elements.refmodMode.value : 'generate';
   const latentWrap = $('ai-latent-wrap');
-  if (latentWrap) latentWrap.hidden = !(currentMode === 'refmod' && refmodMode === 'continue');
+  if (latentWrap) latentWrap.hidden = isLocal || !(currentMode === 'refmod' && refmodMode === 'continue');
   applyStylizeActionVisibility();
   updateStylizeRangeUI();
   updateModelRouting();
@@ -335,6 +345,8 @@ function collectRequest() {
   return {
     backend: currentBackend,
     localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
+    localLora: String(fd.get('localLora') || '').trim(),
+    localLoraStrength: Number(fd.get('localLoraStrength') || 1.0),
     modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
     modalTier: currentModalTier,
     mode: currentMode,
@@ -477,7 +489,15 @@ async function refreshLocalInfo() {
     sel.innerHTML = readyModels.map((m) => `<option value="${esc(m.id)}">${esc(m.label)} (${esc(m.unet)})</option>`).join('');
     sel.hidden = currentBackend !== 'local' || readyModels.length <= 1;
   }
-  if (currentBackend === 'local') updateCommandPreview();
+  const loraSel = $('ai-local-lora');
+  if (loraSel) {
+    const prev = loraSel.value;
+    const loras = (localSetup && Array.isArray(localSetup.loras) ? localSetup.loras : []);
+    loraSel.innerHTML = '<option value="">— None (Base LTX model) —</option>'
+      + loras.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+    if (prev && loras.includes(prev)) loraSel.value = prev;
+  }
+  if (currentBackend === 'local') applyModeVisibility();
 }
 
 async function refreshModalInfo() {
@@ -584,6 +604,7 @@ function setBackend(next) {
     applyModalPlan(false);
     setStatus('Switched to ☁️ Modal Cloud Final Pass — click "🤖 AI Pick GPU & Settings" or run at 720p.');
   } else if (currentBackend === 'local') {
+    currentMode = 'text-render';
     const def = (localSetup && localSetup.defaultModel);
     if (form) {
       form.elements.resolution.value = '480';
@@ -592,7 +613,7 @@ function setBackend(next) {
     }
     const host = (localSetup && localSetup.hostname) || 'Local';
     setStatus(def
-      ? `Switched to 💻 ${host} Local (${def.label}) — 480p · 4s · ${def.defaultSteps} steps.`
+      ? `Switched to 💻 ${host} Local (${def.label}) — LTX UI active (First/Last Frame + LoRA · 480p · 4s · ${def.defaultSteps} steps).`
       : `No local model detected on ${host}. Click "🖥️ Local GPU" to install one.`, !def);
   } else {
     if (form) {
@@ -602,7 +623,7 @@ function setBackend(next) {
     }
     setStatus('Switched to 🌐 Tranklena · Draft (640p · 7s · 6 steps).');
   }
-  updateCommandPreview();
+  applyModeVisibility();
 }
 
 async function loadOptionsAndRefMods() {
@@ -1108,6 +1129,24 @@ function init() {
         form.elements.quality.value = 'draft';
         form.elements.fps.value = '12';
         setStatus('Applied Fast Draft preset (480p · 4 steps · 4s · 12fps).');
+      } else if (id === 'ltx-fast') {
+        form.elements.resolution.value = '320';
+        form.elements.steps.value = '4';
+        form.elements.seconds.value = '2';
+        form.elements.aspect.value = '16:9';
+        setStatus('Applied LTX Fast Sketch preset (320p · 4 steps · 2s).');
+      } else if (id === 'ltx-480') {
+        form.elements.resolution.value = '480';
+        form.elements.steps.value = '8';
+        form.elements.seconds.value = '4';
+        form.elements.aspect.value = '16:9';
+        setStatus('Applied LTX 480p preset (480p · 8 steps · 4s).');
+      } else if (id === 'ltx-portrait') {
+        form.elements.resolution.value = '480';
+        form.elements.steps.value = '8';
+        form.elements.seconds.value = '3';
+        form.elements.aspect.value = '9:16';
+        setStatus('Applied LTX Portrait preset (9:16 · 480p · 8 steps · 3s).');
       }
       updateCommandPreview();
       return;
@@ -1348,6 +1387,8 @@ function init() {
     return {
       backend,
       localModelId: ($('ai-local-model') && $('ai-local-model').value) || (localSetup && localSetup.defaultModel ? localSetup.defaultModel.id : ''),
+    localLora: String(fd.get('localLora') || '').trim(),
+    localLoraStrength: Number(fd.get('localLoraStrength') || 1.0),
       modalEndpoint: ($('ai-modal-url') && $('ai-modal-url').value.trim()) || (modalStatus && modalStatus.endpointUrl) || '',
       modalTier,
       mode,

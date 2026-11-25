@@ -87,6 +87,7 @@ async function detectLocalSetup({ comfyDir = DEFAULT_LOCAL_COMFY_DIR, comfyUrl =
   const hostname = os.hostname() || 'Local';
   const report = systemAdvisor.analyzeSystem({ comfyDir });
   const models = detectInstalledModels(comfyDir);
+  const loras = listFiles(path.join(comfyDir, 'models', 'loras'), ['.safetensors']);
   const comfyInstalled = fs.existsSync(path.join(comfyDir, 'main.py'));
   const comfyRunning = await isComfyAlive(comfyUrl);
   const defaultModel = models.find((m) => m.ready) || models[0] || null;
@@ -100,6 +101,7 @@ async function detectLocalSetup({ comfyDir = DEFAULT_LOCAL_COMFY_DIR, comfyUrl =
     comfyInstalled,
     comfyRunning,
     models,
+    loras,
     defaultModel,
   };
 }
@@ -186,6 +188,8 @@ function buildLtxGraph({
   unet = 'ltxv-2b-0.9.8-distilled-q4_k_m.gguf',
   clip = 't5-v1_1-xxl-encoder-Q4_K_M.gguf',
   vae = 'ltxv_0.9.5_vae_fp16.safetensors',
+  lora = '',
+  loraStrength = 1.0,
   prefix = 'Zaude/local_ltx',
 }) {
   const isGgufUnet = unet.toLowerCase().endsWith('.gguf');
@@ -234,8 +238,17 @@ function buildLtxGraph({
     hasGuides = true;
   }
 
+  let modelRef = ['1', 0];
+  if (lora && String(lora).trim()) {
+    graph['1b'] = {
+      class_type: 'LoraLoaderModelOnly',
+      inputs: { model: ['1', 0], lora_name: String(lora).trim(), strength_model: Math.max(0, Math.min(2, Number(loraStrength) || 1.0)) },
+    };
+    modelRef = ['1b', 0];
+  }
+
   graph['8'] = { class_type: 'RandomNoise', inputs: { noise_seed: Math.abs(Math.round(Number(seed) || 1001)) } };
-  graph['9'] = { class_type: 'CFGGuider', inputs: { model: ['1', 0], positive: posRef, negative: negRef, cfg: Number(cfg) || 1.0 } };
+  graph['9'] = { class_type: 'CFGGuider', inputs: { model: modelRef, positive: posRef, negative: negRef, cfg: Number(cfg) || 1.0 } };
   graph['10'] = { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } };
   graph['11'] = {
     class_type: 'LTXVScheduler',
@@ -350,6 +363,8 @@ function runLocalVideo({
   aspect = '16:9',
   steps = 0,
   seed = 1001,
+  lora = '',
+  loraStrength = 1.0,
   outDir,
   previewDir = '',
   jobId = 'local',
@@ -422,7 +437,7 @@ function runLocalVideo({
         frames = snapLtxFrames(seconds, 24);
         graph = buildLtxGraph({
           prompt, firstFrameName, lastFrameName, width, height, frames, steps: chosenSteps, cfg: model.defaultCfg,
-          seed, unet: model.unet, clip: model.clip, vae: model.vae,
+          seed, unet: model.unet, clip: model.clip, vae: model.vae, lora, loraStrength,
         });
       }
 

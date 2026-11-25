@@ -40,17 +40,23 @@ test('localRunner detects installed GGUF models and builds LTX (T2V/FL2V) & Wan 
   assert.equal(d.width % 32, 0);
   assert.equal(d.height % 32, 0);
 
-  // LTX First/Last Frame graph wires LTXVAddGuide + LTXVCropGuides
+  // LTX First/Last Frame + optional LoRA graph wires LTXVAddGuide + LTXVCropGuides + LoraLoaderModelOnly
   const ltxGraph = lr.buildLtxGraph({
     prompt: 'A tabby cat dancing',
     firstFrameName: 'first.png',
     lastFrameName: 'last.png',
+    lora: 'custom_ltx_lora.safetensors',
+    loraStrength: 0.85,
     width: 768,
     height: 512,
     frames: 97,
     steps: 8,
   });
   assert.equal(ltxGraph['1'].class_type, 'UnetLoaderGGUF');
+  assert.equal(ltxGraph['1b'].class_type, 'LoraLoaderModelOnly');
+  assert.equal(ltxGraph['1b'].inputs.lora_name, 'custom_ltx_lora.safetensors');
+  assert.equal(ltxGraph['1b'].inputs.strength_model, 0.85);
+  assert.deepEqual(ltxGraph['9'].inputs.model, ['1b', 0]);
   assert.equal(ltxGraph['2'].class_type, 'CLIPLoaderGGUF');
   assert.equal(ltxGraph['21'].class_type, 'LTXVAddGuide');
   assert.equal(ltxGraph['21'].inputs.frame_idx, 0);
