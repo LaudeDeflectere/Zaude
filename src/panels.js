@@ -856,6 +856,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       ${canFrameContinue ? `<button role="menuitem" data-ctx="frame-continue" class="menu-ai">✨ FrameContinue${clip.latent ? ' (latent)' : ''}</button>` : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-refmod" class="menu-ai">✨ Upscale &amp; Fix Faces · 640p${upSuffix}</button>` : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">⚡ Fast 2× Upscale · RealESRGAN${upSuffix}</button>` : ''}
+      ${canFrameContinue ? '<button role="menuitem" data-ctx="lipsync-clip" class="menu-ai">🗣️ Reuse &amp; Lip-Sync Clip (Tranklena)</button>' : ''}
       ${(canFrameToFrame || canFrameContinue || canUpscale) ? '<div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
       ${isMedia ? `<button role="menuitem" data-ctx="mute">${clip.muted ? 'Unmute audio' : 'Mute audio'}</button>` : ''}
@@ -956,6 +957,23 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
         if (window.__zaudeOpenFrameToFrame) {
           window.__zaudeOpenFrameToFrame({ firstFrame: f1, lastFrame: f2, seconds, insertAt });
         }
+      } else if (act === 'lipsync-clip' && window.zaudeAI && window.zaudeAI.pickAudioFile && window.zaudeAI.lipSyncClip) {
+        const picked = await window.zaudeAI.pickAudioFile();
+        if (!picked || picked.canceled || !picked.path) return;
+        actions.log(`🗣️ Lip-syncing "${clip.name}" to "${picked.name}" on Tranklena…`);
+        const res = await window.zaudeAI.lipSyncClip({
+          videoPath: clip.path,
+          audioPath: picked.path,
+          loopMode: 'ping-pong',
+          roomPreset: clip.roomPreset || 'none',
+          roomIntensity: clip.roomIntensity != null ? clip.roomIntensity : 1.0,
+        });
+        if (!res || !res.ok) {
+          actions.log('Lip-Sync failed: ' + ((res && res.error) || 'unknown error'));
+          return;
+        }
+        actions.addBinItem({ name: res.name, path: res.output, url: res.url, kind: 'video', hasAudio: true, hasVideo: true });
+        actions.log(`✅ Lip-Sync finished (${res.engine}) -> added "${res.name}" to Bin!`);
       } else if (act === 'separate') actions.detach();
       else if (act === 'mute') {
         const s = store.get();
@@ -1616,6 +1634,17 @@ export function inspectorPanel({ store, actions }) {
       const t = Number(act.dataset.kfTime);
       if (clip && Number.isFinite(t)) actions.seekTo(clip.start + t);
     }
+    if (act.dataset.act === 'room-apply-all') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.applyRoomAcousticsToAll(clip.roomPreset || 'none', clip.roomIntensity != null ? clip.roomIntensity : 1.0);
+    }
+    if (act.dataset.act === 'room-add-bed') {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      const preset = (clip && clip.roomPreset && clip.roomPreset !== 'none') ? clip.roomPreset : 'dim-bar';
+      actions.addRoomToneBed(preset);
+    }
     if (act.dataset.act === 'delete') actions.deleteSelected();
   });
 
@@ -1625,6 +1654,20 @@ export function inspectorPanel({ store, actions }) {
       const s = store.get();
       const clip = T.findClip(s.clips, s.selected);
       if (clip) actions.setClipFade(clip.id, fadeInput.dataset.fadeInput, Number(fadeInput.value) || 0, false);
+      return;
+    }
+    const roomSel = e.target.closest('[data-room-preset]');
+    if (roomSel) {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.setClipRoomAcoustics(clip.id, roomSel.value, null);
+      return;
+    }
+    const roomMix = e.target.closest('[data-room-intensity]');
+    if (roomMix) {
+      const s = store.get();
+      const clip = T.findClip(s.clips, s.selected);
+      if (clip) actions.setClipRoomAcoustics(clip.id, null, Number(roomMix.value) / 100);
       return;
     }
     const kfVal = e.target.closest('[data-kf-val]');
@@ -1830,6 +1873,7 @@ export function inspectorPanel({ store, actions }) {
       c.id, c.name, c.track, c.start.toFixed(2), c.dur.toFixed(2), c.speed,
       c.muted, c.flipH, c.flipV, c.fill, activeTr, tab, s.eyedropper, multiCount,
       c.fadeIn || 0, c.fadeOut || 0, kfKey,
+      c.roomPreset || 'none', c.roomIntensity != null ? c.roomIntensity : 1,
       bands.map((b) => b.id).join(','), active ? active.id : '',
     ].join('|');
 
@@ -1919,7 +1963,32 @@ export function inspectorPanel({ store, actions }) {
         ${activeTr !== 'none' ? scrubField('transition') : '<p class="muted hint">Pick a transition above to apply it to this clip.</p>'}`;
     } else {
       const kfs = Array.isArray(c.volumeKeyframes) ? c.volumeKeyframes : [];
+      const curRoom = c.roomPreset || 'none';
+      const curRoomPct = Math.round((c.roomIntensity != null ? c.roomIntensity : 1) * 100);
+      const roomOpts = [
+        ['none', '— None (Original Audio)'],
+        ['dim-bar', '🍺 Dim Wooden Bar / Billiard Hall'],
+        ['small-office', '🖨️ Small Office / Back-Bar Nook'],
+        ['outdoor-street', '🌳 Outdoor Street / Afternoon Air'],
+        ['hallway', '🚪 Tiled Hallway / Corridor'],
+        ['podcast-booth', '🎙️ Studio / Podcast Booth'],
+      ];
       const audioEnvHtml = isMedia ? `
+        <div class="lbl">🔊 Room Acoustics &amp; Continuous Bed <span class="muted">(applied on export)</span></div>
+        <div class="exp-two-col">
+          <label class="exp-lbl">Room Space
+            <select data-room-preset="1">
+              ${roomOpts.map(([id, label]) => `<option value="${id}" ${curRoom === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="exp-lbl">Room Mix (${curRoomPct}%)
+            <input type="range" min="0" max="100" step="5" value="${curRoomPct}" data-room-intensity="1">
+          </label>
+        </div>
+        <div class="insp-row">
+          <button data-act="room-apply-all" title="Apply this room acoustic profile to every clip in the timeline">Apply to All Clips</button>
+          <button data-act="room-add-bed" title="Generate a continuous Opus .ogg room-tone bed on track A2 so audio never snaps between cuts">🎙️ Add Room-Tone Bed (A2)</button>
+        </div>
         <div class="lbl">Audio Fades &amp; Volume Keyframes <span class="muted">(Alt+Click clip)</span></div>
         <div class="exp-two-col">
           <label class="exp-lbl">Fade In (s)

@@ -27,6 +27,8 @@ const touchpad = require('./touchpad.cjs');
 const tipsStore = require('./tips.cjs');
 const promptAdvancer = require('./prompt-advancer.cjs');
 const scriptParser = require('./script-parser.cjs');
+const roomAcoustics = require('./room-acoustics.cjs');
+const lipsync = require('./lipsync.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -679,6 +681,101 @@ function registerAiHandlers() {
     }
   });
   ipcMain.handle('ai:parseScript', (_e, rawText) => scriptParser.parseMultiShotScript(rawText));
+
+  // ---------- Pillar 1: Room Acoustics Presets & Continuous Room-Tone Bed ----------
+  ipcMain.handle('audio:listRoomPresets', () => ({ ok: true, presets: roomAcoustics.listRoomPresets() }));
+  ipcMain.handle('audio:generateRoomToneBed', async (_e, input = {}) => {
+    const settings = loadSettings();
+    const outDir = path.join(settings.outDir || defaultOutDir(), 'room-tone');
+    const presetId = String(input.presetId || 'dim-bar').replace(/[^a-z0-9_-]/gi, '');
+    const durationSec = Math.max(1, Number(input.durationSec) || 30);
+    const outPath = path.join(outDir, `room_tone_${presetId}_${Date.now()}.ogg`);
+    const res = await roomAcoustics.generateRoomToneBed({ presetId, durationSec, outPath });
+    if (!res.ok) return res;
+    return { ...res, name: path.basename(outPath), url: mediaUrlFor(outPath) };
+  });
+
+  // ---------- Pillar 2: 3D Set Camera Snapper & Coverage Angle Picker ----------
+  ipcMain.handle('ai:saveSetSnapshot', (_e, input = {}) => {
+    const dataUrl = String((input && input.dataUrl) || '');
+    const m = dataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (!m) return { ok: false, error: 'Invalid PNG snapshot data.' };
+    const settings = loadSettings();
+    const dir = path.join(settings.outDir || defaultOutDir(), 'set-snapshots');
+    fs.mkdirSync(dir, { recursive: true });
+    const slug = String((input && input.label) || 'angle').replace(/[^a-z0-9_-]/gi, '').slice(0, 32) || 'angle';
+    const fileName = `${slug}_${Date.now()}.png`;
+    const filePath = path.join(dir, fileName);
+    fs.writeFileSync(filePath, Buffer.from(m[1], 'base64'));
+    return { ok: true, path: filePath, name: fileName, url: mediaUrlFor(filePath) };
+  });
+
+  ipcMain.handle('ai:listCoverageAngles', () => {
+    const settings = loadSettings();
+    const baseDir = settings.outDir || defaultOutDir();
+    const angles = [];
+    const scanDirs = [path.join(baseDir, 'set-snapshots')];
+    try {
+      for (const ent of fs.readdirSync(baseDir, { withFileTypes: true })) {
+        if (ent.isDirectory() && /coverage|set|angle/i.test(ent.name)) {
+          scanDirs.push(path.join(baseDir, ent.name));
+        }
+      }
+    } catch { /* ignore */ }
+    const seen = new Set();
+    for (const dir of scanDirs) {
+      if (seen.has(dir) || !fs.existsSync(dir)) continue;
+      seen.add(dir);
+      try {
+        for (const f of fs.readdirSync(dir)) {
+          if (!/\.(png|jpe?g|webp)$/i.test(f)) continue;
+          const full = path.join(dir, f);
+          const st = fs.statSync(full);
+          if (!st.isFile()) continue;
+          angles.push({ path: full, name: f, url: mediaUrlFor(full), mtime: st.mtimeMs });
+        }
+      } catch { /* ignore */ }
+    }
+    angles.sort((a, b) => b.mtime - a.mtime);
+    return { ok: true, angles: angles.slice(0, 24) };
+  });
+
+  // ---------- Pillar 3: Reusable Lip-Sync (LatentSync / MuseTalk on Tranklena) ----------
+  ipcMain.handle('ai:pickAudioFile', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Pick Dialogue Audio for Lip-Sync (.wav, .mp3, .ogg)',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio Files', extensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (picked.canceled || !picked.filePaths || !picked.filePaths.length) return { ok: false, canceled: true };
+    return { ok: true, path: picked.filePaths[0], name: path.basename(picked.filePaths[0]) };
+  });
+
+  ipcMain.handle('ai:lipSyncClip', async (event, input = {}) => {
+    const settings = loadSettings();
+    const outDir = settings.outDir || defaultOutDir();
+    const previewDir = path.join(app.getPath('userData'), 'ai-previews');
+    const job = lipsync.runLipSyncJob({
+      videoPath: input.videoPath,
+      audioPath: input.audioPath,
+      loopMode: input.loopMode || 'ping-pong',
+      roomPreset: input.roomPreset || 'none',
+      roomIntensity: input.roomIntensity != null ? input.roomIntensity : 1.0,
+      outDir,
+      previewDir,
+      jobId: `ls-${Date.now().toString(36)}`,
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:job', { ...ev, mode: 'lipsync' });
+      },
+    });
+    const res = await job.promise;
+    if (!res || !res.ok) return res;
+    return { ...res, name: path.basename(res.output), url: mediaUrlFor(res.output) };
+  });
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));

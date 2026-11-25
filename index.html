@@ -84,6 +84,7 @@
       <button type="button" data-ai-mode="refmod">RefMod → Video</button>
       <button type="button" data-ai-mode="auto">🎨 Stylize &amp; Objects</button>
       <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
+      <button type="button" data-ai-mode="set3d">🏛️ 3D Set &amp; Angles</button>
       <button type="button" data-ai-mode="script">📜 Multi-Shot (.md/.txt)</button>
     </div>
 
@@ -95,6 +96,37 @@
         <button type="button" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
       </div>
       <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
+
+      <div class="t2v-wide ai-set3d-panel" data-modes="set3d" id="ai-set3d-panel" hidden>
+        <div class="ai-prompt-head">
+          <span>🏛️ 3D Set Camera Snapper <span class="muted">(Orbit any .glb room → 📸 Snap exact angle to BG Picture / First Frame)</span></span>
+          <span class="ai-prompt-helpers">
+            <label class="ai-set3d-upload-btn" title="Load a .glb or .gltf 3D room model">📂 Load .glb / .gltf<input type="file" id="ai-set3d-file" accept=".glb,.gltf" hidden></label>
+            <button type="button" id="ai-set3d-reset-starter" title="Load built-in Billiard Bar &amp; Printer Nook 3D blockout">🍺 Starter Bar</button>
+            <select id="ai-set3d-focal" title="35mm lens focal length">
+              <option value="28">28mm Wide</option>
+              <option value="35" selected>35mm Cinema</option>
+              <option value="50">50mm Medium</option>
+              <option value="85">85mm Close-Up</option>
+            </select>
+            <select id="ai-set3d-aspect" title="Frame aspect ratio">
+              <option value="16:9" selected>16:9</option>
+              <option value="9:16">9:16</option>
+            </select>
+            <button type="button" id="ai-set3d-save-cam">+ Save Cam</button>
+            <button type="button" class="primary" id="ai-set3d-snap-bg">📸 Snap → BG Picture</button>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-snap-first">📸 Snap → First Frame</button>
+          </span>
+        </div>
+        <div class="ai-set3d-cams" id="ai-set3d-cams"></div>
+        <div class="ai-set3d-canvas-wrap" id="ai-set3d-canvas-wrap"></div>
+        <div class="muted" id="ai-set3d-status" style="font-size:11px">Left-drag to orbit · Right-drag to pan · Scroll to dolly. Click a camera bookmark or load any .glb 3D room.</div>
+        <div class="ai-prompt-head" style="margin-top:6px">
+          <span>Saved 3D Snapshots &amp; Coverage Angles <span class="muted">(click any thumbnail to lock as BG Picture)</span></span>
+          <button type="button" id="ai-set3d-refresh-angles">↻ Refresh</button>
+        </div>
+        <div class="ai-set3d-angles" id="ai-set3d-angles"></div>
+      </div>
 
       <div class="t2v-wide ai-script-panel" data-modes="script" id="ai-script-panel" hidden>
         <div class="ai-prompt-head">
@@ -509,6 +541,7 @@
 <script type="module" src="src/remote-ui.js"></script>
 <script type="module" src="src/ai-ui.js"></script>
 <script type="module" src="src/prompt-advancer-ui.js"></script>
+<script type="module" src="src/set3d-ui.js"></script>
 <script type="module" src="src/advisor-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
 </body>

@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   mannimmatePickFile: (kind) => ipcRenderer.invoke('ai:mannimmate:pickFile', kind),
   pickScript: () => ipcRenderer.invoke('ai:pickScript'),
   parseScript: (rawText) => ipcRenderer.invoke('ai:parseScript', rawText),
+  saveSetSnapshot: (input) => ipcRenderer.invoke('ai:saveSetSnapshot', input),
+  listCoverageAngles: () => ipcRenderer.invoke('ai:listCoverageAngles'),
+  pickAudioFile: () => ipcRenderer.invoke('ai:pickAudioFile'),
+  lipSyncClip: (input) => ipcRenderer.invoke('ai:lipSyncClip', input),
   extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
   trimSeedClip: (input) => ipcRenderer.invoke('ai:trimSeedClip', input),
   clipLatent: (filePath) => ipcRenderer.invoke('ai:clipLatent', filePath),
@@ -85,6 +89,11 @@ contextBridge.exposeInMainWorld('zaudeAdvisor', {
     ipcRenderer.on('advisor:event', listener);
     return () => ipcRenderer.removeListener('advisor:event', listener);
   },
+});
+
+contextBridge.exposeInMainWorld('zaudeAudio', {
+  listRoomPresets: () => ipcRenderer.invoke('audio:listRoomPresets'),
+  generateRoomToneBed: (input) => ipcRenderer.invoke('audio:generateRoomToneBed', input),
 });
 
 contextBridge.exposeInMainWorld('zaudePrompt', {

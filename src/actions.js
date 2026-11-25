@@ -1037,11 +1037,62 @@ export function createActions(store, engine) {
   }
 
 
+  function setClipRoomAcoustics(clipId, roomPreset, roomIntensity = null) {
+    const s = get();
+    const next = s.clips.map((c) => {
+      if (c.id !== clipId) return c;
+      return {
+        ...c,
+        roomPreset: roomPreset != null ? String(roomPreset) : (c.roomPreset || 'none'),
+        roomIntensity: roomIntensity != null ? Math.max(0, Math.min(1, Number(roomIntensity))) : (c.roomIntensity != null ? c.roomIntensity : 1.0),
+      };
+    });
+    commit(next, `Room acoustics → ${roomPreset || 'updated'}`);
+  }
+
+  function applyRoomAcousticsToAll(roomPreset, roomIntensity = 1.0) {
+    const s = get();
+    const next = s.clips.map((c) => (c.kind === 'video' || c.kind === 'audio'
+      ? { ...c, roomPreset: String(roomPreset || 'none'), roomIntensity: Math.max(0, Math.min(1, Number(roomIntensity))) }
+      : c));
+    commit(next, `Applied room acoustics (${roomPreset}) to all clips`);
+  }
+
+  async function addRoomToneBed(presetId = 'dim-bar') {
+    const audioApi = window.zaudeAudio;
+    if (!audioApi || !audioApi.generateRoomToneBed) return log('Room-tone generator unavailable.');
+    const s = get();
+    const totalDur = s.clips.reduce((m, c) => Math.max(m, (c.start || 0) + (c.dur || 0)), 0) || 30;
+    log(`Generating continuous ${presetId} room-tone bed (${totalDur.toFixed(1)}s)…`);
+    const res = await audioApi.generateRoomToneBed({ presetId, durationSec: totalDur });
+    if (!res || !res.ok) return log('Room-tone bed failed: ' + ((res && res.error) || 'unknown'));
+    const bedClip = {
+      id: `a2-bed-${Date.now().toString(36)}`,
+      track: 'A2',
+      name: res.name || `room_tone_${presetId}.ogg`,
+      path: res.path,
+      url: res.url,
+      kind: 'audio',
+      hasAudio: true,
+      hasVideo: false,
+      start: 0,
+      dur: Number(res.duration) || totalDur,
+      srcDur: Number(res.duration) || totalDur,
+      srcIn: 0,
+      speed: 1,
+      volume: 1,
+      muted: false,
+    };
+    const withoutOldBed = get().clips.filter((c) => !(c.track === 'A2' && String(c.id).startsWith('a2-bed-')));
+    commit([...withoutOldBed, bedClip], `Added continuous ${res.label} room-tone bed on A2`);
+  }
+
   return {
     undo, redo, split, trim, deleteSelected, duplicate, ripple, slip, speed, dissolve, setTransition, toggleMirror, resetTransform, transformClip, toggleFill, resetFilters, resetHsl, addHslBand, removeHslBand, selectHslBand, setHslBandProp, setHslTarget, setEyedropper, detach,
     setProp, bumpVolume, select, selectMany, toggleSelect, seekTo, stepBy, togglePlay, zoomIn, zoomOut, fit, setZoom, toggleSnap, snapTime, addTrack,
     detectBeats, setBeatGrid, addBeatMarker, moveBeatMarker, removeBeatMarker, clearBeats,
     setClipFade, upsertVolumeKeyframe, removeVolumeKeyframe, clearVolumeKeyframes,
+    setClipRoomAcoustics, applyRoomAcousticsToAll, addRoomToneBed,
     setPage, importFolder, selectBin, addBinItem, saveProject, saveZd, openZd, scheduleSave, generationEvent, runTool, exportProject, exportRender,
     openExport, closeExport, toggleExport, setExportCfg, applyExportPreset,
     selectedClip, log, commitClips, gesture: trackpadGesture, liveClips,

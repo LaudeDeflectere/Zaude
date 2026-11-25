@@ -1257,6 +1257,71 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   flex-shrink: 0;
 }
 
+/* 3D Set Viewport & Coverage Angle Picker */
+.ai-set3d-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-set3d-panel[hidden] { display: none; }
+.ai-set3d-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid #35304d;
+  background: #1c1c25;
+  color: #ececf4;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ai-set3d-upload-btn:hover { border-color: #a855f7; }
+.ai-set3d-cams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ai-set3d-canvas-wrap {
+  width: 100%;
+  min-height: 240px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  background: #0d0b14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-set3d-angles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 7px;
+  max-height: 170px;
+  overflow-y: auto;
+}
+.set3d-angle-card {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  white-space: normal;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 6px;
+  border: 1px solid #2f2a47;
+  background: #141122;
+  color: #e2e0f0;
+  font-size: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+.set3d-angle-card:hover { border-color: #a855f7; }
+.set3d-angle-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
 /* ---------- Purple AI context menu action (FrameToFrame) ---------- */
 .menu button.menu-ai {
   background: rgba(139, 92, 246, 0.24);

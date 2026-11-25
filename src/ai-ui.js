@@ -1291,6 +1291,12 @@ function init() {
     if (form && form.elements.prompt) form.elements.prompt.focus();
   };
 
+  // Expose slot setter for 3D Set Viewport & Coverage Angle Picker
+  window.__zaudeSetMediaSlot = (slot, filePath, url) => {
+    updateSquarePreview(slot, filePath, url, false);
+    updateCommandPreview();
+  };
+
   // ---------- Multi-Shot Script (.md / .txt) Importer & Batch Queue ----------
   let parsedScriptShots = [];
 

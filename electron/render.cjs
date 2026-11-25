@@ -1,6 +1,7 @@
 // Renders the timeline to an MP4 with ffmpeg. Uses NVIDIA NVENC for encoding when ffmpeg has it,
 // and CUDA decoding for the inputs, otherwise libx264 on the CPU.
 const { spawn, spawnSync } = require('node:child_process');
+const roomAcoustics = require('./room-acoustics.cjs');
 
 const PRESETS = {
   '1280 × 720': { w: 1280, h: 720 },
@@ -260,9 +261,11 @@ function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality 
     if (fadeIn > 0.005) fades.push(`afade=t=in:st=0:d=${r3(fadeIn)}`);
     if (fadeOut > 0.005) fades.push(`afade=t=out:st=${r3(Math.max(0, c.dur - fadeOut))}:d=${r3(fadeOut)}`);
     const fadeChain = fades.length ? ',' + fades.join(',') : '';
+    const roomFx = roomAcoustics.buildRoomFilter(c.roomPreset, c.roomIntensity != null ? c.roomIntensity : 1.0);
+    const roomChain = roomFx ? ',' + roomFx : '';
     graph.push(
       `[${idx}:a]atrim=start=${r3(c.srcIn || 0)}:duration=${used},asetpts=PTS-STARTPTS,${tempo}` +
-      `${volumeFilterFor(c)}${fadeChain},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
+      `${volumeFilterFor(c)}${roomChain}${fadeChain},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
     audioLabels.push(`[a${k}]`);
   });
   let audioArgs = [];
