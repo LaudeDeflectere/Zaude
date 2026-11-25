@@ -45,7 +45,8 @@ function readClipMeta(videoPath) {
       if (!out.duration && d > 0) out.duration = d;
       const rawGraphStr = probeData && probeData.format && probeData.format.tags && probeData.format.tags.prompt;
       if (!out.refmods.length && rawGraphStr) {
-        const g = JSON.parse(rawGraphStr);
+        const sanitized = String(rawGraphStr).replace(/\bNaN\b/g, 'null').replace(/\b-?Infinity\b/g, 'null');
+        const g = JSON.parse(sanitized);
         for (const node of Object.values(g)) {
           if (node && /RefModsLoader/i.test(String(node.class_type || '')) && node.inputs) {
             for (let i = 1; i <= 8; i++) {
@@ -61,6 +62,9 @@ function readClipMeta(videoPath) {
                 });
               }
             }
+          }
+          if (!out.prompt && node && /MiniMaxH3Easy_SatoDive/i.test(String(node.class_type || '')) && node.inputs && node.inputs.prompt) {
+            out.prompt = String(node.inputs.prompt).replace(/subject_definitions:[\s\S]*?\n\n/i, '').trim();
           }
         }
       }
