@@ -206,12 +206,14 @@
 
       <div class="t2v-wide" data-modes="refmod,auto" id="ai-refmod-section">
         <div class="ai-prompt-head">
-          <span>Characters (RefMod) <span class="muted">· Hover to preview walk · Click to cast Subject 1..N</span></span>
+          <span>Characters &amp; Sets (RefMod) <span class="muted">· Hover to preview · Click to cast · 🏷️ categorize · ✕ delete</span></span>
           <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-refmod-create-open" title="Open the full RefMod Creator window with Tony Sheen example guide">🧬 Create RefMod</button>
             <button type="button" id="ai-refmods-gen-missing" title="Queue headshot &amp; walk preview generation for all RefMods missing a preview">✨ Generate missing</button>
             <button type="button" id="ai-refmods-stop-queue" hidden title="Cancel queued RefMod previews">Stop queue</button>
           </span>
         </div>
+        <div class="refmod-cats" id="ai-refmod-cats"></div>
         <div class="refmod-grid" id="ai-refmod-grid"></div>
         <div class="refmod-add-form" id="ai-refmod-add-form" hidden>
           <input type="text" id="ai-new-refmod-name" placeholder="First / Character name (blank = Subject N)" autocomplete="off">
@@ -535,6 +537,137 @@
       </div>
       <pre class="ai-debug-log" id="adv-install-log"></pre>
     </div>
+  </div>
+</div>
+
+<!-- Create / Manage RefMod Window (with Tony Sheen Example Guide) -->
+<div id="refmod-creator-dialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="rmc-title">
+  <div class="modal-card rmc-card">
+    <div class="modal-head">
+      <h2 id="rmc-title">🧬 Create RefMod <span class="muted" style="font-size:12px;font-weight:400">(Zero-training ~1.5 MB MiniMax-H3 latent)</span></h2>
+      <button type="button" id="rmc-close">Close</button>
+    </div>
+
+    <!-- Interactive Tony Sheen Example Guide for New Users -->
+    <div class="rmc-guide" id="rmc-guide">
+      <div class="rmc-guide-avatar" id="rmc-tony-avatar">
+        <span>TS</span>
+      </div>
+      <div class="rmc-guide-body">
+        <div class="rmc-guide-head">
+          <strong>📘 Example Guide: Tony Sheen (<code>mannimmate_2d_v1/tony_sheen_2d_v2</code>)</strong>
+          <button type="button" class="ai-btn-purple" id="rmc-fill-tony">📋 Fill Tony Sheen Example Settings</button>
+        </div>
+        <div class="rmc-guide-steps">
+          <div><b>1. Name &amp; Category:</b> <code>tony_sheen_2d_v2</code> · Category <code>2D / Anime</code> · Subfolder <code>mannimmate_2d_v1</code></div>
+          <div><b>2. Concept &amp; Mode:</b> <code>identity</code> + <code>Full Reference</code> at <code>1024px</code> (keeps exact face/hair without lossy pooling; use <code>Compressed Reference + Merge</code> only for multi-angle <code>background</code> sets)</div>
+          <div><b>3. Images (3–6 views):</b> Upload crisp front, 3/4, and side-profile shots of Tony in consistent lighting &amp; outfit.</div>
+          <div><b>4. Voice Audio (optional):</b> Upload a clean dry 5–12s voice clip (<code>.wav</code>/<code>.mp3</code>) and keep Save Layout = <code>bundle</code> so face + voice live in one RefMod!</div>
+        </div>
+      </div>
+    </div>
+
+    <form id="rmc-form" class="rmc-form">
+      <label>RefMod Name (slug)
+        <input type="text" id="rmc-name" name="name" placeholder="e.g. tony_sheen_2d_v2" required autocomplete="off">
+      </label>
+      <label>Display Name
+        <input type="text" id="rmc-display" name="displayName" placeholder="e.g. Tony Sheen" autocomplete="off">
+      </label>
+      <label>Category
+        <select id="rmc-category" name="category">
+          <option value="Characters">🧑 Characters</option>
+          <option value="Photoreal">📸 Photoreal</option>
+          <option value="2D / Anime">🎨 2D / Anime</option>
+          <option value="Locations">🏛️ Locations</option>
+          <option value="Styles">✨ Styles</option>
+          <option value="Voices">🎙️ Voices</option>
+        </select>
+      </label>
+      <label>Subfolder (optional in models/refmods/)
+        <input type="text" id="rmc-subfolder" name="subfolder" placeholder="e.g. mannimmate_2d_v1 or locations" autocomplete="off">
+      </label>
+
+      <label>Concept Type
+        <select id="rmc-concept" name="conceptType">
+          <option value="identity" selected>identity (character face &amp; body)</option>
+          <option value="background">background (room / 3D set)</option>
+          <option value="style">style (art style / look)</option>
+          <option value="clothing">clothing (outfit)</option>
+          <option value="voice">voice (speech only)</option>
+          <option value="pose_motion">pose_motion (action / gesture)</option>
+          <option value="generic">generic</option>
+        </select>
+      </label>
+      <label>Extraction Mode
+        <select id="rmc-mode" name="mode">
+          <option value="Full Reference" selected>Full Reference (best for character identity)</option>
+          <option value="Compressed Reference">Compressed Reference (pooled — best for backgrounds/styles)</option>
+        </select>
+      </label>
+      <label>Reference Resolution
+        <select id="rmc-res" name="refResolution">
+          <option value="512">512px (fast)</option>
+          <option value="1024" selected>1024px (recommended)</option>
+          <option value="1536">1536px (high detail)</option>
+          <option value="2048">2048px (max fidelity)</option>
+        </select>
+      </label>
+      <label>Save Layout
+        <select id="rmc-layout" name="saveLayout">
+          <option value="bundle" selected>bundle (visual + audio in 1 file)</option>
+          <option value="separate_files">separate_files (visual &amp; audio separate)</option>
+        </select>
+      </label>
+
+      <label class="rmc-wide rmc-check-row">
+        <input type="checkbox" id="rmc-merge" name="merge">
+        <span><b>Merge multi-angle views into 1 consensus grid</b> <span class="muted">(recommended for <code>background</code> / <code>style</code> in Compressed Reference mode; leave OFF for character <code>identity</code>)</span></span>
+      </label>
+
+      <!-- Reference Images (1-16) -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🖼️ Reference Images (1–16) <span class="muted" id="rmc-img-count">(0 selected)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="rmc-pick-images">+ Pick Images</button>
+            <button type="button" id="rmc-clear-images">Clear</button>
+          </span>
+        </div>
+        <div class="rmc-thumb-strip" id="rmc-img-strip">
+          <div class="muted" style="font-size:11px">Add 3–6 crisp character angles (like Tony Sheen: front, 3/4, profile) or 8 room views for a Location RefMod.</div>
+        </div>
+      </div>
+
+      <!-- Optional Voice / Audio Reference -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🎙️ Voice / Audio Reference <span class="muted">(optional · 5–12s clean dry speech)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="rmc-pick-audio">+ Pick Audio (.wav/.mp3)</button>
+            <button type="button" id="rmc-clear-audio">Clear</button>
+          </span>
+        </div>
+        <div class="muted" id="rmc-audio-label" style="font-size:11px">No audio selected (visual-only RefMod).</div>
+      </div>
+
+      <!-- Optional Reference Videos -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🎬 Reference Videos <span class="muted">(optional · for pose/motion or video identity refs)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="rmc-pick-videos">+ Pick Videos (.mp4)</button>
+            <button type="button" id="rmc-clear-videos">Clear</button>
+          </span>
+        </div>
+        <div class="muted" id="rmc-video-label" style="font-size:11px">No videos selected.</div>
+      </div>
+
+      <div class="rmc-wide rmc-footer">
+        <span class="muted" id="rmc-status">Ready · runs on Tranklena ComfyUI ($0 cloud cost)</span>
+        <button type="submit" class="primary" id="rmc-submit">🚀 Build RefMod on Tranklena</button>
+      </div>
+    </form>
   </div>
 </div>
 

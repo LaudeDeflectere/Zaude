@@ -7,6 +7,43 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
+const REFMOD_CATEGORIES = [
+  'Photoreal',
+  '2D / Anime',
+  'Characters',
+  'Locations',
+  'Styles',
+  'Voices',
+];
+
+function inferCategory(file = '', name = '') {
+  const hay = `${file} ${name}`.toLowerCase();
+  if (/location|set3d|room|bar_loc|alley|background/.test(hay)) return 'Locations';
+  if (/style_v\d|shared.*style|_style\b/.test(hay)) return 'Styles';
+  if (/(?:_audio\b|_voice\b|voices[\\/])/.test(hay)) return 'Voices';
+  if (/(?:cbphoto|photo_v\d|_photo\b)/.test(hay)) return 'Photoreal';
+  if (/(?:_2d_|2d_v\d|changebang|anime)/.test(hay)) return '2D / Anime';
+  return 'Characters';
+}
+
+function deletedFile(refmodsRoot) {
+  return path.join(refmodsRoot, '.deleted.json');
+}
+
+function loadDeletedSlugs(refmodsRoot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(deletedFile(refmodsRoot), 'utf8'));
+    return new Set(Array.isArray(raw) ? raw.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDeletedSlugs(refmodsRoot, set) {
+  fs.mkdirSync(refmodsRoot, { recursive: true });
+  fs.writeFileSync(deletedFile(refmodsRoot), JSON.stringify(Array.from(set), null, 2), 'utf8');
+}
+
 function slugForRefMod(file) {
   return String(file || 'subject')
     .trim()
@@ -57,10 +94,12 @@ function inspectEntry(dir, fallback = {}, index = 1) {
   const hasHeadshot = fs.existsSync(headshotPath) || fs.existsSync(headshotPng);
   const resolvedHeadshot = fs.existsSync(headshotPath) ? headshotPath : (fs.existsSync(headshotPng) ? headshotPng : null);
   const hasWalk = fs.existsSync(walkPath);
+  const category = String(meta.category || '').trim() || inferCategory(file, name);
   return {
     file,
     name,
     firstName,
+    category,
     slug: path.basename(dir),
     dir,
     headshotPath: resolvedHeadshot,
@@ -73,12 +112,14 @@ function inspectEntry(dir, fallback = {}, index = 1) {
 // Ensures `<refmodsRoot>/<slug>/` exists for every discovered Mannimmate RefMod and any custom folders.
 function syncRefMods(refmodsRoot, mods = []) {
   fs.mkdirSync(refmodsRoot, { recursive: true });
+  const deleted = loadDeletedSlugs(refmodsRoot);
   const bySlug = new Map();
 
   let idx = 1;
   for (const mod of (mods || [])) {
     if (!mod || !mod.file) continue;
     const slug = slugForRefMod(mod.file);
+    if (deleted.has(slug)) continue;
     const dir = path.join(refmodsRoot, slug);
     fs.mkdirSync(dir, { recursive: true });
     const existing = readMeta(dir);
@@ -87,6 +128,7 @@ function syncRefMods(refmodsRoot, mods = []) {
         file: mod.file,
         name: mod.name || '',
         firstName: displayFirstName(mod.name || '', idx),
+        category: inferCategory(mod.file, mod.name || ''),
         slug,
         createdAt: new Date().toISOString(),
       });
@@ -99,7 +141,7 @@ function syncRefMods(refmodsRoot, mods = []) {
   try {
     for (const entry of fs.readdirSync(refmodsRoot, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      if (bySlug.has(entry.name)) continue;
+      if (bySlug.has(entry.name) || deleted.has(entry.name)) continue;
       const dir = path.join(refmodsRoot, entry.name);
       bySlug.set(entry.name, inspectEntry(dir, { file: entry.name, name: '' }, idx));
       idx++;
@@ -107,6 +149,33 @@ function syncRefMods(refmodsRoot, mods = []) {
   } catch { /* ignore */ }
 
   return Array.from(bySlug.values());
+}
+
+function setRefModCategory(refmodsRoot, { slug, category }) {
+  const cleanSlug = String(slug || '').trim();
+  const cleanCat = String(category || '').trim() || 'Characters';
+  if (!cleanSlug) return { ok: false, error: 'RefMod slug is required.' };
+  const dir = path.join(refmodsRoot, cleanSlug);
+  if (!fs.existsSync(dir)) return { ok: false, error: 'RefMod folder not found.' };
+  const existing = readMeta(dir) || { file: cleanSlug, name: cleanSlug, firstName: displayFirstName(cleanSlug), slug: cleanSlug };
+  const updated = { ...existing, category: cleanCat, updatedAt: new Date().toISOString() };
+  writeMeta(dir, updated);
+  return { ok: true, entry: inspectEntry(dir, updated) };
+}
+
+function deleteRefMod(refmodsRoot, { slug }) {
+  const cleanSlug = String(slug || '').trim();
+  if (!cleanSlug) return { ok: false, error: 'RefMod slug is required.' };
+  const dir = path.join(refmodsRoot, cleanSlug);
+  try {
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  } catch (e) {
+    return { ok: false, error: e.message || 'Could not remove RefMod folder.' };
+  }
+  const deleted = loadDeletedSlugs(refmodsRoot);
+  deleted.add(cleanSlug);
+  saveDeletedSlugs(refmodsRoot, deleted);
+  return { ok: true, slug: cleanSlug };
 }
 
 function createRefModFolder(refmodsRoot, { name = '', file = '' } = {}) {
@@ -354,13 +423,205 @@ async function buildLocationRefModOnComfy({
   }
 }
 
+// General zero-training RefMod builder supporting images (1-16), optional voice audio,
+// optional video refs, concept types (identity/background/style/clothing/voice), and bundle/separate save layout.
+function buildRefModExtractGraph({
+  name = 'custom_refmod',
+  conceptType = 'identity',
+  mode = 'Full Reference',
+  imageNames = [],
+  videoNames = [],
+  audioName = '',
+  videoVae = 'minimax_h3_video_vae_int8_convrot.safetensors',
+  audioVae = 'minimax_h3_audio_vae_fp32.safetensors',
+  refResolution = 1024,
+  poolH = 16,
+  poolW = 16,
+  refinementSteps = 0,
+  merge = false,
+  saveLayout = 'bundle',
+  subfolder = '',
+} = {}) {
+  const cleanName = slugForRefMod(name) || 'custom_refmod';
+  const imgs = (Array.isArray(imageNames) ? imageNames : []).filter(Boolean).slice(0, 16);
+  const vids = (Array.isArray(videoNames) ? videoNames : []).filter(Boolean).slice(0, 8);
+  const hasAudio = Boolean(String(audioName || '').trim());
+
+  const graph = {
+    '1': { class_type: 'VAELoader', inputs: { vae_name: videoVae } },
+  };
+  const extractInputs = {
+    name: cleanName,
+    mode: mode === 'Compressed Reference' ? 'Compressed Reference' : 'Full Reference',
+    concept_type: String(conceptType || 'identity'),
+    background_retention: 1.0,
+    ref_resolution: Math.max(256, Math.min(2048, Number(refResolution) || 1024)),
+    pool_h: Math.max(2, Math.min(64, Number(poolH) || 16)),
+    pool_w: Math.max(2, Math.min(64, Number(poolW) || 16)),
+    latent_frames: vids.length ? 16 : 1,
+    identity: mode === 'Compressed Reference' ? Math.max(0, Number(refinementSteps) || 300) : 0,
+    merge: Boolean(merge),
+    motion_only: false,
+    vae: ['1', 0],
+    extraction_preset: 'manual',
+    subfolder: String(subfolder || '').trim(),
+    budget_policy: 'truncate',
+    save_layout: saveLayout === 'bundle' ? 'bundle' : 'separate_files',
+  };
+
+  imgs.forEach((imgName, idx) => {
+    const nodeId = String(10 + idx);
+    graph[nodeId] = { class_type: 'LoadImage', inputs: { image: imgName } };
+    extractInputs[`ref_image_${idx + 1}`] = [nodeId, 0];
+  });
+  vids.forEach((vidName, idx) => {
+    const nodeId = String(30 + idx);
+    graph[nodeId] = { class_type: 'LoadVideo', inputs: { file: vidName } };
+    extractInputs[`ref_video_${idx + 1}`] = [nodeId, 0];
+  });
+  if (hasAudio) {
+    graph['2'] = { class_type: 'VAELoader', inputs: { vae_name: audioVae } };
+    graph['3'] = { class_type: 'LoadAudio', inputs: { audio: String(audioName).trim() } };
+    extractInputs.audio = ['3', 0];
+    extractInputs.audio_vae = ['2', 0];
+  }
+
+  graph['50'] = { class_type: 'MiniMaxH3RefModMasterExtract', inputs: extractInputs };
+  const sub = String(subfolder || '').trim();
+  return { graph, modName: cleanName, refmodFile: sub ? `${sub}/${cleanName}` : cleanName };
+}
+
+async function buildRefModOnComfy({
+  refmodsRoot,
+  name = 'custom_refmod',
+  displayName = '',
+  category = 'Characters',
+  conceptType = 'identity',
+  mode = 'Full Reference',
+  imagePaths = [],
+  videoPaths = [],
+  audioPath = '',
+  refResolution = 1024,
+  merge = false,
+  saveLayout = 'bundle',
+  subfolder = '',
+  baseUrl = 'http://127.0.0.1:8189',
+  onEvent = () => {},
+} = {}) {
+  const validImgs = (Array.isArray(imagePaths) ? imagePaths : []).filter((p) => p && fs.existsSync(p)).slice(0, 16);
+  const validVids = (Array.isArray(videoPaths) ? videoPaths : []).filter((p) => p && fs.existsSync(p)).slice(0, 8);
+  const validAudio = audioPath && fs.existsSync(audioPath) ? audioPath : '';
+  if (!validImgs.length && !validVids.length && !validAudio) {
+    return { ok: false, error: 'Pick at least one reference image, video, or audio clip.' };
+  }
+  const base = String(baseUrl || 'http://127.0.0.1:8189').replace(/\/+$/, '');
+
+  async function uploadFile(filePath, mime = 'application/octet-stream') {
+    const form = new FormData();
+    form.append('image', new Blob([fs.readFileSync(filePath)], { type: mime }), path.basename(filePath));
+    form.append('overwrite', 'true');
+    const up = await fetch(`${base}/upload/image`, { method: 'POST', body: form });
+    if (!up.ok) throw new Error(`Upload failed (${up.status}) for ${path.basename(filePath)}`);
+    const d = await up.json();
+    return d.name || path.basename(filePath);
+  }
+
+  try {
+    const oi = await fetch(`${base}/object_info/MiniMaxH3RefModMasterExtract`, { signal: AbortSignal.timeout(6000) });
+    if (!oi.ok) return { ok: false, error: `Could not reach ComfyUI (${base}) to build RefMod.` };
+    const info = await oi.json();
+    if (!info || !info.MiniMaxH3RefModMasterExtract) {
+      return { ok: false, error: 'MiniMaxH3RefModMasterExtract node is not installed on this ComfyUI server.' };
+    }
+
+    onEvent({ type: 'status', message: `Uploading ${validImgs.length} image(s)${validAudio ? ' + voice audio' : ''}${validVids.length ? ` + ${validVids.length} video(s)` : ''}…` });
+    const uploadedImgs = [];
+    for (const p of validImgs) uploadedImgs.push(await uploadFile(p, 'image/png'));
+    const uploadedVids = [];
+    for (const p of validVids) uploadedVids.push(await uploadFile(p, 'video/mp4'));
+    const uploadedAudio = validAudio ? await uploadFile(validAudio, 'audio/wav') : '';
+
+    const { graph, modName, refmodFile } = buildRefModExtractGraph({
+      name,
+      conceptType,
+      mode,
+      imageNames: uploadedImgs,
+      videoNames: uploadedVids,
+      audioName: uploadedAudio,
+      refResolution,
+      merge,
+      saveLayout,
+      subfolder,
+    });
+    onEvent({ type: 'status', message: `Encoding RefMod "${modName}" on Tranklena (zero training)…` });
+    const sub = await fetch(`${base}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: graph, client_id: `zaude-refmod-${Date.now()}` }),
+    });
+    if (!sub.ok) return { ok: false, error: `ComfyUI rejected RefMod graph (${sub.status})` };
+    const { prompt_id: promptId } = await sub.json();
+
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const hr = await fetch(`${base}/history/${encodeURIComponent(promptId)}`);
+      if (!hr.ok) continue;
+      const hist = await hr.json();
+      const entry = hist && hist[promptId];
+      if (!entry) continue;
+      if (entry.status && entry.status.status_str === 'error') {
+        return { ok: false, error: `RefMod extraction failed: ${JSON.stringify(entry.status.messages || '').slice(0, 220)}` };
+      }
+      if (entry.status && entry.status.completed) {
+        // Persist local Zaude RefMod folder with category & first image as immediate headshot preview
+        let localEntry = null;
+        if (refmodsRoot) {
+          const slug = slugForRefMod(refmodFile);
+          const deleted = loadDeletedSlugs(refmodsRoot);
+          if (deleted.has(slug)) {
+            deleted.delete(slug);
+            saveDeletedSlugs(refmodsRoot, deleted);
+          }
+          const dir = path.join(refmodsRoot, slug);
+          fs.mkdirSync(dir, { recursive: true });
+          const cleanDisp = String(displayName || name || modName).trim();
+          writeMeta(dir, {
+            file: refmodFile,
+            name: cleanDisp,
+            firstName: displayFirstName(cleanDisp),
+            category: String(category || inferCategory(refmodFile, cleanDisp)),
+            conceptType,
+            slug,
+            createdAt: new Date().toISOString(),
+          });
+          if (validImgs[0]) {
+            try { fs.copyFileSync(validImgs[0], path.join(dir, 'headshot.jpg')); } catch { /* ignore */ }
+          }
+          localEntry = inspectEntry(dir);
+        }
+        return { ok: true, modName, refmodFile, subfolder, entry: localEntry };
+      }
+    }
+    return { ok: false, error: 'Timed out waiting for RefMod extraction.' };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 module.exports = {
+  REFMOD_CATEGORIES,
+  inferCategory,
   slugForRefMod,
   displayFirstName,
   syncRefMods,
   createRefModFolder,
+  setRefModCategory,
+  deleteRefMod,
   extractHeadshotFromVideo,
   generateRefModAssets,
   buildLocationRefModGraph,
   buildLocationRefModOnComfy,
+  buildRefModExtractGraph,
+  buildRefModOnComfy,
 };

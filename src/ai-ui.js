@@ -104,6 +104,9 @@ function updateMissingPreviewsButton() {
   }
 }
 
+let activeRefmodCat = 'All';
+const REFMOD_CAT_ORDER = ['Photoreal', '2D / Anime', 'Characters', 'Locations', 'Styles', 'Voices'];
+
 function renderRefModGrid() {
   populateBackgroundRefmodSelect();
   const grid = $('ai-refmod-grid');
@@ -111,7 +114,27 @@ function renderRefModGrid() {
   syncHiddenRefmodInputs();
   updateMissingPreviewsButton();
 
-  const cards = refmodEntries.map((item, idx) => {
+  // Render Category Filter Pills
+  const catsEl = $('ai-refmod-cats');
+  if (catsEl) {
+    const counts = new Map();
+    for (const m of refmodEntries) {
+      const cat = m.category || 'Characters';
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+    const orderedCats = Array.from(new Set([...REFMOD_CAT_ORDER, ...counts.keys()])).filter((c) => counts.get(c) > 0);
+    if (activeRefmodCat !== 'All' && !counts.has(activeRefmodCat)) activeRefmodCat = 'All';
+    catsEl.innerHTML = [
+      `<button type="button" class="pa-lib-cat ${activeRefmodCat === 'All' ? 'on' : ''}" data-refmod-cat="All">All (${refmodEntries.length})</button>`,
+      ...orderedCats.map((c) => `<button type="button" class="pa-lib-cat ${activeRefmodCat === c ? 'on' : ''}" data-refmod-cat="${esc(c)}">${esc(c)} (${counts.get(c)})</button>`),
+    ].join('');
+  }
+
+  const visibleEntries = activeRefmodCat === 'All'
+    ? refmodEntries
+    : refmodEntries.filter((m) => (m.category || 'Characters') === activeRefmodCat);
+
+  const cards = visibleEntries.map((item, idx) => {
     const selIdx = selectedRefmods.indexOf(item.file);
     const selCls = selIdx >= 0 ? ` sel-any sel-${(selIdx % 4) + 1}` : '';
     const badge = selIdx >= 0 ? `<span class="refmod-slot-badge">${selIdx + 1}</span>` : '';
@@ -125,15 +148,19 @@ function renderRefModGrid() {
       ? `<video class="refmod-walk" src="${esc(item.walkUrl)}" muted loop playsinline preload="none"></video>`
       : '';
     const genBtn = `<button type="button" class="refmod-gen-btn${qPos >= 0 ? ' busy' : ''}" data-gen-refmod="${esc(item.slug)}" title="${item.hasWalk ? 'Regenerate headshot & walk preview' : 'Queue headshot & walk preview'}">${genLabel}</button>`;
-    return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)}${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
-      ${avatarHtml}${walkHtml}${badge}${genBtn}
+    const manageBtns = `<span class="refmod-tile-actions">
+      <button type="button" class="refmod-mini-btn" data-cat-refmod="${esc(item.slug)}" title="Change category (current: ${esc(item.category || 'Characters')})">🏷️</button>
+      <button type="button" class="refmod-mini-btn del" data-del-refmod="${esc(item.slug)}" title="Delete ${esc(label)} from Zaude RefMod library">✕</button>
+    </span>`;
+    return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)} [${esc(item.category || 'Characters')}]${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
+      ${avatarHtml}${walkHtml}${badge}${manageBtns}${genBtn}
       <span class="refmod-name">${esc(label)}</span>
     </div>`;
   }).join('');
 
-  const addTile = `<button type="button" class="refmod-tile refmod-add-tile" id="ai-refmod-add-btn" title="Add a new RefMod character folder">
+  const addTile = `<button type="button" class="refmod-tile refmod-add-tile" id="ai-refmod-add-btn" title="Open Create RefMod window (with Tony Sheen example guide)">
     <span class="refmod-plus">+</span>
-    <span class="refmod-name">Add</span>
+    <span class="refmod-name">Create</span>
   </button>`;
 
   grid.innerHTML = cards + addTile;
@@ -1513,7 +1540,195 @@ function init() {
     });
   }
 
+  // ---------- Create / Categorize / Delete RefMod Manager (with Tony Sheen Example Guide) ----------
+  const rmcDialog = $('refmod-creator-dialog');
+  let rmcImages = []; // [{ path, name, url }]
+  let rmcVideos = []; // [{ path, name, url }]
+  let rmcAudio = null; // { path, name, url }
+
+  function renderRmcInputs() {
+    const strip = $('rmc-img-strip');
+    const cnt = $('rmc-img-count');
+    if (cnt) cnt.textContent = `(${rmcImages.length} selected)`;
+    if (strip) {
+      strip.innerHTML = rmcImages.length
+        ? rmcImages.map((img, i) => `
+            <div class="rmc-thumb" title="${esc(img.name)}">
+              <img src="${esc(img.url || '')}" alt="${esc(img.name)}">
+              <button type="button" data-rmc-del-img="${i}" title="Remove">×</button>
+            </div>
+          `).join('')
+        : `<div class="muted" style="font-size:11px">Add 3–6 crisp character angles (like Tony Sheen: front, 3/4, profile) or 8 room views for a Location RefMod.</div>`;
+    }
+    const audEl = $('rmc-audio-label');
+    if (audEl) audEl.textContent = rmcAudio ? `🎙️ ${rmcAudio.name}` : 'No audio selected (visual-only RefMod).';
+    const vidEl = $('rmc-video-label');
+    if (vidEl) vidEl.textContent = rmcVideos.length ? `🎬 ${rmcVideos.map((v) => v.name).join(', ')}` : 'No videos selected.';
+  }
+
+  function openRefModCreator() {
+    if (!rmcDialog) return;
+    // Populate Tony Sheen's real headshot in the example guide if present in refmodEntries
+    const tony = refmodEntries.find((m) => /tony_sheen/i.test(m.slug || m.file || ''));
+    const av = $('rmc-tony-avatar');
+    if (av && tony && tony.headshotUrl) {
+      av.innerHTML = `<img src="${esc(tony.headshotUrl)}" alt="Tony Sheen Example">`;
+    }
+    renderRmcInputs();
+    rmcDialog.hidden = false;
+  }
+
+  document.addEventListener('click', async (e) => {
+    const catPill = e.target.closest('[data-refmod-cat]');
+    if (catPill) {
+      activeRefmodCat = catPill.dataset.refmodCat || 'All';
+      renderRefModGrid();
+      return;
+    }
+    const catBtn = e.target.closest('[data-cat-refmod]');
+    if (catBtn && api.refmodsSetCategory) {
+      e.stopPropagation();
+      const slug = catBtn.dataset.catRefmod;
+      const cur = refmodEntries.find((m) => m.slug === slug);
+      const curCat = (cur && cur.category) || 'Characters';
+      const nextIdx = (REFMOD_CAT_ORDER.indexOf(curCat) + 1) % REFMOD_CAT_ORDER.length;
+      const nextCat = REFMOD_CAT_ORDER[nextIdx];
+      const res = await api.refmodsSetCategory({ slug, category: nextCat });
+      if (res && res.ok && res.entry) {
+        const i = refmodEntries.findIndex((m) => m.slug === slug);
+        if (i >= 0) refmodEntries[i] = res.entry;
+        renderRefModGrid();
+        setStatus(`Categorized "${res.entry.firstName}" → ${nextCat}`);
+      }
+      return;
+    }
+    const delBtn = e.target.closest('[data-del-refmod]');
+    if (delBtn && api.refmodsDelete) {
+      e.stopPropagation();
+      const slug = delBtn.dataset.delRefmod;
+      const cur = refmodEntries.find((m) => m.slug === slug);
+      const label = (cur && (cur.firstName || cur.name)) || slug;
+      if (!window.confirm(`Delete RefMod "${label}" from Zaude's library?`)) return;
+      const res = await api.refmodsDelete({ slug });
+      if (res && res.ok) {
+        refmodEntries = refmodEntries.filter((m) => m.slug !== slug);
+        if (cur) selectedRefmods = selectedRefmods.filter((f) => f !== cur.file);
+        renderRefModGrid();
+        setStatus(`Deleted RefMod "${label}" from library.`);
+      }
+      return;
+    }
+    if (e.target.closest('#ai-refmod-create-open') || e.target.closest('#ai-refmod-add-btn')) {
+      e.stopPropagation();
+      openRefModCreator();
+      return;
+    }
+    if (e.target.closest('#rmc-close')) {
+      if (rmcDialog) rmcDialog.hidden = true;
+      return;
+    }
+    if (e.target.closest('#rmc-fill-tony')) {
+      if ($('rmc-name')) $('rmc-name').value = 'tony_sheen_custom';
+      if ($('rmc-display')) $('rmc-display').value = 'Tony Sheen';
+      if ($('rmc-category')) $('rmc-category').value = '2D / Anime';
+      if ($('rmc-subfolder')) $('rmc-subfolder').value = 'mannimmate_2d_v1';
+      if ($('rmc-concept')) $('rmc-concept').value = 'identity';
+      if ($('rmc-mode')) $('rmc-mode').value = 'Full Reference';
+      if ($('rmc-res')) $('rmc-res').value = '1024';
+      if ($('rmc-layout')) $('rmc-layout').value = 'bundle';
+      if ($('rmc-merge')) $('rmc-merge').checked = false;
+      if ($('rmc-status')) $('rmc-status').textContent = 'Loaded Tony Sheen example settings! Now pick 3–6 images (+ optional voice audio) and click Build.';
+      return;
+    }
+    if (e.target.closest('#rmc-pick-images') && api.refmodsPickFiles) {
+      const r = await api.refmodsPickFiles('images');
+      if (r && r.ok && r.files) {
+        rmcImages = [...rmcImages, ...r.files].slice(0, 16);
+        renderRmcInputs();
+      }
+      return;
+    }
+    if (e.target.closest('#rmc-clear-images')) {
+      rmcImages = [];
+      renderRmcInputs();
+      return;
+    }
+    const delImgBtn = e.target.closest('[data-rmc-del-img]');
+    if (delImgBtn) {
+      rmcImages.splice(Number(delImgBtn.dataset.rmcDelImg), 1);
+      renderRmcInputs();
+      return;
+    }
+    if (e.target.closest('#rmc-pick-audio') && api.refmodsPickFiles) {
+      const r = await api.refmodsPickFiles('audio');
+      if (r && r.ok && r.files && r.files[0]) {
+        rmcAudio = r.files[0];
+        renderRmcInputs();
+      }
+      return;
+    }
+    if (e.target.closest('#rmc-clear-audio')) {
+      rmcAudio = null;
+      renderRmcInputs();
+      return;
+    }
+    if (e.target.closest('#rmc-pick-videos') && api.refmodsPickFiles) {
+      const r = await api.refmodsPickFiles('videos');
+      if (r && r.ok && r.files) {
+        rmcVideos = [...rmcVideos, ...r.files].slice(0, 8);
+        renderRmcInputs();
+      }
+      return;
+    }
+    if (e.target.closest('#rmc-clear-videos')) {
+      rmcVideos = [];
+      renderRmcInputs();
+    }
+  });
+
+  const rmcForm = $('rmc-form');
+  if (rmcForm && api.refmodsBuild) {
+    rmcForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const statusEl = $('rmc-status');
+      const submitBtn = $('rmc-submit');
+      if (!rmcImages.length && !rmcVideos.length && !rmcAudio) {
+        if (statusEl) statusEl.textContent = 'Pick at least one reference image, video, or voice audio file first.';
+        return;
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      if (statusEl) statusEl.textContent = '🧬 Encoding RefMod on Tranklena ComfyUI…';
+      const res = await api.refmodsBuild({
+        name: String(($('rmc-name') && $('rmc-name').value) || '').trim(),
+        displayName: String(($('rmc-display') && $('rmc-display').value) || '').trim(),
+        category: String(($('rmc-category') && $('rmc-category').value) || 'Characters'),
+        subfolder: String(($('rmc-subfolder') && $('rmc-subfolder').value) || '').trim(),
+        conceptType: String(($('rmc-concept') && $('rmc-concept').value) || 'identity'),
+        mode: String(($('rmc-mode') && $('rmc-mode').value) || 'Full Reference'),
+        refResolution: Number(($('rmc-res') && $('rmc-res').value) || 1024),
+        saveLayout: String(($('rmc-layout') && $('rmc-layout').value) || 'bundle'),
+        merge: Boolean($('rmc-merge') && $('rmc-merge').checked),
+        imagePaths: rmcImages.map((x) => x.path),
+        videoPaths: rmcVideos.map((x) => x.path),
+        audioPath: rmcAudio ? rmcAudio.path : '',
+      });
+      if (submitBtn) submitBtn.disabled = false;
+      if (!res || !res.ok) {
+        if (statusEl) statusEl.textContent = `Build failed: ${(res && res.error) || 'unknown error'}`;
+        return;
+      }
+      if (res.entry) {
+        const idx = refmodEntries.findIndex((m) => m.slug === res.entry.slug);
+        if (idx >= 0) refmodEntries[idx] = res.entry;
+        else refmodEntries.unshift(res.entry);
+        renderRefModGrid();
+      }
+      if (statusEl) statusEl.textContent = `✅ Built "${res.refmodFile}" and added to ${res.entry ? res.entry.category : 'RefMod library'}!`;
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && rmcDialog && !rmcDialog.hidden) { rmcDialog.hidden = true; return; }
     if (e.key === 'Escape' && !$('t2v-dialog').hidden) close();
   });
 }

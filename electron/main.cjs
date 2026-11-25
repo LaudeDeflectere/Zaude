@@ -579,6 +579,65 @@ function registerAiHandlers() {
     };
   });
 
+  ipcMain.handle('ai:refmods:setCategory', (_e, { slug, category } = {}) => {
+    const res = refmodsLib.setRefModCategory(refmodsRoot(), { slug, category });
+    if (!res.ok) return res;
+    return {
+      ok: true,
+      entry: {
+        ...res.entry,
+        headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
+        walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+      },
+    };
+  });
+
+  ipcMain.handle('ai:refmods:delete', (_e, { slug } = {}) => {
+    return refmodsLib.deleteRefMod(refmodsRoot(), { slug });
+  });
+
+  ipcMain.handle('ai:refmods:pickFiles', async (event, kind = 'images') => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const isAudio = kind === 'audio';
+    const isVideo = kind === 'videos';
+    const picked = await dialog.showOpenDialog(win, {
+      title: isAudio ? 'Pick Voice / Audio Reference' : (isVideo ? 'Pick Reference Videos' : 'Pick Reference Images (1–16)'),
+      properties: isAudio ? ['openFile'] : ['openFile', 'multiSelections'],
+      filters: isAudio
+        ? [{ name: 'Audio Files', extensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a'] }, { name: 'All Files', extensions: ['*'] }]
+        : (isVideo
+          ? [{ name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'mkv'] }, { name: 'All Files', extensions: ['*'] }]
+          : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }, { name: 'All Files', extensions: ['*'] }]),
+    });
+    if (picked.canceled || !picked.filePaths || !picked.filePaths.length) return { ok: false, canceled: true, files: [] };
+    const files = picked.filePaths.map((p) => {
+      pickedMediaDirs.add(path.dirname(p));
+      return { path: p, name: path.basename(p), url: mediaUrlFor(p) };
+    });
+    return { ok: true, files };
+  });
+
+  ipcMain.handle('ai:refmods:build', async (event, input = {}) => {
+    const comfyLive = require('./comfy-live.cjs');
+    const baseUrl = String((input && input.baseUrl) || '').trim() || comfyLive.comfyBaseUrl();
+    const res = await refmodsLib.buildRefModOnComfy({
+      ...input,
+      refmodsRoot: refmodsRoot(),
+      baseUrl,
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:refmodProgress', { ...ev, mode: 'build-refmod' });
+      },
+    });
+    if (res && res.ok && res.entry) {
+      res.entry = {
+        ...res.entry,
+        headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
+        walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+      };
+    }
+    return res;
+  });
+
   ipcMain.handle('ai:clipLatent', (_e, filePath) => {
     const found = latentsLib.findClipLatent(filePath);
     if (!found) return { ok: true, latent: null, label: null, quality: null };

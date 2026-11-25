@@ -1322,6 +1322,177 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   border-radius: 4px;
 }
 
+/* RefMod Category Filter Bar & Tile Actions */
+.refmod-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 4px 0 6px;
+}
+.refmod-tile-actions {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 4;
+}
+.refmod-tile:hover .refmod-tile-actions {
+  opacity: 1;
+}
+.refmod-mini-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 10, 20, 0.86);
+  color: #f4f1ff;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.refmod-mini-btn:hover { background: #7c3aed; border-color: #c084fc; }
+.refmod-mini-btn.del:hover { background: #dc2626; border-color: #fca5a5; }
+
+/* RefMod Creator Window + Tony Sheen Example Guide */
+.rmc-card {
+  width: min(860px, 86vw);
+  max-height: 90vh;
+}
+.rmc-guide {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  background: rgba(139, 92, 246, 0.1);
+  align-items: flex-start;
+}
+.rmc-guide-avatar {
+  width: 78px;
+  height: 78px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #1a162b;
+  border: 1px solid rgba(192, 132, 252, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #d8b4fe;
+}
+.rmc-guide-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rmc-guide-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rmc-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.rmc-guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: #dedce8;
+  line-height: 1.35;
+}
+.rmc-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+.rmc-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #c8c6d8;
+}
+.rmc-form input[type="text"],
+.rmc-form select {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid #35304d;
+  background: #0e0c18;
+  color: #f4f4fa;
+  font-size: 12px;
+}
+.rmc-wide {
+  grid-column: 1 / -1;
+}
+.rmc-check-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-size: 11.5px;
+}
+.rmc-input-box {
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid #2f2a47;
+  background: #131020;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rmc-thumb-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rmc-thumb {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #3c3659;
+  background: #090810;
+}
+.rmc-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rmc-thumb button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 10px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.8);
+}
+.rmc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid #2b2740;
+}
+
 /* ---------- Purple AI context menu action (FrameToFrame) ---------- */
 .menu button.menu-ai {
   background: rgba(139, 92, 246, 0.24);
