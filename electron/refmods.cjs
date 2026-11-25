@@ -231,7 +231,7 @@ function generateRefModAssets({ refmodsRoot, mannimmateDir, python = 'python3', 
   fs.mkdirSync(dir, { recursive: true });
   const subjectName = mod.name || displayFirstName(mod.name, 1);
   const slot = `${mod.file}|${subjectName}|1.0|1.0`;
-  const walkPrompt = `Medium-full studio shot of ${subjectName} walking naturally forward toward the camera on a clean neutral dark studio floor, soft key light, clear face, smooth relaxed walking loop.`;
+  const walkPrompt = `Medium close-up studio portrait of ${subjectName} from the chest up, full head and face centered in frame with generous headroom, looking directly at the camera with a calm natural expression, subtle gentle head turn and relaxed shoulder movement, clean neutral dark studio backdrop, soft cinematic key light, sharp facial detail, locked tripod camera.`;
 
   const args = [
     cliPath,
