@@ -759,6 +759,7 @@ export function createActions(store, engine) {
           clips: s.clips.map((c) => (c.id === targetId ? {
             ...c,
             path: d.path,
+            url: d.url || c.url,
             name: c.name.includes('✨') ? c.name : `${c.name} ✨`,
             latent: d.latent || c.latent || undefined,
             latentLabel: d.latentLabel || c.latentLabel || undefined,

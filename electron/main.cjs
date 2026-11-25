@@ -417,6 +417,9 @@ function registerAiHandlers() {
       const meta = upscaleLib.readClipMeta(input.video);
       const startSec = Math.max(0, Number(input.start) || 0);
       const endSec = Math.max(startSec + 0.5, Number(input.end) || meta.duration || 5);
+      const fallbackRef = !meta.refmods.length
+        ? upscaleLib.extractFallbackRefFrame(input.video, previewRoot(), startSec + Math.min(1, (endSec - startSec) * 0.5))
+        : '';
       const refineReq = {
         mode: 'auto',
         video: input.video,
@@ -424,10 +427,11 @@ function registerAiHandlers() {
         end: endSec,
         quality: String(input.quality || '640'),
         preset: 'normal',
-        stylizeAction: meta.refmods.length ? 'both' : 'object',
+        stylizeAction: meta.refmods.length ? 'both' : 'both',
         refmods: meta.refmods,
         refmod: meta.refmods[0] ? meta.refmods[0].file : '',
         refmodName: meta.refmods[0] ? meta.refmods[0].name : '',
+        ref: fallbackRef,
         objectPrompt: upscaleLib.buildRefinePrompt(meta),
         backgroundMode: 'keep',
       };
@@ -510,9 +514,11 @@ function registerAiHandlers() {
           });
           latentsLib.saveLatentName(latentNamesFile(), result.latent, latentLabel);
         }
+        if (result.path) pickedMediaDirs.add(path.dirname(result.path));
         send({
           type: 'done',
           path: result.path,
+          url: result.path ? mediaUrlFor(result.path) : null,
           replaceClipId: (input && input.replaceClipId) || null,
           latent: result.latent || null,
           latentLabel,

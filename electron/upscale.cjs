@@ -10,7 +10,7 @@ const comfyLive = require('./comfy-live.cjs');
 
 const DEFAULT_ESRGAN_MODEL = 'RealESRGAN_x2plus.pth';
 
-// Reads a clip's Mannimmate sidecar JSON (if any) to recover its RefMods, prompt, and duration.
+// Reads a clip's Mannimmate sidecar JSON (or embedded ComfyUI MP4 metadata!) to recover its RefMods, prompt, and duration.
 function readClipMeta(videoPath) {
   const out = { refmods: [], prompt: '', duration: 0 };
   if (!videoPath || typeof videoPath !== 'string') return out;
@@ -37,14 +37,47 @@ function readClipMeta(videoPath) {
       if (Number(data.seconds) > 0) out.duration = Number(data.seconds);
     } catch { /* ignore */ }
   }
-  if (!out.duration && fs.existsSync(videoPath)) {
+  if (fs.existsSync(videoPath) && (!out.duration || !out.refmods.length)) {
     try {
-      const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', videoPath], { encoding: 'utf8', timeout: 8000, windowsHide: true });
-      const d = Number(String(r.stdout || '').trim());
-      if (d > 0) out.duration = d;
+      const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:format_tags=prompt', '-of', 'json', videoPath], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+      const probeData = JSON.parse(String(r.stdout || '{}'));
+      const d = Number(probeData && probeData.format && probeData.format.duration);
+      if (!out.duration && d > 0) out.duration = d;
+      const rawGraphStr = probeData && probeData.format && probeData.format.tags && probeData.format.tags.prompt;
+      if (!out.refmods.length && rawGraphStr) {
+        const g = JSON.parse(rawGraphStr);
+        for (const node of Object.values(g)) {
+          if (node && /RefModsLoader/i.test(String(node.class_type || '')) && node.inputs) {
+            for (let i = 1; i <= 8; i++) {
+              const mod = node.inputs[`mod_${i}`];
+              if (mod && mod !== 'None' && mod !== 'none') {
+                const cleanFile = String(mod).replace(/\\/g, '/').replace(/\.safetensors$/i, '');
+                const baseName = cleanFile.split('/').pop().replace(/_(?:cbphoto|photo|2d).*$/i, '');
+                out.refmods.push({
+                  file: cleanFile,
+                  name: baseName ? baseName[0].toUpperCase() + baseName.slice(1) : `Subject ${i}`,
+                  identityStrength: 1.0,
+                  voiceStrength: 0.0,
+                });
+              }
+            }
+          }
+        }
+      }
     } catch { /* ignore */ }
   }
   return out;
+}
+
+// Extracts a crisp reference keyframe PNG for external clips that have no RefMods so mannimmate render never rejects them.
+function extractFallbackRefFrame(videoPath, outDir, timeSec = 0.5) {
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    const outPng = path.join(outDir, `upscale_ref_${Date.now()}.png`);
+    const r = spawnSync('ffmpeg', ['-hide_banner', '-y', '-ss', String(Math.max(0, Number(timeSec) || 0.5)), '-i', videoPath, '-frames:v', '1', outPng], { timeout: 15000, windowsHide: true });
+    if (r.status === 0 && fs.existsSync(outPng)) return outPng;
+  } catch { /* ignore */ }
+  return '';
 }
 
 // Builds a face & detail refinement prompt that preserves original motion while fixing faces via RefMods.
@@ -191,6 +224,7 @@ function runEsrganUpscale({
 module.exports = {
   DEFAULT_ESRGAN_MODEL,
   readClipMeta,
+  extractFallbackRefFrame,
   buildRefinePrompt,
   buildEsrganGraph,
   runEsrganUpscale,
