@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   lipSyncClip: (input) => ipcRenderer.invoke('ai:lipSyncClip', input),
   generateVoiceAudio: (input) => ipcRenderer.invoke('ai:audio:generateVoice', input),
   saveAudioRecording: (input) => ipcRenderer.invoke('ai:audio:saveRecording', input),
+  analyzeVideoMotion: (input) => ipcRenderer.invoke('ai:recast:analyze', input),
+  buildRecastRequest: (input) => ipcRenderer.invoke('ai:recast:build', input),
   extractFrame: (input) => ipcRenderer.invoke('ai:extractFrame', input),
   trimSeedClip: (input) => ipcRenderer.invoke('ai:trimSeedClip', input),
   clipLatent: (filePath) => ipcRenderer.invoke('ai:clipLatent', filePath),

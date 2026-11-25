@@ -165,6 +165,7 @@
           <span>1. Pick Timeline Segment &amp; Trim Timing</span>
           <span class="ai-prompt-helpers">
             <button type="button" id="ai-pick-timeline" class="ai" title="Load the selected or playhead video clip from the timeline">🎯 Pick from Timeline</button>
+            <button type="button" id="ai-recast-analyze-btn" class="ai-btn-purple" title="Pre-process video: detect Character A &amp; B, analyze motion, click pins on frame to cast RefMods &amp; recreate with a new background">🔍 Analyze &amp; Cast (A/B)</button>
             <button type="button" data-seg-nudge="start:-0.5" title="Extend segment start earlier by 0.5s">Start −0.5s</button>
             <button type="button" data-seg-nudge="start:0.5" title="Shorten segment start by 0.5s">Start +0.5s</button>
             <button type="button" data-seg-nudge="end:-0.5" title="Shorten segment end by 0.5s">End −0.5s</button>
@@ -180,6 +181,47 @@
             </div>
           </div>
           <div class="stylize-range-meta muted" id="ai-stylize-meta">Click "🎯 Pick from Timeline" or browse a video below.</div>
+        </div>
+
+        <!-- Interactive Motion Analysis & Character A/B Cast Picker -->
+        <div class="recast-drawer" id="ai-recast-drawer" hidden>
+          <div class="ai-prompt-head">
+            <span>🎭 Motion Analysis &amp; Character Cast Picker <span class="muted" id="recast-analyzer-tag">· Click a character on the frame to place pin A / B</span></span>
+            <span class="ai-prompt-helpers">
+              <button type="button" id="recast-add-char">+ Add Character C</button>
+              <button type="button" id="recast-close">✕ Close</button>
+            </span>
+          </div>
+          <div class="recast-grid">
+            <div class="recast-stage-wrap">
+              <div class="recast-stage" id="recast-stage" title="Click anywhere on a character to move the active pin">
+                <img id="recast-hero-img" alt="Analyzed keyframe">
+                <div class="recast-pins" id="recast-pins"></div>
+              </div>
+              <div class="recast-pin-bar" id="recast-pin-bar"></div>
+            </div>
+            <div class="recast-controls">
+              <div id="recast-char-cards" class="recast-char-cards"></div>
+              <label style="display:block;margin-top:6px">Analyzed Motion &amp; Choreography <span class="muted">(editable)</span>
+                <textarea id="recast-motion" rows="3" placeholder="What happens in this clip (Character A &amp; Character B actions)…"></textarea>
+              </label>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <label>New Background / Environment
+                  <input type="text" id="recast-bg" placeholder="e.g. rain-slicked neon rooftop at night, cyberpunk city skyline">
+                </label>
+                <label>Motion Style
+                  <select id="recast-motion-mode">
+                    <option value="loose" selected>🌊 General Motion (Recreate Action + New BG)</option>
+                    <option value="tight">🎯 Tight 1:1 Motion Transfer (RV2V)</option>
+                  </select>
+                </label>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+                <button type="button" id="recast-generate-btn" class="primary">🚀 Generate Recast Video</button>
+                <span class="muted" id="recast-status" style="font-size:11px">Pick RefMods for A / B, set your new background, and generate!</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="ai-prompt-head" style="margin-top:8px">
@@ -775,6 +817,7 @@
 <script type="module" src="src/ai-ui.js"></script>
 <script type="module" src="src/prompt-advancer-ui.js"></script>
 <script type="module" src="src/set3d-ui.js"></script>
+<script type="module" src="src/recast-ui.js"></script>
 <script type="module" src="src/advisor-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
 </body>

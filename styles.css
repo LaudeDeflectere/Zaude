@@ -2378,3 +2378,22 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
   color: #93c5fd;
   word-break: break-all;
 }
+
+/* ---------- Motion Analysis & Character A/B Cast Picker ---------- */
+.recast-drawer { margin-top: 10px; background: rgba(15,17,26,.85); border: 1px solid rgba(139,92,246,.35); border-radius: 10px; padding: 10px; }
+.recast-grid { display: grid; grid-template-columns: minmax(220px, 340px) 1fr; gap: 12px; margin-top: 8px; align-items: start; }
+.recast-stage { position: relative; border-radius: 8px; overflow: hidden; background: #090a0f; border: 1px solid rgba(255,255,255,.12); cursor: crosshair; }
+.recast-stage img { display: block; width: 100%; height: auto; max-height: 240px; object-fit: contain; }
+.recast-pins { position: absolute; inset: 0; pointer-events: none; }
+.recast-pin { position: absolute; transform: translate(-50%, -50%); width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; background: var(--pin-col, #38bdf8); color: #0b0d14; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer; box-shadow: 0 3px 12px rgba(0,0,0,.65); padding: 0; }
+.recast-pin.active { transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 0 0 3px rgba(255,255,255,.45), 0 4px 14px rgba(0,0,0,.75); }
+.recast-pin-bar { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.recast-pin-pill { font-size: 11px; padding: 3px 8px; height: auto; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.25); background: rgba(255,255,255,.05); }
+.recast-pin-pill.on { background: rgba(139,92,246,.28); color: #fff; }
+.recast-char-cards { display: flex; flex-direction: column; gap: 6px; }
+.recast-char-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
+.recast-char-head { display: flex; align-items: center; gap: 8px; }
+.recast-char-head .recast-rm { margin-left: auto; padding: 0 6px; height: 20px; font-size: 12px; }
+.recast-char-row { display: flex; align-items: center; gap: 6px; }
+.recast-char-row select, .recast-char-row input[type="text"] { flex: 1; min-width: 0; font-size: 12px; padding: 4px 6px; }
+.refmod-lock-ctl { display: flex; align-items: center; gap: 5px; }

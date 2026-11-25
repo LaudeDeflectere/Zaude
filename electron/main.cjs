@@ -33,6 +33,7 @@ const promptAdvancer = require('./prompt-advancer.cjs');
 const scriptParser = require('./script-parser.cjs');
 const roomAcoustics = require('./room-acoustics.cjs');
 const lipsync = require('./lipsync.cjs');
+const videoAnalyzer = require('./video-analyzer.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -1022,6 +1023,26 @@ function registerAiHandlers() {
     const dur = await lipsync.probeDuration(wavPath);
     return { ok: true, path: wavPath, url: mediaUrlFor(wavPath), name: path.basename(wavPath), dur };
   });
+
+  // Motion Recast Pre-Process Pass: extract keyframes + detect Character A/B & action summary
+  ipcMain.handle('ai:recast:analyze', async (_e, input = {}) => {
+    const outDir = path.join(app.getPath('userData'), 'ai-recast');
+    const res = await videoAnalyzer.analyzeVideoMotion({
+      videoPath: input.videoPath,
+      start: input.start,
+      end: input.end,
+      outDir,
+    });
+    if (!res || !res.ok) return res;
+    pickedMediaDirs.add(outDir);
+    return {
+      ...res,
+      heroUrl: res.heroPath ? mediaUrlFor(res.heroPath) : null,
+      stripUrl: res.stripPath ? mediaUrlFor(res.stripPath) : null,
+    };
+  });
+
+  ipcMain.handle('ai:recast:build', (_e, input = {}) => videoAnalyzer.buildRecastRequest(input));
   ipcMain.handle('prompt:db:list', () => ({ ok: true, examples: promptAdvancer.loadPromptDb(promptDbFile()) }));
   ipcMain.handle('prompt:db:save', (_e, input) => promptAdvancer.saveExample(promptDbFile(), input || {}));
   ipcMain.handle('prompt:db:rate', (_e, input) => promptAdvancer.rateExample(promptDbFile(), input || {}));
