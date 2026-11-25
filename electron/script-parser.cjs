@@ -198,16 +198,30 @@ function parseMultiShotScript(rawText) {
       ? cfg.castSlots
       : Array.from(new Set([...blockNoSubjDefs.matchAll(/<Subject\s+(\d+)>/gi)].map((x) => Number(x[1])))).sort((a, b) => a - b);
 
-    // Build filtered subject_definitions ONLY for characters present in this shot
+    // Build filtered subject_definitions ONLY for characters present in this shot,
+    // and renumber <Subject N> / (SN) densely to 1..K so mannimmate_cli.py --refmod slot indices match 1-to-1!
+    const slotRemap = new Map();
+    detectedSlots.forEach((oldSlot, i) => slotRemap.set(oldSlot, i + 1));
+    const remapText = (txt) => String(txt || '')
+      .replace(/<Subject\s+(\d+)>/gi, (m, num) => {
+        const mapped = slotRemap.get(Number(num));
+        return mapped ? `<Subject ${mapped}>` : m;
+      })
+      .replace(/\(S(\d+)\)/g, (m, num) => {
+        const mapped = slotRemap.get(Number(num));
+        return mapped ? `(S${mapped})` : m;
+      });
+
     const activeDefLines = detectedSlots
       .map((slot) => globalSubjects.get(slot))
-      .filter(Boolean);
+      .filter(Boolean)
+      .map((line) => remapText(line));
 
     const promptParts = [];
     if (activeDefLines.length) {
       promptParts.push('subject_definitions:\n' + activeDefLines.join('\n'));
     }
-    promptParts.push(blockNoSubjDefs);
+    promptParts.push(remapText(blockNoSubjDefs));
     const assembledPrompt = promptParts.join('\n\n').trim();
 
     // Resolve RefMods for the present cast slots
