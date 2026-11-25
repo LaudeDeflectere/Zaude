@@ -274,6 +274,24 @@ export function secondsPerWheelUnit(visibleSpan) {
   return (SWEEP_SECONDS_AT_60S / WHEEL_UNITS_PER_SWEEP) * (visibleSpan / 60);
 }
 
+// Change the clip's start (left edge trim/untrim). Dragging left recovers trimmed srcIn down to 0.
+export function adjustStart(clips, id, deltaSec) {
+  const c = findClip(clips, id);
+  if (!c) return null;
+  const prevEnd = clips
+    .filter((x) => x.track === c.track && x.id !== id && clipEnd(x) <= c.start + EPS)
+    .reduce((m, x) => Math.max(m, clipEnd(x)), 0);
+  const minBySrc = -((c.srcIn || 0) / (c.speed || 1));
+  const minByPrev = Math.max(-c.start, prevEnd - c.start);
+  const maxByDur = c.dur - MIN_CLIP_DUR;
+  const applied = Math.max(minBySrc, minByPrev, Math.min(deltaSec, maxByDur));
+  const nextStart = Math.max(0, c.start + applied);
+  const actualDelta = nextStart - c.start;
+  const nextSrcIn = Math.max(0, (c.srcIn || 0) + actualDelta * (c.speed || 1));
+  const nextDur = Math.max(MIN_CLIP_DUR, c.dur - actualDelta);
+  return clips.map((x) => (x.id === id ? { ...x, start: nextStart, srcIn: nextSrcIn, dur: nextDur } : { ...x }));
+}
+
 // Change the clip's end (its length). Clamped to the source media, to the next clip on the track, and to a minimum length.
 export function adjustEnd(clips, id, deltaSec) {
   const c = findClip(clips, id);
@@ -333,6 +351,35 @@ export function moveClips(clips, ids, deltaSec) {
   }
   const applied = Math.min(maxDelta, Math.max(minDelta, deltaSec));
   return clips.map((c) => (set.has(c.id) ? { ...c, start: c.start + applied } : { ...c }));
+}
+
+// Returns true if clip `id` can land cleanly at (targetTrack, targetStart) without overlapping any other clip.
+export function canPlaceClip(clips, id, targetTrack, targetStart) {
+  const c = findClip(clips, id);
+  if (!c || !isTrackCompatible(c, targetTrack)) return false;
+  const start = Number(targetStart);
+  if (!Number.isFinite(start) || start < -EPS) return false;
+  const end = Math.max(0, start) + c.dur;
+  return !clips.some(
+    (x) => x.track === targetTrack && x.id !== id && x.start < end - EPS && clipEnd(x) > Math.max(0, start) + EPS
+  );
+}
+
+// Place a group of clips rigidly at `start + deltaSec` (flying over other clips), returning null if any clip collides or goes < 0.
+export function placeClips(clips, ids, deltaSec) {
+  const set = new Set(ids);
+  const moving = clips.filter((c) => set.has(c.id));
+  if (!moving.length) return null;
+  for (const c of moving) {
+    const start = c.start + deltaSec;
+    if (start < -EPS) return null;
+    const end = Math.max(0, start) + c.dur;
+    const conflict = clips.some(
+      (o) => !set.has(o.id) && o.track === c.track && o.start < end - EPS && clipEnd(o) > Math.max(0, start) + EPS
+    );
+    if (conflict) return null;
+  }
+  return clips.map((c) => (set.has(c.id) ? { ...c, start: Math.max(0, c.start + deltaSec) } : { ...c }));
 }
 
 // AutoCAD-style marquee selection:

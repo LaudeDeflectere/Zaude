@@ -860,6 +860,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       <div class="menu-title">${esc(selVideoClips.length >= 2 ? `${selVideoClips.length} video clips selected` : clip.name)}</div>
       ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button>' : ''}
       ${canFrameContinue ? `<button role="menuitem" data-ctx="frame-continue" class="menu-ai">✨ FrameContinue${clip.latent ? ' (latent)' : ''}</button>` : ''}
+      ${(isVideo && clip.path) ? '<button role="menuitem" data-ctx="stylize-clip" class="menu-ai">🎨 Stylize / Edit Clip</button>' : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-refmod" class="menu-ai">✨ Upscale &amp; Fix Faces · 640p${upSuffix}</button>` : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">${fastUpLabel}${upSuffix}</button>` : ''}
       ${(canUpscale && upCaps.hasSeedVR2) ? `<button role="menuitem" data-ctx="upscale-seedvr2" class="menu-ai">💎 Hero Diffusion Upscale · SeedVR2 1080p${upSuffix}</button>` : ''}
@@ -945,6 +946,22 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
             clipName: useTrimmed ? `${clip.name.replace(/\.[^.]+$/, '')} (trimmed ${clipSpan.toFixed(1)}s)` : clip.name,
             firstFrame: lastFrameRes && lastFrameRes.ok ? lastFrameRes : null,
             insertAt: T.clipEnd(clip),
+          });
+        }
+      } else if (act === 'stylize-clip' && clip.path) {
+        if (window.__zaudeOpenStylize) {
+          const url = await engine.getMediaUrl(clip.path);
+          const srcDur = Number(clip.srcDur) || Number(clip.dur) || 10;
+          const segStart = Math.max(0, Math.round((Number(clip.srcIn) || 0) * 100) / 100);
+          const segEnd = Math.min(srcDur, Math.round((segStart + Math.min(clip.dur || 5, 7)) * 100) / 100);
+          window.__zaudeOpenStylize({
+            clipId: clip.id,
+            name: clip.name,
+            path: clip.path,
+            url,
+            srcDur,
+            start: segStart,
+            end: Math.max(segStart + 0.5, segEnd),
           });
         }
       } else if (act === 'frame-to-frame' && selVideoClips.length === 2) {
@@ -1115,7 +1132,9 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       }
     }
 
-    const isTrim = Boolean(e.target.closest('.blk-handle'));
+    const trimHandle = e.target.closest('.blk-handle');
+    const isTrim = Boolean(trimHandle);
+    const trimSide = trimHandle && trimHandle.dataset.trim === 'left' ? 'left' : 'right';
     const curSel = store.get().selectedIds || [];
 
     if ((e.shiftKey || e.ctrlKey || e.metaKey) && !isTrim) {
@@ -1130,15 +1149,28 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const y0 = e.clientY;
     const initClip = T.findClip(store.get().clips, clipId);
     const start0 = initClip ? initClip.start : 0;
+    const track0 = initClip ? initClip.track : 'V1';
     let lastX = x0;
     let moved = false;
+    let airGhosts = null; // floating ("in the air") drag preview nodes
+    let pendingDrop = null; // { next, msg, valid }
 
+    const findTrackRow = (trackId) => tracks.querySelector(`.trk[data-track="${CSS.escape(trackId)}"]`);
     const findTrackUnderY = (clientY) => {
       for (const row of tracks.querySelectorAll('.trk[data-track]')) {
         const r = row.getBoundingClientRect();
         if (clientY >= r.top && clientY <= r.bottom) return row.dataset.track;
       }
       return null;
+    };
+
+    const cleanupAir = () => {
+      if (airGhosts) {
+        for (const g of airGhosts) g.el.remove();
+        airGhosts = null;
+      }
+      tracks.querySelectorAll('.blk.drag-origin').forEach((b) => b.classList.remove('drag-origin'));
+      pendingDrop = null;
     };
 
     const move = (ev) => {
@@ -1151,35 +1183,94 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (!clip) return;
       const dt = dx / s.pps;
       if (isTrim) {
-        const next = T.adjustEnd(s.clips, clipId, dt);
+        const next = trimSide === 'left'
+          ? T.adjustStart(s.clips, clipId, dt)
+          : T.adjustEnd(s.clips, clipId, dt);
         if (next) {
           const after = T.findClip(next, clipId);
-          actions.liveClips('drag-trim:' + clipId, next, `${clip.name} length ${after.dur.toFixed(2)} s`);
+          actions.liveClips(
+            `drag-trim-${trimSide}:${clipId}`,
+            next,
+            trimSide === 'left'
+              ? `${clip.name} in ${after.srcIn.toFixed(2)}s · length ${after.dur.toFixed(2)}s`
+              : `${clip.name} length ${after.dur.toFixed(2)}s`
+          );
         }
       } else {
+        // Floating ("in the air") clip drag: flies freely over other clips, snaps only where space is free,
+        // and returns cleanly to original spot if released over an occupied area.
         const ids = s.selectedIds && s.selectedIds.length > 1 && s.selectedIds.includes(clipId)
           ? s.selectedIds
           : [clipId];
-        let next = null;
-        if (ids.length === 1) {
-          const rawStart = Math.max(0, start0 + (ev.clientX - x0) / s.pps);
-          const targetStart = s.snap ? actions.snapTime(rawStart, s.pps) : rawStart;
-          const hoverTrack = findTrackUnderY(ev.clientY);
-          if (hoverTrack && hoverTrack !== clip.track && T.isTrackCompatible(clip, hoverTrack)) {
-            next = T.moveClipToTrack(s.clips, clipId, hoverTrack, targetStart);
+
+        if (!airGhosts) {
+          airGhosts = [];
+          for (const id of ids) {
+            const c = T.findClip(s.clips, id);
+            const origEl = tracks.querySelector(`.blk[data-clip="${CSS.escape(id)}"]`);
+            if (!c || !origEl) continue;
+            origEl.classList.add('drag-origin');
+            const g = document.createElement('div');
+            g.className = `blk blk-air-ghost ${c.kind}`;
+            g.style.width = `${Math.max(8, c.dur * s.pps)}px`;
+            g.innerHTML = `<span class="blk-label">${esc(c.name)}</span>`;
+            tracks.appendChild(g);
+            airGhosts.push({ id, clip: c, el: g });
           }
-          if (!next) {
-            next = T.moveClip(s.clips, clipId, targetStart - clip.start);
+        }
+
+        const totalDeltaSec = (ev.clientX - x0) / s.pps;
+        if (ids.length === 1) {
+          const rawStart = Math.max(0, start0 + totalDeltaSec);
+          const hoverTrack = findTrackUnderY(ev.clientY);
+          const targetTrack = (hoverTrack && T.isTrackCompatible(clip, hoverTrack)) ? hoverTrack : track0;
+          // Snap against all OTHER clips + beats (ignoring the clip being dragged)
+          const others = s.clips.filter((x) => x.id !== clipId);
+          const beatPts = (s.beats && s.beats.enabled && s.beats.snap && Array.isArray(s.beats.markers))
+            ? s.beats.markers.map((m) => m.time)
+            : [];
+          const snapThresh = 10 / s.pps;
+          let targetStart = rawStart;
+          if (s.snap) {
+            const snappedStart = T.snapTime(others, rawStart, true, snapThresh, beatPts);
+            const snappedEnd = T.snapTime(others, rawStart + clip.dur, true, snapThresh, beatPts);
+            if (Math.abs(snappedStart - rawStart) <= Math.abs(snappedEnd - (rawStart + clip.dur))) {
+              targetStart = Math.max(0, snappedStart);
+            } else {
+              targetStart = Math.max(0, snappedEnd - clip.dur);
+            }
+          }
+          const valid = T.canPlaceClip(s.clips, clipId, targetTrack, targetStart);
+          const rowEl = findTrackRow(targetTrack);
+          const ghost = airGhosts[0];
+          if (ghost && rowEl) {
+            ghost.el.style.left = `${(valid ? targetStart : rawStart) * s.pps}px`;
+            ghost.el.style.top = `${rowEl.offsetTop + 4}px`;
+            ghost.el.classList.toggle('valid', valid);
+            ghost.el.classList.toggle('blocked', !valid);
+          }
+          if (valid) {
+            const next = T.moveClipToTrack(s.clips, clipId, targetTrack, targetStart);
+            pendingDrop = next ? { next, msg: `${clip.name} on ${targetTrack} at ${targetStart.toFixed(2)} s`, valid: true } : null;
+          } else {
+            pendingDrop = { next: null, msg: '', valid: false };
           }
         } else {
-          next = T.moveClips(s.clips, ids, dt);
-        }
-        if (next) {
-          const after = T.findClip(next, clipId);
-          const msg = ids.length > 1
-            ? `Moved ${ids.length} clips (first at ${after.start.toFixed(2)} s)`
-            : `${clip.name} on ${after.track} at ${after.start.toFixed(2)} s`;
-          actions.liveClips('drag-move:' + ids.join(','), next, msg);
+          const next = T.placeClips(s.clips, ids, totalDeltaSec);
+          const valid = Boolean(next);
+          for (const ghost of airGhosts) {
+            const rowEl = findTrackRow(ghost.clip.track);
+            const drawStart = Math.max(0, ghost.clip.start + totalDeltaSec);
+            if (rowEl) {
+              ghost.el.style.left = `${drawStart * s.pps}px`;
+              ghost.el.style.top = `${rowEl.offsetTop + 4}px`;
+            }
+            ghost.el.classList.toggle('valid', valid);
+            ghost.el.classList.toggle('blocked', !valid);
+          }
+          pendingDrop = valid
+            ? { next, msg: `Moved ${ids.length} clips`, valid: true }
+            : { next: null, msg: '', valid: false };
         }
       }
     };
@@ -1187,6 +1278,16 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      if (airGhosts) {
+        const drop = pendingDrop;
+        cleanupAir();
+        if (drop && drop.valid && drop.next) {
+          actions.commitClips(drop.next, drop.msg);
+        } else {
+          actions.log('No free space there — returned clip to original position.');
+        }
+        return;
+      }
       // If user clicked a clip in a multi-selection without dragging, narrow selection to just that clip.
       if (!moved && alreadyInGroup) actions.select(clipId);
     };
@@ -1326,7 +1427,7 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
         return `<div class="blk ${kind}${sel}${strip ? ' has-strip' : ''}${hasInternalAudio ? ' has-wave' : ''}" role="button" tabindex="0" data-clip="${esc(c.id)}"
             aria-label="${esc(c.name)}" style="left:${c.start * s.pps}px;width:${Math.max(8, c.dur * s.pps)}px">
-            ${strip}${genPreview}${waveHtml}${fill}${dissolve}${fadeHandles}${genMeta}<span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle" title="Drag edge to trim length"></span></div>`;
+            ${strip}${genPreview}${waveHtml}${fill}${dissolve}${fadeHandles}${genMeta}<span class="blk-handle left" data-trim="left" title="Drag left edge to trim or restore start"></span><span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle right" data-trim="right" title="Drag right edge to trim length"></span></div>`;
       }).join('');
       return `<div class="trk" data-track="${tr.id}">${blocks}</div>`;
     }).join('');
@@ -1366,6 +1467,18 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
 
   function updateTime(s) {
     playhead.style.left = s.playhead * s.pps + 'px';
+    const undoBtn = root.querySelector('[data-act="undo"]');
+    const redoBtn = root.querySelector('[data-act="redo"]');
+    const pastN = Array.isArray(s.past) ? s.past.length : 0;
+    const futureN = Array.isArray(s.future) ? s.future.length : 0;
+    if (undoBtn) {
+      undoBtn.disabled = pastN === 0;
+      undoBtn.title = pastN ? `Undo (${pastN} step${pastN === 1 ? '' : 's'} · Ctrl+Z)` : 'Nothing to undo (Ctrl+Z)';
+    }
+    if (redoBtn) {
+      redoBtn.disabled = futureN === 0;
+      redoBtn.title = futureN ? `Redo (${futureN} step${futureN === 1 ? '' : 's'} · Ctrl+Y)` : 'Nothing to redo (Ctrl+Y)';
+    }
   }
 
   return { el: root, update, updateTime, scroller, destroy: closeCtxMenu };

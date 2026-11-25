@@ -96,9 +96,10 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     const seedVideo = String((input && input.seedVideo) || '').trim();
     const bgRefmod = String((input && input.backgroundRefmod) || '').trim();
 
-    // Support repeatable `refmods: [{ file, name, identityStrength?, voiceStrength? }, ...]`
+    // Support repeatable `refmods: [{ file, name, identityStrength?, voiceStrength?, outfit? }, ...]`
     // as well as legacy `refmod` / `refmod2` fields.
     const slots = [];
+    const outfitOverrides = [];
     if (Array.isArray(input && input.refmods) && input.refmods.length) {
       input.refmods.forEach((r, idx) => {
         const f = String((r && r.file) || '').trim();
@@ -107,6 +108,10 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         const idS = r && r.identityStrength != null ? Number(r.identityStrength) : idStrength;
         const vS = r && r.voiceStrength != null ? Number(r.voiceStrength) : voiceStrength;
         slots.push(`${f}|${n}|${Math.max(0, Math.min(1, idS))}|${Math.max(0, Math.min(1, vS))}`);
+        const outfit = String((r && r.outfit) || '').trim();
+        if (outfit) {
+          outfitOverrides.push(`<Subject ${slots.length}> (${n}) is NOT in default outfit, instead wearing: ${outfit}.`);
+        }
       });
     } else {
       const f1 = String((input && input.refmod) || '').trim();
@@ -124,6 +129,9 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     }
 
     let finalPrompt = prompt;
+    if (outfitOverrides.length && finalPrompt) {
+      finalPrompt = `Wardrobe overrides:\n${outfitOverrides.join('\n')}\n\n${finalPrompt}`;
+    }
     if (bgRefmod) {
       const bgSlotNum = slots.length + 1;
       slots.push(`${bgRefmod}|Background Set|1.0|0.0`);
@@ -181,12 +189,13 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         const f = String((r && r.file) || '').trim();
         if (!f) return;
         const n = String((r && r.name) || f.split(/[\\/]/).pop() || `Subject ${idx + 1}`).trim();
-        rmList.push({ file: f, name: n });
+        const outfit = String((r && r.outfit) || '').trim();
+        rmList.push({ file: f, name: n, outfit });
       });
     } else if (input && input.refmod) {
       const f = String(input.refmod).trim();
       const n = String(input.refmodName || f.split(/[\\/]/).pop() || 'Subject 1').trim();
-      rmList.push({ file: f, name: n });
+      rmList.push({ file: f, name: n, outfit: '' });
     }
 
     if (!video) return { ok: false, error: 'Pick a source video (or click "Pick from Timeline").' };
@@ -206,16 +215,25 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement,
     // background swaps, and object/scene insertion work cleanly.
     const promptLines = [];
-    if (rmList.length && (action === 'replace' || action === 'both')) {
+    if (rmList.length) {
       promptLines.push('subject_definitions:');
       rmList.forEach((r, i) => {
-        promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, hair, and clothing of <Subject ${i + 1}>'s reference.`);
+        if (r.outfit) {
+          promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, and hair of <Subject ${i + 1}>'s reference, NOT in default outfit, instead wearing: ${r.outfit}.`);
+        } else {
+          promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, hair, and clothing of <Subject ${i + 1}>'s reference.`);
+        }
       });
       promptLines.push('');
     }
     const parts = [];
     if (action === 'background') {
-      parts.push('Edit <Video 1> frame by frame: strictly preserve the original performer from <Video 1> including their exact face, hair, clothing, body proportions, choreography, poses, timing, and camera trajectory.');
+      if (rmList.length) {
+        const subjectNames = rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ');
+        parts.push(`Edit <Video 1> frame by frame: preserve the exact poses, choreography, timing, and camera trajectory of <Video 1> with ${subjectNames}.`);
+      } else {
+        parts.push('Edit <Video 1> frame by frame: strictly preserve the original performer from <Video 1> including their exact face, hair, clothing, body proportions, choreography, poses, timing, and camera trajectory.');
+      }
       parts.push(`Replace ONLY the background and surrounding environment with: ${objectPrompt || 'the environment and backdrop shown in <Picture 1>'}. Match rim lighting, ambient color bounce, and grounded floor contact shadows onto the performer so they blend seamlessly into the new location.`);
     } else {
       parts.push('Edit <Video 1> frame by frame: preserve the camera framing, lighting, room/background, and exact choreography, poses, and timing of <Video 1>.');
@@ -223,7 +241,7 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         const subjectNames = rmList.length
           ? rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ')
           : '<Picture 1>';
-        parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face, hair, and clothing; the original performer of <Video 1> does not appear.`);
+        parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face and hair; the original performer of <Video 1> does not appear.`);
       }
       if (action === 'object' || action === 'both') {
         parts.push(`ALSO add and animate in the scene: ${objectPrompt || 'the added element from the reference image'}. Keep the added element naturally lit, physically grounded, and casting realistic shadows throughout the clip.`);
@@ -244,17 +262,19 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       '--preset', preset,
       '--prompt-file', promptFile || '<stylize_prompt.txt>',
     ];
-    if (action === 'replace' || action === 'both') {
-      for (const r of rmList) {
-        args.push('--refmod', `${r.file}|${r.name}|1.0|0.0`);
-      }
+    for (const r of rmList) {
+      args.push('--refmod', `${r.file}|${r.name}|1.0|0.0`);
     }
     if (bgRefmod) {
       args.push('--refmod', `${bgRefmod}|Background Set|1.0|0.0`);
     }
     if (bgImage) {
       args.push('--background', bgImage);
-      if (objectPrompt) args.push('--background-text', objectPrompt);
+    }
+    if (action === 'background' && objectPrompt) {
+      args.push('--background-text', objectPrompt);
+    } else if (bgImage && objectPrompt) {
+      args.push('--background-text', objectPrompt);
     }
     if (ref) {
       args.push('--ref', ref);

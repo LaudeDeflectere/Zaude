@@ -112,6 +112,7 @@ export function createActions(store, engine) {
   }
 
   function commit(clips, message) {
+    flushGesture();
     const s = get();
     store.set({
       clips,
@@ -180,21 +181,34 @@ export function createActions(store, engine) {
     log(message);
   }
 
-  // ---------- history ----------
+  // ---------- history (up to 50 steps of undo & redo) ----------
+
+  function flushGesture() {
+    if (gesture) {
+      clearTimeout(gesture.timer);
+      gesture = null;
+    }
+  }
 
   function undo() {
+    flushGesture();
     const s = get();
     if (!s.past.length) return log('Nothing to undo');
     const prev = s.past[s.past.length - 1];
-    store.set({ clips: prev, past: s.past.slice(0, -1), future: [...s.future, T.clone(s.clips)], log: 'Undid the last step' });
+    const nextPast = s.past.slice(0, -1);
+    const nextFuture = [...s.future, T.clone(s.clips)].slice(-50);
+    store.set({ clips: prev, past: nextPast, future: nextFuture, log: `Undid (${nextPast.length} undo · ${nextFuture.length} redo)` });
     scheduleSave();
   }
 
   function redo() {
+    flushGesture();
     const s = get();
     if (!s.future.length) return log('Nothing to redo');
     const next = s.future[s.future.length - 1];
-    store.set({ clips: next, future: s.future.slice(0, -1), past: [...s.past, T.clone(s.clips)], log: 'Redid the step' });
+    const nextFuture = s.future.slice(0, -1);
+    const nextPast = [...s.past, T.clone(s.clips)].slice(-50);
+    store.set({ clips: next, future: nextFuture, past: nextPast, log: `Redid (${nextPast.length} undo · ${nextFuture.length} redo)` });
     scheduleSave();
   }
 

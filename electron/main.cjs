@@ -11,6 +11,10 @@ if (!process.env.PULSE_PROP) process.env.PULSE_PROP = 'application.name=Zaude';
 // (Linux VA-API zero-copy decode flags are omitted to avoid hybrid Intel/NVIDIA GPU SIGSEGVs.)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
+if (process.platform === 'linux' && process.env.__NV_PRIME_RENDER_OFFLOAD === '1') {
+  app.commandLine.appendSwitch('use-gl', 'angle');
+  app.commandLine.appendSwitch('use-angle', 'gl-egl');
+}
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
 const http = require('node:http');
@@ -501,10 +505,35 @@ function registerAiHandlers() {
         onEvent: onEv,
       });
     } else {
+      let effectiveInput = input;
+      const isStylize = input && (input.mode === 'auto' || input.mode === 'stylize');
+      const hasAnyPerformer = Boolean(
+        (input && input.ref)
+        || (input && input.refmod)
+        || (input && Array.isArray(input.refmods) && input.refmods.length)
+        || (input && input.backgroundRefmod)
+      );
+      if (isStylize && !hasAnyPerformer && input.video && fs.existsSync(input.video)) {
+        // mannimmate_cli.py render always requires either --refmod or --ref (performer image).
+        // For pure Background Change / Add Object without a RefMod, extract the opening frame of the
+        // source clip so the original performer is preserved cleanly.
+        const promptDir = path.join(app.getPath('userData'), 'ai-prompts');
+        fs.mkdirSync(promptDir, { recursive: true });
+        const autoRef = path.join(promptDir, `stylize_ref_${id}.png`);
+        const tSec = Math.max(0, Number(input.start) || 0);
+        const { spawnSync } = require('node:child_process');
+        const ext = spawnSync('ffmpeg', ['-y', '-ss', String(tSec), '-i', input.video, '-frames:v', '1', '-q:v', '2', autoRef], {
+          windowsHide: true,
+          timeout: 15000,
+        });
+        if (ext.status === 0 && fs.existsSync(autoRef)) {
+          effectiveInput = { ...input, ref: autoRef };
+        }
+      }
       job = mannimmate.runJob({
         mannimmateDir,
         python: settings.python,
-        request: input,
+        request: effectiveInput,
         promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
         previewDir: previewRoot(),
         jobId: id,

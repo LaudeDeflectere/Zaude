@@ -22,7 +22,8 @@ let pendingSeedVideo = '';
 let pendingClipLatent = null; // { value, label, quality } pinned for the clip being continued
 let latentNames = {}; // latent filename -> friendly "E+N · short scene desc"
 let refmodEntries = [];
-let selectedRefmods = []; // up to 2 refmod file slugs: [Subject 1, Subject 2]
+let selectedRefmods = []; // selected refmod file slugs: [Subject 1, Subject 2, ...]
+const refmodOutfits = {}; // refmod file slug -> custom clothes / appearance override text
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
 const trackedJobs = new Map(); // jobId -> { mode, dryRun, seconds }
 let cachedOptions = {
@@ -70,11 +71,32 @@ function populateSelect(sel, items, { emptyLabel = 'Auto (Mannimmate default)', 
   }
 }
 
+function renderRefmodOutfits() {
+  const wrap = $('ai-refmod-outfits');
+  if (!wrap) return;
+  if (!selectedRefmods.length) {
+    wrap.hidden = true;
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.hidden = false;
+  wrap.innerHTML = selectedRefmods.map((file, idx) => {
+    const m = refmodEntries.find((x) => x.file === file);
+    const label = m ? (m.firstName || m.name || `Subject ${idx + 1}`) : `Subject ${idx + 1}`;
+    const val = refmodOutfits[file] || '';
+    return `<div class="refmod-outfit-row">
+      <span class="refmod-outfit-lbl">👕 S${idx + 1} · ${esc(label)}</span>
+      <input type="text" data-refmod-outfit="${esc(file)}" value="${esc(val)}" placeholder="Optional clothes / appearance override (e.g. dark navy suit, white shirt, leather boots) — leave blank for default RefMod outfit">
+    </div>`;
+  }).join('');
+}
+
 function syncHiddenRefmodInputs() {
   const f1 = $('ai-refmod-input');
   const f2 = $('ai-refmod2-input');
   if (f1) f1.value = selectedRefmods[0] || '';
   if (f2) f2.value = selectedRefmods[1] || '';
+  renderRefmodOutfits();
   document.dispatchEvent(new CustomEvent('zaude:refmods-changed', {
     detail: { count: selectedRefmods.length, selected: [...selectedRefmods] },
   }));
@@ -285,7 +307,8 @@ function applyStylizeActionVisibility() {
 
   const refmodSec = $('ai-refmod-section');
   if (refmodSec && currentMode === 'auto') {
-    refmodSec.hidden = stylizeAction === 'object' || stylizeAction === 'background';
+    // Keep RefMod picker accessible in all Stylize modes (required for replace/both, optional performer lock for background/object)
+    refmodSec.hidden = currentBackend === 'local';
   }
 }
 
@@ -329,6 +352,7 @@ function collectRequest() {
       name: m ? (m.name || m.firstName) : `Subject ${idx + 1}`,
       identityStrength: idStrength,
       voiceStrength,
+      outfit: String(refmodOutfits[file] || '').trim(),
     };
   });
   const first = refmods[0] || null;
@@ -926,7 +950,10 @@ function init() {
     });
   }
 
-  $('t2v-form').addEventListener('input', () => {
+  $('t2v-form').addEventListener('input', (e) => {
+    if (e.target && e.target.dataset && e.target.dataset.refmodOutfit) {
+      refmodOutfits[e.target.dataset.refmodOutfit] = e.target.value;
+    }
     if ($('t2v-form').elements.refmodMode) {
       const latentWrap = $('ai-latent-wrap');
       if (latentWrap) latentWrap.hidden = !(currentMode === 'refmod' && $('t2v-form').elements.refmodMode.value === 'continue');
@@ -1355,6 +1382,25 @@ function init() {
     const resNote = quality ? ` · locked to ${quality}p to match latent` : '';
     setStatus(`FrameContinue ready (${pendingClipLatent.label}${resNote}) — write what happens next and click Run.`);
     if (form && form.elements.prompt) form.elements.prompt.focus();
+  };
+
+  // Open Stylize tab directly from a right-clicked timeline video clip
+  window.__zaudeOpenStylize = async (src) => {
+    if (!src || !src.path) return;
+    if (currentBackend === 'local') setBackend('remote');
+    currentMode = 'auto';
+    await open();
+    const form = $('t2v-form');
+    stylizeSrcDur = src.srcDur || 15;
+    if (form && form.elements.start) form.elements.start.value = String((src.start ?? 0).toFixed(1));
+    if (form && form.elements.end) form.elements.end.value = String((src.end ?? Math.min(stylizeSrcDur, 5)).toFixed(1));
+    updateSquarePreview('video', src.path, src.url, true);
+    const meta = $('ai-stylize-meta');
+    if (meta) meta.textContent = `Loaded "${src.name}" (${stylizeSrcDur.toFixed(1)}s total). Drag handles or click ±0.5s to trim.`;
+    applyModeVisibility();
+    updateStylizeRangeUI();
+    updateCommandPreview();
+    setStatus(`Stylize ready for "${src.name}" — pick a RefMod, background, or object edit and click Run.`);
   };
 
   // Expose slot setter for 3D Set Viewport & Coverage Angle Picker
