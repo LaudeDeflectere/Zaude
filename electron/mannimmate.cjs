@@ -190,12 +190,16 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         if (!f) return;
         const n = String((r && r.name) || f.split(/[\\/]/).pop() || `Subject ${idx + 1}`).trim();
         const outfit = String((r && r.outfit) || '').trim();
-        rmList.push({ file: f, name: n, outfit });
+        // When a clothes/hair/state override is active, lower default RefMod lock from 1.0 -> 0.72
+        // so facial identity holds while the RefMod lets go of default coat/hair.
+        const rawStr = r && r.identityStrength != null && r.identityStrength !== '' ? Number(r.identityStrength) : (outfit ? 0.72 : 1.0);
+        const strength = Math.max(0.3, Math.min(1.0, Number.isFinite(rawStr) ? rawStr : 1.0));
+        rmList.push({ file: f, name: n, outfit, strength });
       });
     } else if (input && input.refmod) {
       const f = String(input.refmod).trim();
       const n = String(input.refmodName || f.split(/[\\/]/).pop() || 'Subject 1').trim();
-      rmList.push({ file: f, name: n, outfit: '' });
+      rmList.push({ file: f, name: n, outfit: '', strength: 1.0 });
     }
 
     if (!video) return { ok: false, error: 'Pick a source video (or click "Pick from Timeline").' };
@@ -215,11 +219,12 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
     // Build a clean unified RV2V prompt file for `mannimmate_cli.py render` so character replacement,
     // background swaps, and object/scene insertion work cleanly.
     const promptLines = [];
+    const hasAnyOverride = rmList.some((r) => Boolean(r.outfit));
     if (rmList.length) {
       promptLines.push('subject_definitions:');
       rmList.forEach((r, i) => {
         if (r.outfit) {
-          promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, and hair of <Subject ${i + 1}>'s reference, NOT in default outfit, instead wearing: ${r.outfit}.`);
+          promptLines.push(`<Subject ${i + 1}> is ${r.name}: preserve ONLY their recognizable facial identity from <Subject ${i + 1}>'s reference, and IGNORE their default jacket, clothing, and default hairstyle — instead render: ${r.outfit}.`);
         } else {
           promptLines.push(`<Subject ${i + 1}> is ${r.name}, using the stable identity, face, hair, and clothing of <Subject ${i + 1}>'s reference.`);
         }
@@ -241,7 +246,11 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         const subjectNames = rmList.length
           ? rmList.map((r, i) => `<Subject ${i + 1}> (${r.name})`).join(' and ')
           : '<Picture 1>';
-        parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face and hair; the original performer of <Video 1> does not appear.`);
+        if (hasAnyOverride) {
+          parts.push(`Replace the original performer completely with ${subjectNames}, preserving their facial identity while strictly applying the modified clothing, hair, and physical state described above; the original performer of <Video 1> does not appear.`);
+        } else {
+          parts.push(`Replace the original performer completely with ${subjectNames}, keeping their exact face, hair, and clothing; the original performer of <Video 1> does not appear.`);
+        }
       }
       if (action === 'object' || action === 'both') {
         parts.push(`ALSO add and animate in the scene: ${objectPrompt || 'the added element from the reference image'}. Keep the added element naturally lit, physically grounded, and casting realistic shadows throughout the clip.`);
@@ -263,7 +272,8 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
       '--prompt-file', promptFile || '<stylize_prompt.txt>',
     ];
     for (const r of rmList) {
-      args.push('--refmod', `${r.file}|${r.name}|1.0|0.0`);
+      const strLabel = r.strength === 1 ? '1.0' : String(Number(r.strength.toFixed(2)));
+      args.push('--refmod', `${r.file}|${r.name}|${strLabel}|0.0`);
     }
     if (bgRefmod) {
       args.push('--refmod', `${bgRefmod}|Background Set|1.0|0.0`);

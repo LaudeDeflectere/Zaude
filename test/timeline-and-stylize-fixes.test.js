@@ -67,7 +67,10 @@ test('Stylize (auto) supports RefMod + Background Change + per-RefMod clothes ov
   assert.equal(bgCmd.ok, true);
   assert.ok(bgCmd.args.includes('--refmod'));
   assert.ok(bgCmd.args.includes('--background-text'));
-  assert.match(bgCmd.promptContent, /NOT in default outfit, instead wearing: dark tailored navy suit and white shirt/);
+  assert.match(bgCmd.promptContent, /IGNORE their default jacket, clothing, and default hairstyle.*dark tailored navy suit and white shirt/);
+  // Auto-drops RefMod lock strength from 1.0 -> 0.72 when outfit/hair override is active
+  const rmVal = bgCmd.args[bgCmd.args.indexOf('--refmod') + 1];
+  assert.equal(rmVal, 'karlsten_malco|Karlsten|0.72|0.0');
 
   // 2. RefMod generation with per-RefMod clothes override injects wardrobe negation
   const rmCmd = mannimmate.buildCommand({

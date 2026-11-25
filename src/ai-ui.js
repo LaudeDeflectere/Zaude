@@ -23,7 +23,8 @@ let pendingClipLatent = null; // { value, label, quality } pinned for the clip b
 let latentNames = {}; // latent filename -> friendly "E+N · short scene desc"
 let refmodEntries = [];
 let selectedRefmods = []; // selected refmod file slugs: [Subject 1, Subject 2, ...]
-const refmodOutfits = {}; // refmod file slug -> custom clothes / appearance override text
+const refmodOutfits = {}; // refmod file slug -> custom clothes / hair / state override text
+const refmodStrengths = {}; // refmod file slug -> per-subject RefMod lock strength (0.35..1.0)
 let queuedRefmodSlugs = []; // [activeSlug, nextSlug, ...]
 const trackedJobs = new Map(); // jobId -> { mode, dryRun, seconds }
 let cachedOptions = {
@@ -84,9 +85,14 @@ function renderRefmodOutfits() {
     const m = refmodEntries.find((x) => x.file === file);
     const label = m ? (m.firstName || m.name || `Subject ${idx + 1}`) : `Subject ${idx + 1}`;
     const val = refmodOutfits[file] || '';
+    const str = refmodStrengths[file] != null ? refmodStrengths[file] : (val ? 0.70 : 1.0);
     return `<div class="refmod-outfit-row">
       <span class="refmod-outfit-lbl">👕 S${idx + 1} · ${esc(label)}</span>
-      <input type="text" data-refmod-outfit="${esc(file)}" value="${esc(val)}" placeholder="Optional clothes / appearance override (e.g. dark navy suit, white shirt, leather boots) — leave blank for default RefMod outfit">
+      <input type="text" data-refmod-outfit="${esc(file)}" value="${esc(val)}" placeholder="Clothes / hair / battle damage override (e.g. no jacket, torn shirt, hair zapped spiky by lightning)">
+      <label class="refmod-lock-ctl" title="RefMod Lock Strength: 1.0 = strict coat/hair lock, 0.65–0.75 = keeps face while obeying coat removal / zapped hair overrides">
+        <span class="muted" style="font-size:10px;white-space:nowrap">Lock <b data-refmod-lock-val="${esc(file)}">${Number(str).toFixed(2)}</b></span>
+        <input type="range" min="0.40" max="1.00" step="0.05" value="${Number(str).toFixed(2)}" data-refmod-strength="${esc(file)}" style="width:68px">
+      </label>
     </div>`;
   }).join('');
 }
@@ -347,12 +353,14 @@ function collectRequest() {
   const voiceStrength = fd.get('voiceStrength') !== '' ? Number(fd.get('voiceStrength')) : 1.0;
   const refmods = selectedRefmods.map((file, idx) => {
     const m = refmodEntries.find((x) => x.file === file);
+    const outfit = String(refmodOutfits[file] || '').trim();
+    const perStr = refmodStrengths[file] != null ? Number(refmodStrengths[file]) : (outfit ? 0.70 : idStrength);
     return {
       file,
       name: m ? (m.name || m.firstName) : `Subject ${idx + 1}`,
-      identityStrength: idStrength,
+      identityStrength: perStr,
       voiceStrength,
-      outfit: String(refmodOutfits[file] || '').trim(),
+      outfit,
     };
   });
   const first = refmods[0] || null;
@@ -952,7 +960,31 @@ function init() {
 
   $('t2v-form').addEventListener('input', (e) => {
     if (e.target && e.target.dataset && e.target.dataset.refmodOutfit) {
-      refmodOutfits[e.target.dataset.refmodOutfit] = e.target.value;
+      const f = e.target.dataset.refmodOutfit;
+      const hadPrev = Boolean((refmodOutfits[f] || '').trim());
+      refmodOutfits[f] = e.target.value;
+      const hasNow = Boolean(e.target.value.trim());
+      // Auto-nudge RefMod lock from 1.0 -> 0.70 when typing an override (and back to 1.0 when cleared)
+      if (!hadPrev && hasNow && (refmodStrengths[f] == null || refmodStrengths[f] >= 0.95)) {
+        refmodStrengths[f] = 0.70;
+        const sl = document.querySelector(`[data-refmod-strength="${CSS.escape(f)}"]`);
+        const lb = document.querySelector(`[data-refmod-lock-val="${CSS.escape(f)}"]`);
+        if (sl) sl.value = '0.70';
+        if (lb) lb.textContent = '0.70';
+      } else if (hadPrev && !hasNow && refmodStrengths[f] === 0.70) {
+        delete refmodStrengths[f];
+        const sl = document.querySelector(`[data-refmod-strength="${CSS.escape(f)}"]`);
+        const lb = document.querySelector(`[data-refmod-lock-val="${CSS.escape(f)}"]`);
+        if (sl) sl.value = '1.00';
+        if (lb) lb.textContent = '1.00';
+      }
+    }
+    if (e.target && e.target.dataset && e.target.dataset.refmodStrength) {
+      const f = e.target.dataset.refmodStrength;
+      const v = Number(e.target.value) || 0.7;
+      refmodStrengths[f] = v;
+      const lb = document.querySelector(`[data-refmod-lock-val="${CSS.escape(f)}"]`);
+      if (lb) lb.textContent = v.toFixed(2);
     }
     if ($('t2v-form').elements.refmodMode) {
       const latentWrap = $('ai-latent-wrap');
