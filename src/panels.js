@@ -2345,7 +2345,7 @@ export function helpPanel() {
       body.innerHTML = `<div class="help-section help-manual">
         <div class="help-hero">
           <h3>🎬 Welcome to Zaude — Complete Editor &amp; AI Studio Guide</h3>
-          <p class="muted">Zaude is a fast, GPU-accelerated desktop video editor built for trackpad editing, beat-synced cutting, multi-color selective HSL grading, and 1-click AI video generation (remote RTX 3090 MiniMax-H3 + local laptop LTX-Video 2B / Wan 2.1).</p>
+          <p class="muted">Zaude is a fast, GPU-accelerated desktop video editor built for trackpad editing, beat-synced cutting, multi-color selective HSL grading, real convolution room acoustics, 3D set locking, and 1-click AI video generation across <b>Tranklena</b> (RTX 3090), <b>Modal Serverless Cloud</b> (L40S / H100 / H200 · $0/hr idle), and <b>Rizzar</b> (local laptop LTX-Video 2B / Wan 2.1).</p>
         </div>
 
         <h4>1. Workspace &amp; Panels</h4>
@@ -2353,7 +2353,7 @@ export function helpPanel() {
           <li><b>Media Bin</b>: Open any project folder, preview clips, and drag or insert video/audio onto the timeline.</li>
           <li><b>Viewer</b>: Hardware-accelerated WebGL preview with Apple Maps-style pinch zoom, Shift+swipe pan, 1-finger screw rotate, live white export-frame overlay, and AI live-render HUD.</li>
           <li><b>Timeline</b>: Multi-track <code>+V</code> / <code>+A</code> dynamic tracks, AutoCAD Blue (enclosed) &amp; Green (crossing) box selection, editable beat markers with Snap-to-Beat, audio waveforms, fade handles, and piecewise-linear volume keyframes.</li>
-          <li><b>Inspector</b>: Transform (scale/rotation/pan/mirror), Filters, <b>GPU Multi-Color Selective HSL</b> (up to 8 color bands + live video eyedropper), Transitions, and Export Panel.</li>
+          <li><b>Inspector</b>: Transform (scale/rotation/pan/mirror), Filters, <b>GPU Multi-Color Selective HSL</b> (up to 8 color bands + live video eyedropper), Transitions, <b>🔊 Room Acoustics</b>, and Export Panel.</li>
           <li><b>Portable <code>.zd</code> Projects</b>: <code>Ctrl+S</code> / <code>Ctrl+O</code> packs your entire timeline + all video &amp; audio bytes into a single self-contained <code>.zd</code> archive you can move anywhere.</li>
         </ul>
 
@@ -2361,15 +2361,20 @@ export function helpPanel() {
         <ul class="help-list">
           <li><b>✨ FrameToFrame</b> (select <b>2 clips</b> → right-click): Extracts clip 1's last frame and clip 2's first frame, pre-fills the gap duration, and generates a seamless AI bridge between them.</li>
           <li><b>✨ FrameContinue</b> (right-click <b>1 clip</b>): Automatically loads that clip's saved <code>.h3latent.safetensors</code> (locking the exact matching resolution so it never mismatches!), previews its ending frame, and continues the action with your new prompt. For external videos without a latent, automatically uses a 2s tail and trims off the prepended source clip.</li>
-          <li><b>✨ Upscale &amp; Fix Faces · 640p</b> (select <b>1 or N clips</b> → right-click): Recovers each clip's RefMods + prompt from its sidecar JSON and runs a MiniMax-H3 2nd-pass refine at 640p, replacing clips in-place.</li>
-          <li><b>⚡ Fast 2× Upscale · RealESRGAN</b> (select <b>1 or N clips</b> → right-click): Runs <code>RealESRGAN_x2plus.pth</code> on Tranklena in seconds per clip while preserving exact original audio.</li>
+          <li><b>🗣️ Lip-Sync Clip</b> (right-click <b>1 clip</b>): Re-drives a clip's mouth movement to any new dialogue audio via <b>LatentSync 1.6</b> (preferred, 25 FPS) or <b>MuseTalk</b> — with optional selective 2-person <code>InpaintCropImproved</code> (512×512) crop-and-stitch and optional acoustic room matching so you can reuse talking shots without re-rendering from scratch.</li>
+          <li><b>✨ Upscale &amp; Fix Faces · 640p</b> (select <b>1 or N clips</b> → right-click): Recovers each clip's RefMods + prompt from its sidecar JSON <i>or</i> embedded MP4 metadata (and falls back to an extracted keyframe for external clips), runs a MiniMax-H3 2nd-pass refine at 640p, and swaps the clip in-place.</li>
+          <li><b>⚡ Fast 2× Upscale · NomosUni / RealESRGAN</b> (select <b>1 or N clips</b> → right-click): Auto-prefers <code>2x-NomosUni_span_multijpg.pth</code> (falling back to <code>RealESRGAN_x2plus.pth</code>) on Tranklena in seconds per clip while preserving exact original audio.</li>
+          <li><b>✨ SeedVR2 Temporal Upscale</b> (when installed on Tranklena): 4-node temporal diffusion upscaler using <code>4n+1</code> batching, <code>temporal_overlap: 2</code>, and SageAttention 2 for flicker-free high-res detail.</li>
         </ul>
 
-        <h4>3. Top Bar Tools</h4>
+        <h4>3. AI Studio &amp; Production Consistency Tools</h4>
         <ul class="help-list">
-          <li><b>✨ AI Studio</b>: Switch in 1 click between <b>🌐 Tranklena · MiniMax-H3</b> (RTX 3090 24 GB) and <b>💻 Rizzar · Local</b> (LTX-Video 2B Distilled / Wan 2.1). Includes Text→Video, RefMod→Video, Stylize &amp; Objects, Coverage, and the <b>✨ Advance Prompt</b> AI + <b>📚 Prompt Database</b>.</li>
-          <li><b>🖥️ Local GPU</b>: Analyzes your laptop's GPU, RAM, and disk, lets an AI agent search the web for the newest local models, and 1-click installs ComfyUI + GGUF models + Turbo LoRAs + GPU optimizations.</li>
-          <li><b>AI Chat</b>: Talk directly to Claude Code, Codex, or OpenCode with live MCP tools that can inspect and edit your timeline.</li>
+          <li><b>🧬 RefMod Manager &amp; Creator</b>: Filter RefMods by category (<code>Photoreal</code>, <code>2D / Anime</code>, <code>Characters</code>, <code>Locations</code>, <code>Styles</code>, <code>Voices</code>, or custom), hover <b>🏷️</b> to recategorize or <b>✕</b> to delete (saved with tombstones in <code>refmods/.deleted.json</code> so deleted mods stay gone). Click <b>🧬 Create RefMod</b> to build a new zero-training RefMod on Tranklena from 1–16 images + optional voice audio + optional videos — guided by the built-in <b>Tony Sheen</b> interactive example!</li>
+          <li><b>📜 Multi-Shot (<code>.md</code> / <code>.txt</code>) Batch Queue</b>: Upload or drag-and-drop a full multi-shot script to parse <code>zaude_cast:</code>, <code>background_lock:</code>, and per-shot <code>zaude_shot_config:</code>, automatically remap dense <code>&lt;Subject 1..K&gt;</code> slots per shot, and queue the entire sequence in 1 click.</li>
+          <li><b>🏛️ 3D Set Viewport (<code>.glb</code>) &amp; Location RefMods</b>: Load any <code>.glb</code> 3D room offline in Three.js, orbit to exact camera angles, snap a single <b>🌆 BG Picture</b>, or batch-snap <b>8 views</b> into a zero-training consensus <b>Location RefMod</b> (<code>concept_type='background'</code>, <code>merge=true</code>) auto-wired to the next free <code>mod_K</code> slot (<code>voice=0</code>) with <code>MiniMaxH3RefModStepCurve</code>.</li>
+          <li><b>🔊 Room Acoustics &amp; Continuous Room-Tone Bed</b>: Match AI dialogue and Foley acoustics across cuts using 6 presets (<code>Dim Bar</code>, <code>Small Office</code>, <code>Hallway</code>, <code>Outdoor Street</code>, <code>Podcast Booth</code>, <code>Dry</code>). Uses real FFmpeg <code>afir</code> <b>Convolution Reverb</b> whenever an impulse response exists in <code>assets/irs/</code> (auto-falling back to <code>aecho</code>) plus a continuous room-tone bed underneath cuts.</li>
+          <li><b>🎨 Stylize &amp; Objects</b>: Replace Character, <b>Change Background</b>, Add Object, or Both — with visual Before → After recipe cards.</li>
+          <li><b>🖥️ Local GPU &amp; AI Chat</b>: Inspect laptop hardware / install local ComfyUI GGUF models, or talk directly to Claude Code, Codex, or OpenCode with live MCP tools.</li>
         </ul>
       </div>`;
       return;
@@ -2416,7 +2421,7 @@ cast_in_shot: <Subject 1>, <Subject 2>   # omit any character who does NOT appea
 speaking: <Subject 1>                    # or none
 background: keep | picture:<file> | refmod:<slug> | swap:<description>
 settings: 640p | 24fps | 5s | 6 steps | 16:9 | seed=<optional fixed seed>
-post: none | upscale-640p | realesrgan-2x
+post: none | upscale-640p | nomosuni-2x | realesrgan-2x | seedvr2 | lipsync
 
 style_definitions:
 keep same style,
@@ -2458,11 +2463,12 @@ Only zaude_cast: and subject_definitions: are global. A character whose <Subject
           <pre class="help-code" style="max-height:340px;overflow:auto">${esc(zaudeCinematicSystemPrompt)}</pre>
         </div>
 
-        <h4>✨ Prompt Advancer, 30-Shot Library &amp; Learning DB</h4>
+        <h4>✨ Prompt Advancer, 30-Shot Library, Multi-Shot Import &amp; RefMod Creator</h4>
         <ul class="help-list">
-          <li>Click <b>🎬 Shot Library</b> or <b>✨ Advance Prompt</b> above any prompt box to browse <b>30 proven character-swappable shots</b> (1-Char, 2-Char, 3-Char, and Background Swap) with visual preview squares — the library auto-filters to match how many RefMods you select!</li>
-          <li><b>Background Control</b>: Drop a photo or 3D room render into <b>🌆 BG Picture</b> for exact single-angle set locks (<code>--background</code> / <code>&lt;Picture 1&gt;</code>), or pick a <b>🧬 Background / Set RefMod</b> (attached visual-only, <code>voice=0</code>) for recurring multi-angle sets.</li>
-          <li><b>Directing Master Prompts</b> (saved in <code>prompts/master-prompts.json</code>): toggle pills like <b>🎥 Cinema Camera Rules</b>, <b>🥊 Better Fights &amp; Action</b>, <b>🎭 Dialogue &amp; Acting</b>, <b>🧬 Strict RefMod Lock</b>, <b>🌆 Change Background</b>, or <b>🎬 Long-Form Cinematic Script</b> before advancing!</li>
+          <li><b>🎬 Shot Library</b>: Click above any prompt box to browse <b>30 proven character-swappable shots</b> (1-Char, 2-Char, 3-Char, and Background Swap) with visual preview squares — auto-filtered to match how many RefMods you select!</li>
+          <li><b>📜 Multi-Shot (<code>.md</code> / <code>.txt</code>)</b>: Drop a script written with the system prompt above into AI Studio's <b>Multi-Shot</b> tab to parse all shots, resolve RefMods + backgrounds, remap dense <code>&lt;Subject 1..K&gt;</code> indices per shot, and batch-queue the full film.</li>
+          <li><b>🧬 Create RefMod &amp; 🏛️ 3D Set Location RefMod</b>: Build character RefMods (1–16 images + optional voice + optional video, guided by the Tony Sheen example) or snap <b>8 angles</b> of a <code>.glb</code> set into a consensus <b>Location RefMod</b> (<code>concept_type='background'</code>, <code>merge=true</code>) in seconds on Tranklena with zero training.</li>
+          <li><b>Directing Master Prompts</b> (<code>prompts/master-prompts.json</code>): toggle pills like <b>🎥 Cinema Camera Rules</b>, <b>🥊 Better Fights &amp; Action</b>, <b>🎭 Dialogue &amp; Acting</b>, <b>🧬 Strict RefMod Lock</b>, <b>🌆 Change Background</b>, or <b>🎬 Long-Form Cinematic Script</b> before advancing.</li>
           <li><b>📚 Prompt Database</b>: Click <b>⭐ Apply &amp; Save to DB</b> on prompts that rendered well so future Prompt Advancer runs learn from your best shots.</li>
         </ul>
 
@@ -2493,26 +2499,29 @@ Only zaude_cast: and subject_definitions: are global. A character whose <Subject
 
     if (tab === 'perf') {
       body.innerHTML = `<div class="help-section help-manual">
-        <h4>⚡ Expected Performance: Tranklena vs. Rizzar</h4>
+        <h4>⚡ Expected Performance: Tranklena vs. Modal Cloud vs. Rizzar</h4>
         <table class="help-table">
           <thead>
             <tr><th>Engine / Machine</th><th>Model</th><th>Resolution</th><th>Sweet-Spot Length</th><th>Expected Time</th><th>Best Used For</th></tr>
           </thead>
           <tbody>
-            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3 (4-step Turbo)</td><td><b>640p</b> (1120×640)</td><td>7s (6 steps, 24fps)</td><td><b>~5–6.5 min</b></td><td>Production shots, RefMod dialogue, synced audio, FrameContinue</td></tr>
-            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3</td><td><b>480p</b> (864×480)</td><td>5–7s (6 steps)</td><td><b>~2.5–3.5 min</b></td><td>Fast story blocking &amp; drafts (then right-click Upscale to 640p)</td></tr>
-            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>MiniMax-H3 FL2VA</td><td><b>480p–640p</b></td><td>3–5s (8 steps)</td><td><b>~2–4 min</b></td><td>Right-click FrameToFrame bridges between 2 clips</td></tr>
-            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB</span></td><td>RealESRGAN 2×</td><td>2× source</td><td>Any clip</td><td><b>~15–35 sec</b></td><td>Fast crisp multi-clip upscale preserving original audio</td></tr>
-            <tr><td><b>💻 Rizzar (Local)</b><br><span class="muted">RTX 2070S Max-Q · 8 GB</span></td><td>LTX-Video 2B 0.9.8 GGUF</td><td><b>320p–480p</b></td><td>2–4s (8 steps, 24fps)</td><td><b>~35–85 sec</b></td><td>Offline B-roll, quick shot tests, local First/Last Frame (uses ~5 GB VRAM)</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB · Free</span></td><td>MiniMax-H3 (4-step Turbo)</td><td><b>640p</b> (1120×640)</td><td>7s (6 steps, 24fps)</td><td><b>~5–6.5 min</b></td><td>Production shots, RefMod dialogue, synced audio, FrameContinue</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB · Free</span></td><td>MiniMax-H3</td><td><b>320p–480p</b></td><td>5–7s (6 steps)</td><td><b>~1.5–3.5 min</b></td><td>Fast story blocking &amp; drafts (then right-click Upscale to 640p)</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB · Free</span></td><td>RefMod Master Extract</td><td>1024px (1–16 imgs)</td><td>Zero training</td><td><b>~10–25 sec</b></td><td>Creating character RefMods &amp; 8-view 3D Location RefMods</td></tr>
+            <tr><td><b>🌐 Tranklena</b><br><span class="muted">RTX 3090 · 24 GB · Free</span></td><td>NomosUni 2× / RealESRGAN 2×</td><td>2× source</td><td>Any clip</td><td><b>~15–35 sec</b></td><td>Fast crisp multi-clip upscale preserving original audio (or SeedVR2 temporal upscale)</td></tr>
+            <tr><td><b>☁️ Modal Fast</b><br><span class="muted">L40S · 48 GB · Snapshots</span></td><td>Singularity v2 INT8 + SageAttn</td><td><b>640p–720p</b></td><td>5–7s (6 steps)</td><td><b>~45–90 sec</b></td><td>Fast final cloud batch renders (GPU Memory Snapshots + $0/hr idle)</td></tr>
+            <tr><td><b>☁️ Modal Balanced / Ultra</b><br><span class="muted">H100 80 GB / H200 141 GB</span></td><td>Singularity v2 (FP8 / Full BF16)</td><td><b>720p–1080p</b></td><td>5–10s (6–8 steps)</td><td><b>~45–110 sec</b></td><td>Hero shots, multi-character dialogue, max face &amp; texture fidelity</td></tr>
+            <tr><td><b>💻 Rizzar (Local)</b><br><span class="muted">RTX 2070S Max-Q · 8 GB</span></td><td>LTX-Video 2B 0.9.8 GGUF</td><td><b>320p–480p</b></td><td>2–4s (8 steps, 24fps)</td><td><b>~35–85 sec</b></td><td>Offline B-roll, quick shot tests, local First/Last Frame (~5 GB VRAM)</td></tr>
             <tr><td><b>💻 Rizzar (Local)</b><br><span class="muted">RTX 2070S Max-Q · 8 GB</span></td><td>Wan 2.1 1.3B GGUF</td><td><b>480p</b> (832×480)</td><td>3–4s (8 steps, CausVid)</td><td><b>~50–110 sec</b></td><td>Sharp local T2V without needing Tranklena online</td></tr>
           </tbody>
         </table>
 
-        <h4>Recommended Production &amp; Export Settings</h4>
+        <h4>Recommended Production, Cloud &amp; Audio Settings</h4>
         <ul class="help-list">
-          <li><b>Tranklena Production Sweet Spot</b>: <code>640p</code> · <code>6 steps</code> (<code>7 steps</code> for FrameContinue) · <code>7s</code> · <code>24 fps</code> · 4-step Turbo LoRA.</li>
-          <li><b>Local Rizzar Sweet Spot</b>: <code>480p</code> (768×512) · <code>8 steps</code> · <code>4s</code> · ComfyUI flags <code>--use-pytorch-cross-attention --force-fp16 --lowvram --preview-method auto</code>.</li>
-          <li><b>Final Export</b>: <code>30 fps</code> · <b>Ultra</b> quality · <code>1920×1080</code> (16:9) or <code>1080×1920</code> (9:16) · Fill frame + Sharpen <code>38</code> · NVENC GPU encode.</li>
+          <li><b>Tranklena Production Sweet Spot</b>: <code>640p</code> · <code>6 steps</code> (<code>7 steps</code> for FrameContinue) · <code>7s</code> · <code>24 fps</code> · 4-step Turbo LoRA. (Note: TeaCache / FirstBlockCache are intentionally kept <b>off</b> on 4–6 step H3 Turbo schedules.)</li>
+          <li><b>Modal Serverless Safety ($0.00/hr Idle)</b>: Status checks use <code>modal container list --json</code> (zero-cost control plane) and never ping sleeping GPUs. Always draft &amp; test on Tranklena first, then run final hero passes on Modal.</li>
+          <li><b>Lip-Sync Reuse</b>: Generate one clean talking plate, then right-click → <b>🗣️ Lip-Sync Clip</b> (LatentSync 1.6 at <code>25 fps</code>, optional 2-person 512×512 crop-and-stitch) to reuse the shot for multiple lines.</li>
+          <li><b>Final Export &amp; Room Acoustics</b>: <code>30 fps</code> · <b>Ultra</b> · <code>1920×1080</code> (16:9) or <code>1080×1920</code> (9:16) · Fill frame + Sharpen <code>38</code> · NVENC GPU encode. Apply a <b>🔊 Room Acoustics</b> preset (convolution reverb + continuous room-tone bed) to unify AI dialogue across cuts.</li>
           <li><b>Audio Mix Targets</b>: <code>-14.0 LUFS</code> (TP <code>-1.5 dB</code>). Dialogue cut: V1 <code>100%</code> + Music <code>16%</code>. Narrated cut: V1 <code>20%</code> + VO <code>100%</code> + Music <code>16%</code>.</li>
         </ul>
       </div>`;
@@ -2523,7 +2532,9 @@ Only zaude_cast: and subject_definitions: are global. A character whose <Subject
       const folders = [
         { name: 'Master Prompts (Shared in App)', path: '/home/laude/Projects/Zaude/prompts/master-prompts.json', desc: 'Directing directives (Cinema Camera, Better Fights, Zaude Multi-Shot Script, etc.) used by ✨ Advance Prompt.' },
         { name: '30-Shot Library & Stylize Presets', path: '/home/laude/Projects/Zaude/prompts/shot-library.json', desc: '30 character-swappable 1/2/3-RefMod shots, Background Recipes, Stylize Before/Afters, and Singularity v2 Playbook.' },
-        { name: 'Visual RefMods Library', path: '/home/laude/Projects/Zaude/refmods', desc: 'Character folders containing headshot.png and walk.mp4 hover previews for the RefMod grid.' },
+        { name: 'Visual RefMods Library', path: '/home/laude/Projects/Zaude/refmods', desc: 'Character & location folders with headshot.jpg, portrait walk.mp4 hover previews, meta.json (categories), and .deleted.json tombstones.' },
+        { name: 'Room Acoustics Impulse Responses (IRs)', path: '/home/laude/Projects/Zaude/assets/irs', desc: 'Real room .wav impulse responses (dim-bar.wav, small-office.wav, hallway.wav, outdoor-street.wav, podcast-booth.wav) for FFmpeg afir convolution reverb.' },
+        { name: 'Modal Serverless ComfyUI Server', path: '/home/laude/Projects/Zaude/modal/comfy_server.py', desc: 'Modal GPU Memory Snapshot + SageAttention deployment for Fast (L40S), Balanced (H100), and Ultra (H200) tiers.' },
         { name: 'Rendered AI Clips & Sidecars', path: '/home/laude/Videos/Zaude', desc: 'All generated MP4 clips plus their .json sidecars (storing saved_latent, RefMods, prompt, resolution).' },
         { name: 'Local ComfyUI & Models (Rizzar)', path: '/home/laude/ComfyUI', desc: 'Local ComfyUI install: models/unet/ (LTX 0.9.8 GGUF), models/vae/, models/clip/ (T5-XXL GGUF), custom_nodes/.' },
         { name: 'Zaude User Data & Prompt DB', path: '/home/laude/.config/Zaude', desc: 'Persistent prompt-db.json (learning prompt database), ai-tips.json, latent-names.json, zaude-settings.json, and ai-previews/.' },
@@ -2560,7 +2571,7 @@ Only zaude_cast: and subject_definitions: are global. A character whose <Subject
           <li><b>1-finger anchored screw turn</b> (or <b>R + scroll</b> / <b>Shift + Alt + drag</b>): Rotate video</li>
           <li><b>White inner frame</b>: Exact exported region (adapts to Export aspect ratio); darker outside shows off-frame clip area</li>
         </ul>
-        <h4>Laptop Trackpad — Timeline</h4>
+        <h4>Laptop Trackpad — Timeline &amp; Inspector</h4>
         <ul class="help-list">
           <li><b>Ctrl + horizontal swipe</b>: Fine-tune selected clip length</li>
           <li><b>Shift + horizontal swipe</b>: Move selected clip(s)</li>
@@ -2568,7 +2579,8 @@ Only zaude_cast: and subject_definitions: are global. A character whose <Subject
           <li><b>Ctrl + vertical swipe</b> over a clip: Adjust clip volume</li>
           <li><b>Drag empty space Left → Right (Blue)</b>: Select fully enclosed clips (AutoCAD Window)</li>
           <li><b>Drag empty space Right → Left (Green)</b>: Select any touched clips (AutoCAD Crossing)</li>
-          <li><b>Right-click 1 or more video clips</b>: ✨ FrameToFrame, ✨ FrameContinue, ✨ Upscale &amp; Fix Faces, ⚡ Fast 2× Upscale, Separate Audio, Mute, Split, Duplicate, Delete</li>
+          <li><b>Right-click 1 or more video clips</b>: ✨ FrameToFrame, ✨ FrameContinue, 🗣️ Lip-Sync Clip, ✨ Upscale &amp; Fix Faces (640p), ⚡ Fast 2× Upscale (NomosUni / RealESRGAN), ✨ SeedVR2 Temporal Upscale, Separate Audio, Mute, Split, Duplicate, Delete</li>
+          <li><b>Inspector → 🔊 Room Acoustics</b>: Pick a room preset + reverb intensity + continuous room-tone bed level for unified dialogue/SFX acoustics</li>
         </ul>
         <h4>Keyboard &amp; Projects</h4>
         <ul class="help-list">
