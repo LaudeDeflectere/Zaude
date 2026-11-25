@@ -34,6 +34,7 @@ const scriptParser = require('./script-parser.cjs');
 const roomAcoustics = require('./room-acoustics.cjs');
 const lipsync = require('./lipsync.cjs');
 const videoAnalyzer = require('./video-analyzer.cjs');
+const videoOutpaint = require('./video-outpaint.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -391,12 +392,16 @@ function registerAiHandlers() {
   }
 
   let lastCompletedShot = { latent: '', path: '', quality: '' };
+  let pumpingQueue = false;
 
-  function pumpJobQueue() {
-    if (activeJob || !jobQueue.length) return;
+  async function pumpJobQueue() {
+    if (activeJob || pumpingQueue || !jobQueue.length) return;
+    pumpingQueue = true;
     const next = jobQueue.shift();
     const { id, mannimmateDir, settings, send, estSec } = next;
     let input = next.input;
+    let job = null;
+    try {
     // Auto-chain Multi-Shot `mode: continue` shots to the just-finished previous shot's latent / video!
     if (
       input && input.mode === 'refmod' && input.refmodMode === 'continue'
@@ -426,7 +431,6 @@ function registerAiHandlers() {
         send({ ...ev, ...extra });
       }
     };
-    let job;
     if (useEsrgan) {
       job = upscaleLib.runEsrganUpscale({
         videoPath: input.video,
@@ -544,7 +548,24 @@ function registerAiHandlers() {
           timeout: 15000,
         });
         if (ext.status === 0 && fs.existsSync(autoRef)) {
-          effectiveInput = { ...input, ref: autoRef };
+          effectiveInput = { ...effectiveInput, ref: autoRef };
+        }
+      }
+      // Outpaint Aspect (Portrait <-> Landscape) & Virtual Camera Pullback (1-2 steps back)
+      const outpaintAspect = String((effectiveInput && effectiveInput.outpaintAspect) || 'keep');
+      const cameraPullback = effectiveInput && effectiveInput.cameraPullback != null ? Number(effectiveInput.cameraPullback) : 1.0;
+      if (isStylize && effectiveInput.video && fs.existsSync(effectiveInput.video) && (outpaintAspect !== 'keep' || cameraPullback < 0.99)) {
+        const workDir = path.join(app.getPath('userData'), 'ai-outpaint');
+        const outpaintedPath = path.join(workDir, `outpaint_${id}.mp4`);
+        onEv({ type: 'progress', progress: 0.06, label: `Preparing ${outpaintAspect !== 'keep' ? outpaintAspect + ' outpaint' : 'camera pullback'} plate…` });
+        const opRes = await videoOutpaint.prepareOutpaintedVideo({
+          videoPath: effectiveInput.video,
+          targetAspect: outpaintAspect,
+          pullback: cameraPullback,
+          outPath: outpaintedPath,
+        });
+        if (opRes && opRes.ok && opRes.path) {
+          effectiveInput = { ...effectiveInput, video: opRes.path };
         }
       }
       job = mannimmate.runJob({
@@ -560,6 +581,10 @@ function registerAiHandlers() {
     }
     activeJob = { id, backend: (input && input.backend) || 'remote', cancel: job.cancel, send, estSec, remainingEta: estSec };
     broadcastQueueStatus();
+    } finally {
+      pumpingQueue = false;
+    }
+    if (!job) return;
     job.promise.then((result) => {
       activeJob = null;
       if (result.ok) {

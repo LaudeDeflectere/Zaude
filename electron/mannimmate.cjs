@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { buildPromptFile } = require('./text-to-video.cjs');
 const comfyLive = require('./comfy-live.cjs');
+const videoOutpaint = require('./video-outpaint.cjs');
 
 const MODES = ['text-render', 'refmod', 'auto', 'coverage'];
 
@@ -259,6 +260,11 @@ function buildCommand(input, { promptFile = null, outDir = '' } = {}) {
         parts.push('Adopt the visual style and backdrop of the reference.');
       }
     }
+    const outpaintNote = videoOutpaint.buildOutpaintPromptNote({
+      outpaintAspect: (input && input.outpaintAspect) || 'keep',
+      cameraPullback: input && input.cameraPullback != null ? Number(input.cameraPullback) : 1.0,
+    });
+    if (outpaintNote) parts.push(outpaintNote);
     promptLines.push(parts.join(' '));
     const promptContent = promptLines.join('\n') + '\n';
 

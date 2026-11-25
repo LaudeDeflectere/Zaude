@@ -107,3 +107,32 @@ test('continuous Time Warp (setSpeed) resizes clip duration and shifts downstrea
   assert.equal(typeof lipsync.prepareTimeWarpedClip, 'function');
   assert.equal(typeof lipsync.prepareTrimmedAudio, 'function');
 });
+
+test('videoOutpaint builds Portrait->Landscape & Camera Pullback FFmpeg filters and Stylize prompt notes', () => {
+  const vo = require('../electron/video-outpaint.cjs');
+
+  // Portrait 720x1280 -> 16:9 Landscape 1280x720 with 1 step back (0.80)
+  const spec = vo.buildOutpaintFilter({ srcWidth: 720, srcHeight: 1280, targetAspect: '16:9', pullback: 0.8 });
+  assert.equal(spec.width, 1280);
+  assert.equal(spec.height, 720);
+  assert.ok(spec.fgHeight < 720);
+  assert.match(spec.filterComplex, /boxblur=36:4/);
+  assert.match(spec.filterComplex, /overlay=\(W-w\)\/2:\(H-h\)\/2/);
+
+  // Stylize buildCommand injects outpaint + pullback prompt instructions
+  const cmd = mannimmate.buildCommand({
+    mode: 'auto',
+    stylizeAction: 'replace',
+    video: '/tmp/portrait.mp4',
+    start: 0,
+    end: 3,
+    refmods: [{ file: 'karlsten_malco', name: 'Karlsten' }],
+    outpaintAspect: '16:9',
+    cameraPullback: 0.65,
+  });
+  assert.equal(cmd.ok, true);
+  assert.match(cmd.promptContent, /CAMERA EXPANSION & OUTPAINT/);
+  assert.match(cmd.promptContent, /16:9 landscape/);
+  assert.match(cmd.promptContent, /two steps back/);
+  assert.match(cmd.promptContent, /NO black bars/);
+});

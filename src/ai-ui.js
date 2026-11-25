@@ -415,6 +415,8 @@ function collectRequest() {
     stylizeAction,
     objectPrompt: String(fd.get('objectPrompt') || '').trim(),
     backgroundMode: String(fd.get('backgroundMode') || 'keep'),
+    outpaintAspect: String(fd.get('outpaintAspect') || 'keep'),
+    cameraPullback: Number(fd.get('cameraPullback') || 1.0),
     image: String(fd.get('image') || '').trim(),
     coverageTarget: String(fd.get('coverageTarget') || '').trim(),
     dryRun: Boolean($('ai-dry-run') && $('ai-dry-run').checked),

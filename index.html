@@ -260,6 +260,25 @@
           </div>
         </div>
 
+        <div class="ai-outpaint-bar" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:8px">
+          <label>📐 Outpaint Aspect <span class="muted">(Portrait ↔ Landscape)</span>
+            <select name="outpaintAspect" id="ai-outpaint-aspect" title="Expand portrait video into 16:9 landscape (or landscape into 9:16 portrait) — MiniMax-H3 invents seamless detail in the new space">
+              <option value="keep" selected>Keep Original Aspect</option>
+              <option value="16:9">📺 16:9 Landscape (Outpaint Sides)</option>
+              <option value="9:16">📱 9:16 Portrait (Outpaint Top/Bottom)</option>
+              <option value="1:1">⬜ 1:1 Square</option>
+            </select>
+          </label>
+          <label>🎥 Camera Pullback <span class="muted">(More scene, same motion)</span>
+            <select name="cameraPullback" id="ai-camera-pullback" title="Step the camera back 1-2 steps so we see more of the body &amp; room while keeping the exact same movement">
+              <option value="1.0" selected>Original Framing (1.0×)</option>
+              <option value="0.80">🚶 1 Step Back (0.80× — more scene)</option>
+              <option value="0.65">🏃 2 Steps Back (0.65× — wider room)</option>
+              <option value="0.50">🔭 Wide Pullback (0.50× — full scene)</option>
+            </select>
+          </label>
+        </div>
+
         <div class="ai-prompt-head" style="margin-top:8px">
           <span>2. What to Change <span class="muted">· Click a Before → After card to preview &amp; pick mode</span></span>
           <div class="ai-stylize-pills" id="ai-stylize-pills">
