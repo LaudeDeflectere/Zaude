@@ -56,8 +56,13 @@ test('refmods manager supports auto-categorization, recategorize, delete tombsto
   assert.equal(built.graph['50'].inputs.concept_type, 'identity');
   assert.equal(built.graph['50'].inputs.mode, 'Full Reference');
   assert.equal(built.graph['50'].inputs.save_layout, 'bundle');
-  assert.deepEqual(built.graph['50'].inputs.ref_image_3, ['12', 0]);
-  assert.deepEqual(built.graph['50'].inputs.ref_video_1, ['30', 0]);
+  assert.equal(built.graph['50'].inputs.save, true);
+  assert.equal(built.graph['50'].inputs.multiplier, 1);
+  assert.equal(built.graph['50'].inputs.max_tokens, 5120);
+  assert.equal(built.graph['50'].inputs.audio_concept_type, 'voice');
+  assert.equal(built.graph['30'].class_type, 'VHS_LoadVideo');
+  assert.deepEqual(built.graph['50'].inputs['refs_image.ref_image_2'], ['12', 0]);
+  assert.deepEqual(built.graph['50'].inputs['refs_video.ref_video_0'], ['30', 0]);
   assert.deepEqual(built.graph['50'].inputs.audio, ['3', 0]);
   assert.deepEqual(built.graph['50'].inputs.audio_vae, ['2', 0]);
 

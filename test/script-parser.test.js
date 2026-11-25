@@ -133,7 +133,8 @@ test('locationRefMod assigns to next free mod_K slot without colliding with char
   assert.equal(builtLoc.graph['50'].class_type, 'MiniMaxH3RefModMasterExtract');
   assert.equal(builtLoc.graph['50'].inputs.concept_type, 'background');
   assert.equal(builtLoc.graph['50'].inputs.merge, true);
-  assert.deepEqual(builtLoc.graph['50'].inputs.ref_image_8, ['17', 0]);
+  assert.equal(builtLoc.graph['50'].inputs.save, true);
+  assert.deepEqual(builtLoc.graph['50'].inputs['refs_image.ref_image_7'], ['17', 0]);
 
   // 3. Singularity graph attaches locationRefMod to mod_3 (voice=0) and wires MiniMaxH3RefModStepCurve (concept_at_start)
   const sg = modalRunner.buildSingularityGraph({

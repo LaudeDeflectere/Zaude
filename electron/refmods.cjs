@@ -346,6 +346,15 @@ function buildLocationRefModGraph({
     identity: Math.max(0, Number(refinementSteps) || 300),
     merge: Boolean(merge),
     motion_only: false,
+    multiplier: 1,
+    max_tokens: 5120,
+    description: '',
+    save: true,
+    audio_max_seconds: 30.0,
+    audio_max_tokens: 5120,
+    audio_budget_policy: 'truncate',
+    audio_concept_type: 'voice',
+    max_total_tokens: 0,
     vae: ['1', 0],
     extraction_preset: 'manual',
     subfolder: String(subfolder || '').trim(),
@@ -355,7 +364,7 @@ function buildLocationRefModGraph({
   imgs.forEach((imgName, idx) => {
     const nodeId = String(10 + idx);
     graph[nodeId] = { class_type: 'LoadImage', inputs: { image: imgName } };
-    extractInputs[`ref_image_${idx + 1}`] = [nodeId, 0];
+    extractInputs[`refs_image.ref_image_${idx}`] = [nodeId, 0];
   });
   graph['50'] = { class_type: 'MiniMaxH3RefModMasterExtract', inputs: extractInputs };
   return { graph, modName: cleanName, refmodFile: subfolder ? `${subfolder}/${cleanName}` : cleanName };
@@ -399,7 +408,16 @@ async function buildLocationRefModOnComfy({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: graph, client_id: `zaude-locref-${Date.now()}` }),
     });
-    if (!sub.ok) return { ok: false, error: `ComfyUI rejected Location RefMod graph (${sub.status})` };
+    if (!sub.ok) {
+      let detail = '';
+      try {
+        const j = await sub.json();
+        detail = j?.error?.details || j?.error?.message || JSON.stringify(j).slice(0, 300);
+      } catch {
+        try { detail = (await sub.text()).slice(0, 300); } catch { /* ignore */ }
+      }
+      return { ok: false, error: `ComfyUI rejected Location RefMod graph (${sub.status})${detail ? `: ${detail}` : ''}` };
+    }
     const { prompt_id: promptId } = await sub.json();
 
     const deadline = Date.now() + 10 * 60 * 1000;
@@ -462,6 +480,15 @@ function buildRefModExtractGraph({
     identity: mode === 'Compressed Reference' ? Math.max(0, Number(refinementSteps) || 300) : 0,
     merge: Boolean(merge),
     motion_only: false,
+    multiplier: 1,
+    max_tokens: 5120,
+    description: '',
+    save: true,
+    audio_max_seconds: 30.0,
+    audio_max_tokens: 5120,
+    audio_budget_policy: 'truncate',
+    audio_concept_type: 'voice',
+    max_total_tokens: 0,
     vae: ['1', 0],
     extraction_preset: 'manual',
     subfolder: String(subfolder || '').trim(),
@@ -472,12 +499,23 @@ function buildRefModExtractGraph({
   imgs.forEach((imgName, idx) => {
     const nodeId = String(10 + idx);
     graph[nodeId] = { class_type: 'LoadImage', inputs: { image: imgName } };
-    extractInputs[`ref_image_${idx + 1}`] = [nodeId, 0];
+    extractInputs[`refs_image.ref_image_${idx}`] = [nodeId, 0];
   });
   vids.forEach((vidName, idx) => {
     const nodeId = String(30 + idx);
-    graph[nodeId] = { class_type: 'LoadVideo', inputs: { file: vidName } };
-    extractInputs[`ref_video_${idx + 1}`] = [nodeId, 0];
+    graph[nodeId] = {
+      class_type: 'VHS_LoadVideo',
+      inputs: {
+        video: vidName,
+        force_rate: 0,
+        custom_width: 0,
+        custom_height: 0,
+        frame_load_cap: 16,
+        skip_first_frames: 0,
+        select_every_nth: 1,
+      },
+    };
+    extractInputs[`refs_video.ref_video_${idx}`] = [nodeId, 0];
   });
   if (hasAudio) {
     graph['2'] = { class_type: 'VAELoader', inputs: { vae_name: audioVae } };
@@ -559,7 +597,16 @@ async function buildRefModOnComfy({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: graph, client_id: `zaude-refmod-${Date.now()}` }),
     });
-    if (!sub.ok) return { ok: false, error: `ComfyUI rejected RefMod graph (${sub.status})` };
+    if (!sub.ok) {
+      let detail = '';
+      try {
+        const j = await sub.json();
+        detail = j?.error?.details || j?.error?.message || JSON.stringify(j).slice(0, 300);
+      } catch {
+        try { detail = (await sub.text()).slice(0, 300); } catch { /* ignore */ }
+      }
+      return { ok: false, error: `ComfyUI rejected RefMod graph (${sub.status})${detail ? `: ${detail}` : ''}` };
+    }
     const { prompt_id: promptId } = await sub.json();
 
     const deadline = Date.now() + 10 * 60 * 1000;
