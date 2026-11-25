@@ -22,14 +22,16 @@ function parseCastSection(text) {
     const line = rawLine.replace(/^\s*[-*]\s*/, '').trim();
     if (!line || line.startsWith('#')) continue;
 
-    if (/^background_lock\s*:/i.test(line)) {
-      const val = line.replace(/^background_lock\s*:/i, '').trim();
+    if (/^(?:background_lock|location_refmod)\s*:/i.test(line)) {
+      const val = line.replace(/^(?:background_lock|location_refmod)\s*:/i, '').trim();
       const pic = val.match(/picture\s*=\s*([^|\s#]+)/i);
       const rm = val.match(/refmod\s*=\s*([^|\s#]+)/i);
       if (pic && pic[1] && !/^</.test(pic[1])) {
         backgroundLock = { type: 'picture', value: pic[1].trim() };
       } else if (rm && rm[1] && !/^</.test(rm[1])) {
         backgroundLock = { type: 'refmod', value: rm[1].trim().split('|')[0] };
+      } else if (/^location_refmod\s*:/i.test(line) && val && !/^none$/i.test(val)) {
+        backgroundLock = { type: 'refmod', value: val.split('|')[0].trim() };
       }
       continue;
     }
@@ -271,6 +273,7 @@ function parseMultiShotScript(rawText) {
       seed: cfg.seed || null,
       backgroundImage,
       backgroundRefmod,
+      locationRefMod: backgroundRefmod,
       post: cfg.post || 'none',
       prompt: assembledPrompt,
     };
@@ -284,12 +287,34 @@ function parseMultiShotScript(rawText) {
     ok: true,
     cast: Array.from(cast.values()),
     backgroundLock,
+    locationRefMod: backgroundLock.type === 'refmod' ? backgroundLock.value : '',
     shotCount: shots.length,
     shots,
   };
 }
 
+// Attaches a Location/Set RefMod to the next free mod_K slot (after <Subject 1..K>)
+// without colliding with character RefMods (visual-only, voiceStrength=0).
+function assignLocationRefModSlot(characterRefMods = [], locationRefMod = '') {
+  const chars = (Array.isArray(characterRefMods) ? characterRefMods : []).filter((r) => r && r.file);
+  const loc = String(locationRefMod || '').trim();
+  const slots = chars.map((r) => ({ ...r }));
+  if (!loc || slots.some((r) => r.file === loc) || slots.length >= 8) {
+    return { slots, locationSlotIndex: null, modKey: null };
+  }
+  const slotIdx = slots.length + 1;
+  slots.push({
+    file: loc,
+    name: 'Location Set',
+    identityStrength: 1.0,
+    voiceStrength: 0.0,
+    isLocation: true,
+  });
+  return { slots, locationSlotIndex: slotIdx, modKey: `mod_${slotIdx}` };
+}
+
 module.exports = {
   parseMultiShotScript,
   parseTimestampToSeconds,
+  assignLocationRefModSlot,
 };

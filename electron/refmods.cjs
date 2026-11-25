@@ -246,6 +246,114 @@ function generateRefModAssets({ refmodsRoot, mannimmateDir, python = 'python3', 
   };
 }
 
+// Builds a zero-training ComfyUI-MiniMaxH3Mod graph that encodes 1-16 multi-angle set PNGs
+// into a tiny (~1.5 MB) consensus Location/Background RefMod (.safetensors) in models/refmods/.
+function buildLocationRefModGraph({
+  name = 'set_location',
+  imageNames = [],
+  vaeName = 'minimax_h3_video_vae_int8_convrot.safetensors',
+  mode = 'Compressed Reference',
+  merge = true,
+  poolH = 16,
+  poolW = 16,
+  refResolution = 1024,
+  refinementSteps = 300,
+  subfolder = 'locations',
+} = {}) {
+  const cleanName = slugForRefMod(name).replace(/_location$/i, '') + '_location';
+  const imgs = (Array.isArray(imageNames) ? imageNames : []).filter(Boolean).slice(0, 16);
+  const graph = {
+    '1': { class_type: 'VAELoader', inputs: { vae_name: vaeName } },
+  };
+  const extractInputs = {
+    name: cleanName,
+    mode,
+    concept_type: 'background',
+    background_retention: 1.0,
+    ref_resolution: Math.max(256, Math.min(2048, Number(refResolution) || 1024)),
+    pool_h: Math.max(2, Math.min(64, Number(poolH) || 16)),
+    pool_w: Math.max(2, Math.min(64, Number(poolW) || 16)),
+    latent_frames: 1,
+    identity: Math.max(0, Number(refinementSteps) || 300),
+    merge: Boolean(merge),
+    motion_only: false,
+    vae: ['1', 0],
+    extraction_preset: 'manual',
+    subfolder: String(subfolder || '').trim(),
+    budget_policy: 'truncate',
+    save_layout: 'separate_files',
+  };
+  imgs.forEach((imgName, idx) => {
+    const nodeId = String(10 + idx);
+    graph[nodeId] = { class_type: 'LoadImage', inputs: { image: imgName } };
+    extractInputs[`ref_image_${idx + 1}`] = [nodeId, 0];
+  });
+  graph['50'] = { class_type: 'MiniMaxH3RefModMasterExtract', inputs: extractInputs };
+  return { graph, modName: cleanName, refmodFile: subfolder ? `${subfolder}/${cleanName}` : cleanName };
+}
+
+async function buildLocationRefModOnComfy({
+  name = 'set_location',
+  imagePaths = [],
+  baseUrl = 'http://127.0.0.1:8189',
+  subfolder = 'locations',
+  onEvent = () => {},
+} = {}) {
+  const validPaths = (Array.isArray(imagePaths) ? imagePaths : []).filter((p) => p && fs.existsSync(p)).slice(0, 16);
+  if (!validPaths.length) return { ok: false, error: 'At least one angle PNG is required to build a Location RefMod.' };
+  const base = String(baseUrl || 'http://127.0.0.1:8189').replace(/\/+$/, '');
+
+  try {
+    const oi = await fetch(`${base}/object_info/MiniMaxH3RefModMasterExtract`, { signal: AbortSignal.timeout(6000) });
+    if (!oi.ok) return { ok: false, error: `Could not reach ComfyUI (${base}) to build Location RefMod.` };
+    const info = await oi.json();
+    if (!info || !info.MiniMaxH3RefModMasterExtract) {
+      return { ok: false, error: 'MiniMaxH3RefModMasterExtract node is not installed on this ComfyUI server.' };
+    }
+
+    onEvent({ type: 'status', message: `Uploading ${validPaths.length} angle views to ComfyUI…` });
+    const uploadedNames = [];
+    for (const p of validPaths) {
+      const form = new FormData();
+      form.append('image', new Blob([fs.readFileSync(p)], { type: 'image/png' }), path.basename(p));
+      form.append('overwrite', 'true');
+      const up = await fetch(`${base}/upload/image`, { method: 'POST', body: form });
+      if (!up.ok) throw new Error(`Image upload failed (${up.status})`);
+      const d = await up.json();
+      uploadedNames.push(d.name || path.basename(p));
+    }
+
+    const { graph, modName, refmodFile } = buildLocationRefModGraph({ name, imageNames: uploadedNames, subfolder });
+    onEvent({ type: 'status', message: `Encoding zero-training Location RefMod "${modName}"…` });
+    const sub = await fetch(`${base}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: graph, client_id: `zaude-locref-${Date.now()}` }),
+    });
+    if (!sub.ok) return { ok: false, error: `ComfyUI rejected Location RefMod graph (${sub.status})` };
+    const { prompt_id: promptId } = await sub.json();
+
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const hr = await fetch(`${base}/history/${encodeURIComponent(promptId)}`);
+      if (!hr.ok) continue;
+      const hist = await hr.json();
+      const entry = hist && hist[promptId];
+      if (!entry) continue;
+      if (entry.status && entry.status.status_str === 'error') {
+        return { ok: false, error: `Location RefMod extraction failed: ${JSON.stringify(entry.status.messages || '').slice(0, 220)}` };
+      }
+      if (entry.status && entry.status.completed) {
+        return { ok: true, modName, refmodFile, subfolder, viewsUsed: uploadedNames.length };
+      }
+    }
+    return { ok: false, error: 'Timed out waiting for Location RefMod extraction.' };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 module.exports = {
   slugForRefMod,
   displayFirstName,
@@ -253,4 +361,6 @@ module.exports = {
   createRefModFolder,
   extractHeadshotFromVideo,
   generateRefModAssets,
+  buildLocationRefModGraph,
+  buildLocationRefModOnComfy,
 };

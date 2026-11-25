@@ -261,11 +261,33 @@ function buildRenderArgs({ clips, resolution, width, height, fps = FPS, quality 
     if (fadeIn > 0.005) fades.push(`afade=t=in:st=0:d=${r3(fadeIn)}`);
     if (fadeOut > 0.005) fades.push(`afade=t=out:st=${r3(Math.max(0, c.dur - fadeOut))}:d=${r3(fadeOut)}`);
     const fadeChain = fades.length ? ',' + fades.join(',') : '';
-    const roomFx = roomAcoustics.buildRoomFilter(c.roomPreset, c.roomIntensity != null ? c.roomIntensity : 1.0);
-    const roomChain = roomFx ? ',' + roomFx : '';
-    graph.push(
-      `[${idx}:a]atrim=start=${r3(c.srcIn || 0)}:duration=${used},asetpts=PTS-STARTPTS,${tempo}` +
-      `${volumeFilterFor(c)}${roomChain}${fadeChain},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
+    const roomIntensity = c.roomIntensity != null ? c.roomIntensity : 1.0;
+    const irPath = c.roomIrPath || roomAcoustics.resolveIrPath(c.roomPreset);
+    if (irPath && c.roomPreset && c.roomPreset !== 'none') {
+      const irIdx = count++;
+      inputs.push('-i', irPath);
+      const preLbl = `[apre${k}]`;
+      const convLbl = `[aconv${k}]`;
+      graph.push(
+        `[${idx}:a]atrim=start=${r3(c.srcIn || 0)}:duration=${used},asetpts=PTS-STARTPTS,${tempo}` +
+        `${volumeFilterFor(c)}${fadeChain}${preLbl}`);
+      graph.push(roomAcoustics.buildRoomFilterComplex({
+        presetId: c.roomPreset,
+        intensity: roomIntensity,
+        irPath,
+        inputLabel: preLbl,
+        irInputLabel: `[${irIdx}:a]`,
+        outputLabel: convLbl,
+        tag: `rm${k}`,
+      }));
+      graph.push(`${convLbl}adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
+    } else {
+      const roomFx = roomAcoustics.buildRoomFilter(c.roomPreset, roomIntensity);
+      const roomChain = roomFx ? ',' + roomFx : '';
+      graph.push(
+        `[${idx}:a]atrim=start=${r3(c.srcIn || 0)}:duration=${used},asetpts=PTS-STARTPTS,${tempo}` +
+        `${volumeFilterFor(c)}${roomChain}${fadeChain},adelay=${Math.round(c.start * 1000)}:all=1[a${k}]`);
+    }
     audioLabels.push(`[a${k}]`);
   });
   let audioArgs = [];

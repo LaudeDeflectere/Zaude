@@ -842,6 +842,12 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
     const canFrameContinue = isVideo && Boolean(clip.path) && Boolean(window.__zaudeOpenFrameContinue);
     const upscaleTargets = selVideoClips.length ? selVideoClips : (isVideo && clip.path ? [clip] : []);
     const canUpscale = upscaleTargets.length > 0 && Boolean(window.zaudeAI && window.zaudeAI.upscaleClips);
+    const upCaps = window.__zaudeUpscaleCaps || { hasSeedVR2: false, hasSpan: false };
+    if (canUpscale && !window.__zaudeUpscaleCapsLoaded && window.zaudeAI && window.zaudeAI.upscaleCapabilities) {
+      window.__zaudeUpscaleCapsLoaded = true;
+      window.zaudeAI.upscaleCapabilities().then((c) => { if (c) window.__zaudeUpscaleCaps = c; }).catch(() => {});
+    }
+    const fastUpLabel = upCaps.hasSpan ? '⚡ Fast 2× Upscale · SPAN' : '⚡ Fast 2× Upscale · RealESRGAN';
     const upSuffix = upscaleTargets.length > 1 ? ` (${upscaleTargets.length} clips)` : '';
     const isMedia = isVideo || clip.kind === 'audio';
     const canSeparate = isVideo && clip.hasAudio !== false && !clip.muted;
@@ -855,7 +861,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       ${canFrameToFrame ? '<button role="menuitem" data-ctx="frame-to-frame" class="menu-ai">✨ FrameToFrame</button>' : ''}
       ${canFrameContinue ? `<button role="menuitem" data-ctx="frame-continue" class="menu-ai">✨ FrameContinue${clip.latent ? ' (latent)' : ''}</button>` : ''}
       ${canUpscale ? `<button role="menuitem" data-ctx="upscale-refmod" class="menu-ai">✨ Upscale &amp; Fix Faces · 640p${upSuffix}</button>` : ''}
-      ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">⚡ Fast 2× Upscale · RealESRGAN${upSuffix}</button>` : ''}
+      ${canUpscale ? `<button role="menuitem" data-ctx="upscale-esrgan" class="menu-ai">${fastUpLabel}${upSuffix}</button>` : ''}
+      ${(canUpscale && upCaps.hasSeedVR2) ? `<button role="menuitem" data-ctx="upscale-seedvr2" class="menu-ai">💎 Hero Diffusion Upscale · SeedVR2 1080p${upSuffix}</button>` : ''}
       ${canFrameContinue ? '<button role="menuitem" data-ctx="lipsync-clip" class="menu-ai">🗣️ Reuse &amp; Lip-Sync Clip (Tranklena)</button>' : ''}
       ${(canFrameToFrame || canFrameContinue || canUpscale) ? '<div class="menu-sep"></div>' : ''}
       ${isVideo ? `<button role="menuitem" data-ctx="separate" ${canSeparate ? '' : 'disabled'}>Separate Audio Track${sepReason}</button>` : ''}
@@ -877,16 +884,18 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
       if (!btn || btn.disabled) return;
       const act = btn.dataset.ctx;
       closeCtxMenu();
-      if ((act === 'upscale-refmod' || act === 'upscale-esrgan') && upscaleTargets.length) {
-        const method = act === 'upscale-esrgan' ? 'esrgan-2x' : 'refmod-refine';
+      if ((act === 'upscale-refmod' || act === 'upscale-esrgan' || act === 'upscale-seedvr2') && upscaleTargets.length) {
+        const method = act === 'upscale-esrgan' ? 'esrgan-2x' : (act === 'upscale-seedvr2' ? 'seedvr2-1080p' : 'refmod-refine');
+        const quality = act === 'upscale-seedvr2' ? '1080' : '640';
         const payloadClips = upscaleTargets.map((c) => ({
           clipId: c.id,
           path: c.path,
           start: Number(c.srcIn) || 0,
           end: (Number(c.srcIn) || 0) + (Number(c.dur) || 5) * (c.speed || 1),
         }));
-        actions.log(`Queueing ${payloadClips.length} clip(s) for ${method === 'esrgan-2x' ? 'Fast 2× Upscale' : 'RefMod Face-Fix & Upscale (640p)'}…`);
-        const res = await window.zaudeAI.upscaleClips({ clips: payloadClips, method, quality: '640' });
+        const modeLabel = method === 'esrgan-2x' ? 'Fast 2× Upscale' : (method === 'seedvr2-1080p' ? 'SeedVR2 1080p Diffusion VSR' : 'RefMod Face-Fix & Upscale (640p)');
+        actions.log(`Queueing ${payloadClips.length} clip(s) for ${modeLabel}…`);
+        const res = await window.zaudeAI.upscaleClips({ clips: payloadClips, method, quality });
         if (res && res.ok && Array.isArray(res.jobs)) {
           for (const j of res.jobs) {
             actions.generationEvent({

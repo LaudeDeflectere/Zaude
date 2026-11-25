@@ -392,8 +392,9 @@ function registerAiHandlers() {
     const useLocal = Boolean(input && input.backend === 'local');
     const useModal = Boolean(input && input.backend === 'modal');
     const useEsrgan = Boolean(input && input.mode === 'upscale-esrgan');
+    const useSeedVR2 = Boolean(input && input.mode === 'upscale-seedvr2');
     const useRefmodUpscale = Boolean(input && input.mode === 'upscale-refmod');
-    const useFl2v = !useLocal && !useModal && !useEsrgan && !useRefmodUpscale && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
+    const useFl2v = !useLocal && !useModal && !useEsrgan && !useSeedVR2 && !useRefmodUpscale && input && input.mode === 'refmod' && input.refmodMode !== 'continue' && (input.firstFrame || input.lastFrame);
     const onEv = (ev) => {
       if (ev.etaSec && activeJob && activeJob.id === id) activeJob.remainingEta = ev.etaSec;
       const extra = input && input.replaceClipId ? { replaceClipId: input.replaceClipId } : {};
@@ -408,6 +409,15 @@ function registerAiHandlers() {
     if (useEsrgan) {
       job = upscaleLib.runEsrganUpscale({
         videoPath: input.video,
+        outDir: settings.outDir,
+        previewDir: previewRoot(),
+        jobId: id,
+        onEvent: onEv,
+      });
+    } else if (useSeedVR2) {
+      job = upscaleLib.runSeedVR2Upscale({
+        videoPath: input.video,
+        resolution: Number(input.quality) || 1080,
         outDir: settings.outDir,
         previewDir: previewRoot(),
         jobId: id,
@@ -746,6 +756,20 @@ function registerAiHandlers() {
     return { ok: true, angles: angles.slice(0, 24) };
   });
 
+  ipcMain.handle('ai:buildLocationRefMod', async (event, input = {}) => {
+    const comfyLive = require('./comfy-live.cjs');
+    const baseUrl = String((input && input.baseUrl) || '').trim() || comfyLive.comfyBaseUrl();
+    return refmodsLib.buildLocationRefModOnComfy({
+      name: String((input && input.name) || 'set_location'),
+      imagePaths: Array.isArray(input && input.imagePaths) ? input.imagePaths : [],
+      baseUrl,
+      subfolder: String((input && input.subfolder) || 'locations'),
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:job', { ...ev, mode: 'location-refmod' });
+      },
+    });
+  });
+
   // ---------- Pillar 3: Reusable Lip-Sync (LatentSync / MuseTalk on Tranklena) ----------
   ipcMain.handle('ai:pickAudioFile', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -1067,12 +1091,14 @@ function registerAiHandlers() {
   });
 
   // Queue 1 or more selected timeline clips for Upscale & Face-Fix (RefMod 2nd Pass or Fast RealESRGAN 2×).
+  ipcMain.handle('ai:upscaleCapabilities', () => upscaleLib.checkUpscaleCapabilities());
+
   ipcMain.handle('ai:upscaleClips', (event, { clips = [], method = 'refmod-refine', quality = '640' } = {}) => {
     const settings = loadSettings();
     const mannimmateDir = settings.mannimmateDir;
     const valid = (Array.isArray(clips) ? clips : []).filter((c) => c && c.clipId && c.path && fs.existsSync(c.path));
     if (!valid.length) return { ok: false, error: 'No valid video clips selected to upscale.' };
-    const mode = method === 'esrgan-2x' ? 'upscale-esrgan' : 'upscale-refmod';
+    const mode = method === 'esrgan-2x' ? 'upscale-esrgan' : (method === 'seedvr2-1080p' ? 'upscale-seedvr2' : 'upscale-refmod');
     const jobs = [];
     for (const c of valid) {
       const id = crypto.randomUUID();

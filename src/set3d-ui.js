@@ -333,6 +333,58 @@ function initSet3dUi() {
       snapToSlot('firstFrame');
       return;
     }
+    if (e.target.closest('#ai-set3d-build-locref')) {
+      (async () => {
+        const api = window.zaudeAI;
+        const status = $('ai-set3d-status');
+        if (!api || !api.saveSetSnapshot || !api.buildLocationRefMod) return;
+        ensureRenderer();
+        const setName = (activeModelGroup && activeModelGroup.name) ? activeModelGroup.name : 'set3d_room';
+        if (status) status.textContent = `📸 Capturing 8 orbit views of "${setName}" for zero-training Location RefMod…`;
+
+        // Save current camera state, orbit cleanly through 8 evenly spaced azimuth angles, and restore
+        const savedPos = camera.position.clone();
+        const savedTarget = controls.target.clone();
+        const radius = Math.max(2.5, savedPos.distanceTo(savedTarget));
+        const elevY = Math.max(1.3, savedPos.y);
+        const imagePaths = [];
+        for (let i = 0; i < 8; i++) {
+          const theta = (i / 8) * Math.PI * 2;
+          camera.position.set(
+            savedTarget.x + Math.cos(theta) * radius,
+            elevY,
+            savedTarget.z + Math.sin(theta) * radius,
+          );
+          camera.lookAt(savedTarget);
+          renderer.render(scene, camera);
+          const dataUrl = renderer.domElement.toDataURL('image/png');
+          const snap = await api.saveSetSnapshot({ dataUrl, label: `${setName}_v${i + 1}` });
+          if (snap && snap.ok && snap.path) imagePaths.push(snap.path);
+        }
+        camera.position.copy(savedPos);
+        controls.target.copy(savedTarget);
+        controls.update();
+        renderer.render(scene, camera);
+
+        if (status) status.textContent = `🧬 Encoding Location RefMod from ${imagePaths.length} views on ComfyUI…`;
+        const res = await api.buildLocationRefMod({ name: setName, imagePaths });
+        if (!res || !res.ok) {
+          if (status) status.textContent = `Location RefMod failed: ${(res && res.error) || 'unknown error'}`;
+          return;
+        }
+        const bgSel = $('ai-bg-refmod');
+        if (bgSel && res.refmodFile) {
+          const opt = document.createElement('option');
+          opt.value = res.refmodFile;
+          opt.textContent = `🏛️ ${res.modName} (Location RefMod)`;
+          bgSel.appendChild(opt);
+          bgSel.value = res.refmodFile;
+        }
+        if (status) status.textContent = `✅ Built Location RefMod "${res.refmodFile}" (${res.viewsUsed} views) and selected in Background / Set RefMod!`;
+        refreshCoverageAngles();
+      })();
+      return;
+    }
     if (e.target.closest('#ai-set3d-refresh-angles')) {
       refreshCoverageAngles();
       return;

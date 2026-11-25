@@ -51,11 +51,32 @@ test('modalRunner picks optimal Modal GPU and final-pass settings per shot compl
   assert.ok(cFast.estCostUsd < cBal.estCostUsd);
   assert.ok(cBal.estCostUsd < cUltra.estCostUsd);
 
-  // Tier endpoint derivation maps cleanly between fast / balanced / ultra
+  // Tier endpoint derivation maps cleanly between fast / balanced / ultra / web
   assert.equal(
     mr.deriveTierEndpoint('https://trankilena--zaude-comfy-comfy-web.us-east.modal.run', 'ultra'),
     'https://trankilena--zaude-comfy-comfy-ultra.us-east.modal.run',
   );
+  assert.equal(
+    mr.deriveTierEndpoint('https://trankilena--zaude-comfy-comfy-ultra.us-east.modal.run', 'fast'),
+    'https://trankilena--zaude-comfy-comfy-fast.us-east.modal.run',
+  );
+  assert.equal(
+    mr.deriveTierEndpoint('https://trankilena--zaude-comfy-comfy-fast.us-east.modal.run', 'balanced'),
+    'https://trankilena--zaude-comfy-comfy-balanced.us-east.modal.run',
+  );
+
+  // Verify Modal server config enables SageAttention, GPU Memory Snapshots, and single-thread Inductor
+  const pySrc = fs.readFileSync(mr.DEFAULT_MODAL_SCRIPT, 'utf8');
+  assert.match(pySrc, /--use-sage-attention/);
+  assert.match(pySrc, /enable_memory_snapshot=True/);
+  assert.match(pySrc, /enable_gpu_snapshot/);
+  assert.match(pySrc, /TORCHINDUCTOR_COMPILE_THREADS/);
+  assert.match(pySrc, /@app\.cls\(/);
+  assert.match(pySrc, /@modal\.enter\(snap=True\)/);
+  assert.match(pySrc, /comfy-fast/);
+  assert.match(pySrc, /comfy-balanced/);
+  assert.match(pySrc, /comfy-ultra/);
+  assert.match(pySrc, /comfy-web/);
 
   // Singularity RefMod graph wires SatoDive EasyContextSegments + RefModContinuumBridge
   const sg = mr.buildSingularityGraph({

@@ -25,13 +25,21 @@ function probeDuration(filePath, ffprobe = 'ffprobe') {
 }
 
 function detectLipSyncEngine(objectInfo = {}) {
-  const keys = Object.keys(objectInfo || {});
-  if (keys.includes('LatentSyncNode')) return { ok: true, engine: 'latentsync', nodeClass: 'LatentSyncNode' };
+  const info = objectInfo || {};
+  const keys = Object.keys(info);
+  const hasCropAndStitch = Boolean(info.InpaintCropImproved && info.InpaintStitchImproved);
+
+  // Prioritize LatentSync 1.6, then generic LatentSyncNode, then MuseTalk (including ComfyUI-MuseTalk-KJ)
+  const ls16 = keys.find((k) => /latentsync.*1[._]?6/i.test(k));
+  if (ls16) return { ok: true, engine: 'latentsync-1.6', nodeClass: ls16, hasCropAndStitch };
+  if (keys.includes('LatentSyncNode')) return { ok: true, engine: 'latentsync', nodeClass: 'LatentSyncNode', hasCropAndStitch };
   const lsAlt = keys.find((k) => /^latentsync/i.test(k));
-  if (lsAlt) return { ok: true, engine: 'latentsync', nodeClass: lsAlt };
+  if (lsAlt) return { ok: true, engine: 'latentsync', nodeClass: lsAlt, hasCropAndStitch };
+  const mtKj = keys.find((k) => /musetalk.*kj|kj.*musetalk/i.test(k));
+  if (mtKj) return { ok: true, engine: 'musetalk', nodeClass: mtKj, hasCropAndStitch };
   const mt = keys.find((k) => /musetalk/i.test(k));
-  if (mt) return { ok: true, engine: 'musetalk', nodeClass: mt };
-  return { ok: false, engine: null, nodeClass: null };
+  if (mt) return { ok: true, engine: 'musetalk', nodeClass: mt, hasCropAndStitch };
+  return { ok: false, engine: null, nodeClass: null, hasCropAndStitch };
 }
 
 function computeLoopRepeats(videoDur, audioDur) {
@@ -74,6 +82,21 @@ function prepareLoopedPlate({ videoPath, targetDurationSec, loopMode = 'ping-pon
   });
 }
 
+function normalizeSpeakerBbox(bbox, videoWidth = 1120, videoHeight = 640) {
+  if (!bbox || typeof bbox !== 'object') return null;
+  const rawX = Number(bbox.x);
+  const rawY = Number(bbox.y);
+  const rawW = Number(bbox.width);
+  const rawH = Number(bbox.height);
+  if (![rawX, rawY, rawW, rawH].every(Number.isFinite) || rawW <= 0 || rawH <= 0) return null;
+  const isNorm = rawW <= 1.0 && rawH <= 1.0 && rawX <= 1.0 && rawY <= 1.0;
+  const x = Math.max(0, Math.round(isNorm ? rawX * videoWidth : rawX));
+  const y = Math.max(0, Math.round(isNorm ? rawY * videoHeight : rawY));
+  const width = Math.max(32, Math.min(videoWidth - x, Math.round(isNorm ? rawW * videoWidth : rawW)));
+  const height = Math.max(32, Math.min(videoHeight - y, Math.round(isNorm ? rawH * videoHeight : rawH)));
+  return { x, y, width, height, videoWidth, videoHeight };
+}
+
 function buildLatentSyncGraph({
   videoName,
   audioName,
@@ -81,10 +104,16 @@ function buildLatentSyncGraph({
   lipsExp = 1.5,
   inferenceSteps = 20,
   nodeClass = 'LatentSyncNode',
-  fps = 24,
+  // LatentSync 1.6 is trained at 25 FPS; 24 FPS causes gradual A/V drift.
+  fps = 25,
   filenamePrefix = 'zaude_lipsync',
+  speakerBbox = null,
+  useCropAndStitch = false,
+  videoWidth = 1120,
+  videoHeight = 640,
 }) {
-  return {
+  const box = useCropAndStitch ? normalizeSpeakerBbox(speakerBbox, videoWidth, videoHeight) : null;
+  const graph = {
     '1': {
       class_type: 'VHS_LoadVideo',
       inputs: {
@@ -102,20 +131,68 @@ function buildLatentSyncGraph({
       class_type: 'LoadAudio',
       inputs: { audio: audioName },
     },
-    '3': {
+  };
+
+  if (box) {
+    // Selective single-face crop-and-stitch: only the active speaker's face is cropped to 512x512
+    // and lip-synced; the listener's mouth and background remain bit-exact untouched.
+    graph['10'] = {
+      class_type: 'SolidMask',
+      inputs: { value: 0.0, width: box.videoWidth, height: box.videoHeight },
+    };
+    graph['11'] = {
+      class_type: 'SolidMask',
+      inputs: { value: 1.0, width: box.width, height: box.height },
+    };
+    graph['12'] = {
+      class_type: 'MaskComposite',
+      inputs: { destination: ['10', 0], source: ['11', 0], x: box.x, y: box.y, operation: 'add' },
+    };
+    graph['13'] = {
+      class_type: 'InpaintCropImproved',
+      inputs: {
+        image: ['1', 0],
+        mask: ['12', 0],
+        downscale_algorithm: 'bilinear',
+        upscale_algorithm: 'bicubic',
+        preresize: false,
+        preresize_mode: 'ensure minimum resolution',
+        preresize_min_width: 512,
+        preresize_min_height: 512,
+        mask_fill_holes: true,
+        mask_expand_pixels: 24,
+        mask_invert: false,
+        mask_blend_pixels: 24,
+        mask_hipass_filter: 0.1,
+        extend_for_outpainting: false,
+        context_from_mask_extend_factor: 1.25,
+        output_resize_to_target_size: true,
+        output_target_width: 512,
+        output_target_height: 512,
+        output_padding: '32',
+      },
+    };
+    graph['3'] = {
       class_type: nodeClass,
       inputs: {
-        images: ['1', 0],
+        images: ['13', 1],
         audio: ['2', 0],
         seed: Number(seed) || 42,
         lips_expression: Number(lipsExp) || 1.5,
         inference_steps: Number(inferenceSteps) || 20,
       },
-    },
-    '4': {
+    };
+    graph['14'] = {
+      class_type: 'InpaintStitchImproved',
+      inputs: {
+        stitcher: ['13', 0],
+        inpainted_image: ['3', 0],
+      },
+    };
+    graph['4'] = {
       class_type: 'VHS_VideoCombine',
       inputs: {
-        images: ['3', 0],
+        images: ['14', 0],
         audio: ['3', 1],
         frame_rate: fps,
         loop_count: 0,
@@ -127,8 +204,37 @@ function buildLatentSyncGraph({
         pingpong: false,
         save_output: true,
       },
+    };
+    return graph;
+  }
+
+  graph['3'] = {
+    class_type: nodeClass,
+    inputs: {
+      images: ['1', 0],
+      audio: ['2', 0],
+      seed: Number(seed) || 42,
+      lips_expression: Number(lipsExp) || 1.5,
+      inference_steps: Number(inferenceSteps) || 20,
     },
   };
+  graph['4'] = {
+    class_type: 'VHS_VideoCombine',
+    inputs: {
+      images: ['3', 0],
+      audio: ['3', 1],
+      frame_rate: fps,
+      loop_count: 0,
+      filename_prefix: filenamePrefix,
+      format: 'video/h264-mp4',
+      pix_fmt: 'yuv420p',
+      crf: 18,
+      save_metadata: true,
+      pingpong: false,
+      save_output: true,
+    },
+  };
+  return graph;
 }
 
 async function uploadToComfy(baseUrl, filePath, subfolder = '') {
@@ -150,6 +256,8 @@ function runLipSyncJob({
   loopMode = 'ping-pong',
   roomPreset = 'none',
   roomIntensity = 1.0,
+  speakerBbox = null,
+  useCropAndStitch = true,
   outDir,
   previewDir,
   jobId = 'lipsync',
@@ -214,6 +322,9 @@ function runLipSyncJob({
       audioName,
       seed: Math.floor(Math.random() * 1000000),
       nodeClass: detected.nodeClass,
+      fps: 25,
+      speakerBbox,
+      useCropAndStitch: Boolean(useCropAndStitch && speakerBbox && detected.hasCropAndStitch),
       filenamePrefix: `zaude_ls_${Date.now()}`,
     });
 
@@ -268,10 +379,33 @@ function runLipSyncJob({
     const rawOut = path.join(outDir, `lipsync_${Date.now()}.mp4`);
     fs.writeFileSync(rawOut, Buffer.from(await dlRes.arrayBuffer()));
 
-    // 6. Optional Room Acoustics matching on output audio
+    // 6. Optional Room Acoustics matching on output audio (prefers real afir IR when present, falls back to aecho)
+    const irPath = roomAcoustics.resolveIrPath(roomPreset);
     const roomFx = roomAcoustics.buildRoomFilter(roomPreset, roomIntensity);
     let finalOut = rawOut;
-    if (roomFx) {
+    if (irPath && roomPreset && roomPreset !== 'none') {
+      const matchedOut = rawOut.replace(/\.mp4$/, `_${roomPreset}_ir.mp4`);
+      const fc = roomAcoustics.buildRoomFilterComplex({
+        presetId: roomPreset,
+        intensity: roomIntensity,
+        irPath,
+        inputLabel: '[0:a]',
+        irInputLabel: '[1:a]',
+        outputLabel: '[aout]',
+      });
+      await new Promise((resolve) => {
+        execFile('ffmpeg', [
+          '-hide_banner', '-y', '-i', rawOut, '-i', irPath,
+          '-filter_complex', fc,
+          '-map', '0:v', '-map', '[aout]',
+          '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest',
+          matchedOut,
+        ], { windowsHide: true }, (err) => {
+          if (!err && fs.existsSync(matchedOut)) finalOut = matchedOut;
+          resolve();
+        });
+      });
+    } else if (roomFx) {
       const matchedOut = rawOut.replace(/\.mp4$/, `_${roomPreset}.mp4`);
       await new Promise((resolve) => {
         execFile('ffmpeg', [

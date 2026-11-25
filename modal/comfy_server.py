@@ -49,48 +49,139 @@ comfy_image = (
         "pip install sageattention triton || true",
         "rm -rf /root/ComfyUI/models && mkdir -p /root/ComfyUI/models",
     )
+    .env({"TORCHINDUCTOR_COMPILE_THREADS": "1"})
 )
+
+
+def _warmup_comfy_snapshot():
+    """Runs inside @modal.enter(snap=True) so CUDA, PyTorch, and ComfyUI imports are frozen into the GPU memory snapshot."""
+    for sub in ("unet", "diffusion_models", "vae", "clip", "text_encoders", "loras", "upscale_models", "checkpoints", "refmods"):
+        os.makedirs(f"/root/ComfyUI/models/{sub}", exist_ok=True)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            _ = torch.zeros((1,), device="cuda")
+            torch.cuda.synchronize()
+    except Exception as exc:
+        print(f"[snapshot-warmup] non-fatal warmup note: {exc}")
 
 
 def _launch_comfy():
     for sub in ("unet", "diffusion_models", "vae", "clip", "text_encoders", "loras", "upscale_models", "checkpoints", "refmods"):
         os.makedirs(f"/root/ComfyUI/models/{sub}", exist_ok=True)
+    # Note: --use-sage-attention accelerates DiT attention on L40S/H100/H200.
+    # TeaCache / FirstBlockCache / EasyCache are intentionally NOT enabled on 4-6 step MiniMax-H3 Turbo workflows.
     subprocess.Popen(
-        ["python3", "/root/ComfyUI/main.py", "--listen", "0.0.0.0", "--port", "8188", "--preview-method", "auto"],
+        [
+            "python3",
+            "/root/ComfyUI/main.py",
+            "--listen", "0.0.0.0",
+            "--port", "8188",
+            "--preview-method", "auto",
+            "--use-sage-attention",
+        ],
         cwd="/root/ComfyUI",
     )
 
 
-# Tier 1: Fast & Cheap (L40S 48 GB, 60s idle scale-to-zero)
-@app.function(image=comfy_image, gpu="L40S", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+# Tier 1: Fast & Cheap (L40S 48 GB, 60s idle scale-to-zero, GPU Memory Snapshot enabled)
+@app.cls(
+    image=comfy_image,
+    gpu="L40S",
+    volumes={"/root/ComfyUI/models": models_vol},
+    scaledown_window=60,
+    timeout=1800,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
+)
 @modal.concurrent(max_inputs=8)
-@modal.web_server(8188, startup_timeout=180)
-def comfy_fast():
-    _launch_comfy()
+class ComfyFast:
+    @modal.enter(snap=True)
+    def warmup(self):
+        _warmup_comfy_snapshot()
+
+    @modal.enter(snap=False)
+    def start(self):
+        pass
+
+    @modal.web_server(8188, startup_timeout=180, label=f"{APP_NAME}-comfy-fast")
+    def serve(self):
+        _launch_comfy()
 
 
-# Tier 2: Balanced — RTX 3090 Baseline Quality at ~7x Speed (H100 80 GB, 60s idle scale-to-zero)
-@app.function(image=comfy_image, gpu="H100", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+# Tier 2: Balanced — RTX 3090 Baseline Quality at ~7x Speed (H100 80 GB, 60s idle scale-to-zero, GPU Memory Snapshot enabled)
+@app.cls(
+    image=comfy_image,
+    gpu="H100",
+    volumes={"/root/ComfyUI/models": models_vol},
+    scaledown_window=60,
+    timeout=1800,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
+)
 @modal.concurrent(max_inputs=8)
-@modal.web_server(8188, startup_timeout=180)
-def comfy_balanced():
-    _launch_comfy()
+class ComfyBalanced:
+    @modal.enter(snap=True)
+    def warmup(self):
+        _warmup_comfy_snapshot()
+
+    @modal.enter(snap=False)
+    def start(self):
+        pass
+
+    @modal.web_server(8188, startup_timeout=180, label=f"{APP_NAME}-comfy-balanced")
+    def serve(self):
+        _launch_comfy()
 
 
-# Tier 3: High Quality Ultra — Full Unquantized BF16 Singularity v2 + Qwen3VL BF16 + VAE FP16 (H200 141 GB, 60s idle scale-to-zero)
-@app.function(image=comfy_image, gpu="H200", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+# Tier 3: High Quality Ultra — Full Unquantized BF16 Singularity v2 + Qwen3VL BF16 + VAE FP16 (H200 141 GB, GPU Memory Snapshot enabled)
+@app.cls(
+    image=comfy_image,
+    gpu="H200",
+    volumes={"/root/ComfyUI/models": models_vol},
+    scaledown_window=60,
+    timeout=1800,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
+)
 @modal.concurrent(max_inputs=4)
-@modal.web_server(8188, startup_timeout=180)
-def comfy_ultra():
-    _launch_comfy()
+class ComfyUltra:
+    @modal.enter(snap=True)
+    def warmup(self):
+        _warmup_comfy_snapshot()
+
+    @modal.enter(snap=False)
+    def start(self):
+        pass
+
+    @modal.web_server(8188, startup_timeout=180, label=f"{APP_NAME}-comfy-ultra")
+    def serve(self):
+        _launch_comfy()
 
 
-# Backwards-compatible default alias (Balanced H100)
-@app.function(image=comfy_image, gpu="H100", volumes={"/root/ComfyUI/models": models_vol}, scaledown_window=60, timeout=1800)
+# Backwards-compatible default alias (Balanced H100, GPU Memory Snapshot enabled)
+@app.cls(
+    image=comfy_image,
+    gpu="H100",
+    volumes={"/root/ComfyUI/models": models_vol},
+    scaledown_window=60,
+    timeout=1800,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
+)
 @modal.concurrent(max_inputs=8)
-@modal.web_server(8188, startup_timeout=180)
-def comfy_web():
-    _launch_comfy()
+class ComfyWeb:
+    @modal.enter(snap=True)
+    def warmup(self):
+        _warmup_comfy_snapshot()
+
+    @modal.enter(snap=False)
+    def start(self):
+        pass
+
+    @modal.web_server(8188, startup_timeout=180, label=f"{APP_NAME}-comfy-web")
+    def serve(self):
+        _launch_comfy()
 
 
 def _download_list(downloads):

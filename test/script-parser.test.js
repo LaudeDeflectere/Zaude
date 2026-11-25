@@ -105,3 +105,54 @@ summary: Alice enters the lobby.
   assert.match(res.shots[0].prompt, /Alice/);
   assert.doesNotMatch(res.shots[0].prompt, /Bob/);
 });
+
+test('locationRefMod assigns to next free mod_K slot without colliding with characters and builds StepCurve graph', () => {
+  const refmodsLib = require('../electron/refmods.cjs');
+  const modalRunner = require('../electron/modal-runner.cjs');
+
+  // 1. Non-colliding slot assignment for 2 characters + 1 location RefMod -> mod_3
+  const assigned = sp.assignLocationRefModSlot(
+    [
+      { file: 'elias_cbphoto_v1_visual', name: 'Elias', identityStrength: 1.0, voiceStrength: 1.0 },
+      { file: 'nadia_cbphoto_v1_visual', name: 'Nadia', identityStrength: 1.0, voiceStrength: 1.0 },
+    ],
+    'locations/billiard_bar_location',
+  );
+  assert.equal(assigned.locationSlotIndex, 3);
+  assert.equal(assigned.modKey, 'mod_3');
+  assert.equal(assigned.slots.length, 3);
+  assert.equal(assigned.slots[2].file, 'locations/billiard_bar_location');
+  assert.equal(assigned.slots[2].voiceStrength, 0.0);
+
+  // 2. Zero-training Location RefMod extraction graph wires 8 views -> MiniMaxH3RefModMasterExtract (concept_type=background)
+  const builtLoc = refmodsLib.buildLocationRefModGraph({
+    name: 'Billiard Bar',
+    imageNames: ['v1.png', 'v2.png', 'v3.png', 'v4.png', 'v5.png', 'v6.png', 'v7.png', 'v8.png'],
+  });
+  assert.equal(builtLoc.modName, 'billiard_bar_location');
+  assert.equal(builtLoc.graph['50'].class_type, 'MiniMaxH3RefModMasterExtract');
+  assert.equal(builtLoc.graph['50'].inputs.concept_type, 'background');
+  assert.equal(builtLoc.graph['50'].inputs.merge, true);
+  assert.deepEqual(builtLoc.graph['50'].inputs.ref_image_8, ['17', 0]);
+
+  // 3. Singularity graph attaches locationRefMod to mod_3 (voice=0) and wires MiniMaxH3RefModStepCurve (concept_at_start)
+  const sg = modalRunner.buildSingularityGraph({
+    prompt: 'Elias and Nadia talk at the bar.',
+    model: 'Minimax-h3_Singularity_ref2va_v2_pruned_int8.safetensors',
+    clip: 'qwen3vl_32b_minimax_h3_int8_convrot.safetensors',
+    videoVae: 'minimax_h3_video_vae_int8_convrot.safetensors',
+    refmods: [
+      { file: 'elias_cbphoto_v1_visual', name: 'Elias' },
+      { file: 'nadia_cbphoto_v1_visual', name: 'Nadia' },
+    ],
+    locationRefMod: 'locations/billiard_bar_location',
+    useStepCurve: true,
+  });
+  assert.equal(sg['10'].inputs.mod_1, 'elias_cbphoto_v1_visual');
+  assert.equal(sg['10'].inputs.mod_2, 'nadia_cbphoto_v1_visual');
+  assert.equal(sg['10'].inputs.mod_3, 'locations/billiard_bar_location');
+  assert.equal(sg['10'].inputs.audio_strength_3, 0.0);
+  assert.equal(sg['11b'].class_type, 'MiniMaxH3RefModStepCurve');
+  assert.equal(sg['11b'].inputs.curve_direction, 'concept_at_start');
+  assert.deepEqual(sg['12'].inputs.ref2va_model, ['11b', 0]);
+});

@@ -6,12 +6,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
+const DEFAULT_IR_DIR = path.join(__dirname, '..', 'assets', 'irs');
+
 const ROOM_PRESETS = {
   none: {
     id: 'none',
     label: 'None (Original Audio)',
     icon: '—',
     description: 'Leave clip audio completely untouched.',
+    irFile: '',
+    wetGain: 0,
     toneDb: -40,
   },
   'dim-bar': {
@@ -19,6 +23,8 @@ const ROOM_PRESETS = {
     label: 'Dim Wooden Bar / Billiard Hall',
     icon: '🍺',
     description: 'Warm close-mic wood room body, rolls off outdoor hiss, tight 18ms/37ms wooden early reflections.',
+    irFile: 'assets/irs/dim-bar.wav',
+    wetGain: 0.34,
     eq: 'highpass=f=85,equalizer=f=210:t=q:w=1.2:g=2.5,equalizer=f=3400:t=q:w=1.4:g=-1.5,lowpass=f=9500',
     delaysMs: [18, 37],
     decays: [0.22, 0.11],
@@ -30,6 +36,8 @@ const ROOM_PRESETS = {
     label: 'Small Office / Back-Bar Nook',
     icon: '🖨️',
     description: 'Tight enclosed office nook reflections (11ms/23ms), subtle desk proximity warmth, tames harsh clatter.',
+    irFile: 'assets/irs/small-office.wav',
+    wetGain: 0.28,
     eq: 'highpass=f=90,equalizer=f=240:t=q:w=1.1:g=2.0,equalizer=f=5200:t=q:w=1.5:g=-2.0,lowpass=f=9000',
     delaysMs: [11, 23],
     decays: [0.24, 0.12],
@@ -41,6 +49,8 @@ const ROOM_PRESETS = {
     label: 'Outdoor Street / Afternoon Air',
     icon: '🌳',
     description: 'Clean wind low-cut, crisp open-air top end, zero indoor reflection tail.',
+    irFile: 'assets/irs/outdoor-street.wav',
+    wetGain: 0.16,
     eq: 'highpass=f=115,equalizer=f=6500:t=q:w=1.2:g=1.5',
     delaysMs: [],
     decays: [],
@@ -52,6 +62,8 @@ const ROOM_PRESETS = {
     label: 'Tiled Hallway / Corridor',
     icon: '🚪',
     description: 'Reflective hard-surface corridor reflections (35ms/78ms/125ms) with crisp midrange.',
+    irFile: 'assets/irs/hallway.wav',
+    wetGain: 0.42,
     eq: 'highpass=f=95,equalizer=f=1200:t=q:w=1.3:g=1.8,lowpass=f=11000',
     delaysMs: [35, 78, 125],
     decays: [0.26, 0.15, 0.08],
@@ -63,6 +75,8 @@ const ROOM_PRESETS = {
     label: 'Studio / Podcast Booth',
     icon: '🎙️',
     description: 'Tight broadcast vocal warmth, de-boomed lows, clean presence, zero room echo.',
+    irFile: 'assets/irs/podcast-booth.wav',
+    wetGain: 0.15,
     eq: 'highpass=f=80,equalizer=f=170:t=q:w=1.1:g=2.2,equalizer=f=3200:t=q:w=1.2:g=1.6,acompressor=threshold=-18dB:ratio=2.5:attack=10:release=120',
     delaysMs: [],
     decays: [],
@@ -71,13 +85,51 @@ const ROOM_PRESETS = {
   },
 };
 
-function listRoomPresets() {
+function resolveIrPath(presetId = 'none', irDir = DEFAULT_IR_DIR) {
+  const preset = ROOM_PRESETS[String(presetId || 'none')];
+  if (!preset || !preset.irFile) return null;
+  const candidate = path.join(irDir, path.basename(preset.irFile));
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function listRoomPresets(irDir = DEFAULT_IR_DIR) {
   return Object.values(ROOM_PRESETS).map((p) => ({
     id: p.id,
     label: p.label,
     icon: p.icon,
     description: p.description,
+    irFile: p.irFile || '',
+    hasIr: Boolean(resolveIrPath(p.id, irDir)),
   }));
+}
+
+// Builds a real FFmpeg `afir` convolution reverb filter_complex fragment (resamples both to 48kHz,
+// pads dry with 2s tail, convolves with irnorm=1:irgain=0.8, EQs wet path, blends with normalize=0).
+function buildRoomFilterComplex({
+  presetId = 'dim-bar',
+  intensity = 1.0,
+  irPath = '',
+  inputLabel = '[0:a]',
+  irInputLabel = '[1:a]',
+  outputLabel = '[aout]',
+  tag = 'rm',
+} = {}) {
+  const preset = ROOM_PRESETS[String(presetId || 'none')];
+  if (!preset || preset.id === 'none' || !irPath) return '';
+  const mix = Math.max(0, Math.min(1, Number.isFinite(Number(intensity)) ? Number(intensity) : 1.0));
+  if (mix <= 0.01) return '';
+  const wetGain = Math.max(0.05, Math.min(1.0, Number(((preset.wetGain || 0.3) * mix).toFixed(3))));
+  const eqPrefix = preset.eq ? `${preset.eq},` : '';
+  const dryLbl = `[${tag}_dry]`;
+  const toIrLbl = `[${tag}_toir]`;
+  const irLbl = `[${tag}_ir]`;
+  const wetLbl = `[${tag}_wet]`;
+  return [
+    `${inputLabel}${eqPrefix}aresample=48000,apad=pad_dur=2,asplit=2${dryLbl}${toIrLbl}`,
+    `${irInputLabel}aresample=48000${irLbl}`,
+    `${toIrLbl}${irLbl}afir=dry=0:wet=1:irnorm=1:irgain=0.8,highpass=f=120,lowpass=f=8000,volume=${wetGain}${wetLbl}`,
+    `${dryLbl}${wetLbl}amix=inputs=2:duration=longest:normalize=0${outputLabel}`,
+  ].join(';');
 }
 
 function buildRoomFilter(presetId = 'none', intensity = 1.0) {
@@ -138,8 +190,11 @@ function generateRoomToneBed({ presetId = 'dim-bar', durationSec = 30, outPath, 
 }
 
 module.exports = {
+  DEFAULT_IR_DIR,
   ROOM_PRESETS,
+  resolveIrPath,
   listRoomPresets,
   buildRoomFilter,
+  buildRoomFilterComplex,
   generateRoomToneBed,
 };

@@ -367,6 +367,8 @@ function buildSingularityGraph({
   audioVae = 'minimax_h3_audio_vae_fp32.safetensors',
   lora = '',
   refmods = [],
+  locationRefMod = '',
+  useStepCurve = false,
   width = 1120,
   height = 640,
   aspect = '16:9',
@@ -377,6 +379,16 @@ function buildSingularityGraph({
   prefix = 'Zaude/modal_h3',
 }) {
   const validMods = (refmods || []).filter((r) => r && r.file).slice(0, 8);
+  const cleanLoc = String(locationRefMod || '').trim();
+  if (cleanLoc && validMods.length < 8 && !validMods.some((r) => r.file === cleanLoc)) {
+    validMods.push({
+      file: cleanLoc,
+      name: 'Location Set',
+      identityStrength: 1.0,
+      voiceStrength: 0.0,
+      isLocation: true,
+    });
+  }
   const fullPromptLines = [];
   if (validMods.length && !/subject_definitions:/i.test(String(prompt || ''))) {
     fullPromptLines.push('subject_definitions:');
@@ -419,6 +431,21 @@ function buildSingularityGraph({
       },
     };
     modelRef = ['11', 0];
+    if (cleanLoc && useStepCurve) {
+      // Stronger early high-sigma steps lock room architecture; tapered late steps allow natural character lighting.
+      graph['11b'] = {
+        class_type: 'MiniMaxH3RefModStepCurve',
+        inputs: {
+          model: modelRef,
+          override: false,
+          curve_direction: 'concept_at_start',
+          curve_shape: 'ease',
+          curve_value: 0.9,
+          mods: ['10', 0],
+        },
+      };
+      modelRef = ['11b', 0];
+    }
   }
 
   graph['12'] = {
