@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('zaudeAI', {
   refmodsAdd: (input) => ipcRenderer.invoke('ai:refmods:add', input),
   refmodsSetCategory: (input) => ipcRenderer.invoke('ai:refmods:setCategory', input),
   refmodsSetFolder: (input) => ipcRenderer.invoke('ai:refmods:setFolder', input),
+  showcaseLoad: () => ipcRenderer.invoke('ai:showcase:load'),
+  showcaseRender: (input) => ipcRenderer.invoke('ai:showcase:render', input),
   refmodsDelete: (input) => ipcRenderer.invoke('ai:refmods:delete', input),
   refmodsPickFiles: (kind) => ipcRenderer.invoke('ai:refmods:pickFiles', kind),
   refmodsBuild: (input) => ipcRenderer.invoke('ai:refmods:build', input),

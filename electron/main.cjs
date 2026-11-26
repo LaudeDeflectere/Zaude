@@ -33,6 +33,7 @@ const roomAcoustics = require('./room-acoustics.cjs');
 const lipsync = require('./lipsync.cjs');
 const videoAnalyzer = require('./video-analyzer.cjs');
 const videoOutpaint = require('./video-outpaint.cjs');
+const qualityShowcase = require('./quality-showcase.cjs');
 const audioTts = require('./audio-tts.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
@@ -689,6 +690,63 @@ function registerAiHandlers() {
 
   ipcMain.handle('ai:refmods:delete', (_e, { slug } = {}) => {
     return refmodsLib.deleteRefMod(refmodsRoot(), { slug });
+  });
+
+  ipcMain.handle('ai:showcase:load', () => {
+    return qualityShowcase.loadShowcaseManifest(ROOT, mediaUrlFor);
+  });
+
+  ipcMain.handle('ai:showcase:render', async (_e, { itemId, refmodFile } = {}) => {
+    const manifest = qualityShowcase.loadShowcaseManifest(ROOT, mediaUrlFor);
+    let targetItem = null;
+    for (const g of manifest.groups) {
+      const hit = g.items.find((i) => i.id === itemId);
+      if (hit) { targetItem = hit; break; }
+    }
+    if (!targetItem) return { ok: false, error: `Unknown benchmark item: ${itemId}` };
+    const mods = refmodsLib.listRefMods(refmodsRoot());
+    const chosenRefmod = refmodFile || (mods.find((m) => /karlsten/i.test(m.file)) || mods[0] || {}).file || 'karlsten_malco';
+    const manniDir = mannimmate.detectMannimmateDir(ROOT);
+    const outDir = qualityShowcase.benchmarksDir(ROOT);
+    fs.mkdirSync(outDir, { recursive: true });
+    const t0 = Date.now();
+    try {
+      const cmd = mannimmate.buildCommand(manniDir, {
+        mode: 'refmod',
+        refmodMode: 'generate',
+        refmod: chosenRefmod,
+        prompt: qualityShowcase.MASTER_BENCHMARK_PROMPT,
+        resolution: String(targetItem.resolution || '480'),
+        fps: Number(targetItem.fps || 24),
+        steps: Number(targetItem.steps || 6),
+        seconds: Number(targetItem.seconds || 5),
+        identityStrength: Number(targetItem.identityStrength ?? 1.0),
+        voiceStrength: Number(targetItem.voiceStrength ?? 1.0),
+        seed: 424242,
+        outDir,
+      });
+      const res = await new Promise((resolve) => {
+        const { spawn } = require('node:child_process');
+        const child = spawn(cmd.exe, cmd.args, { cwd: cmd.cwd, env: { ...process.env, PYTHONUNBUFFERED: '1' } });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d.toString(); });
+        child.stderr.on('data', (d) => { out += d.toString(); });
+        child.on('close', (code) => resolve({ code, out }));
+        child.on('error', (err) => resolve({ code: 1, out: err.message }));
+      });
+      if (res.code !== 0) return { ok: false, error: res.out.slice(-400) };
+      const match = res.out.match(/([/\w.\- ]+\.mp4)/g);
+      const renderedPath = match ? match[match.length - 1].trim() : null;
+      const destPath = path.join(outDir, `${itemId}.mp4`);
+      if (renderedPath && fs.existsSync(renderedPath)) {
+        fs.copyFileSync(renderedPath, destPath);
+      }
+      const renderSec = Math.round((Date.now() - t0) / 100) / 10;
+      qualityShowcase.saveBenchmarkRecord(ROOT, itemId, { file: `${itemId}.mp4`, renderSec, refmod: chosenRefmod });
+      return { ok: true, renderSec, manifest: qualityShowcase.loadShowcaseManifest(ROOT, mediaUrlFor) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   ipcMain.handle('ai:refmods:pickFiles', async (event, kind = 'images') => {

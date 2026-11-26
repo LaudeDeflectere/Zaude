@@ -520,7 +520,7 @@
           <input name="end" type="number" min="0.5" step="0.1" value="7">
         </label>
 
-        <label class="ai-sm" data-modes="text-render,refmod,auto">Resolution
+        <label class="ai-sm" data-modes="text-render,refmod,auto" data-param-hover="resolution">Resolution <button type="button" class="ai-info-dot" data-open-showcase="resolution" title="Compare Resolutions (video preview)">📊</button>
           <select name="resolution">
             <option value="320">320p</option>
             <option value="480">480p</option>
@@ -551,7 +551,7 @@
           </select>
         </label>
 
-        <label class="ai-sm" data-modes="refmod">FPS
+        <label class="ai-sm" data-modes="refmod" data-param-hover="fps">FPS <button type="button" class="ai-info-dot" data-open-showcase="fps" title="Compare 24 / 12 / 6 FPS">📊</button>
           <select name="fps">
             <option value="24" selected>24 fps</option>
             <option value="12">12 fps</option>
@@ -559,12 +559,12 @@
           </select>
         </label>
 
-        <label class="ai-num" data-modes="refmod">Identity
-          <input name="identityStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Identity strength (0–1)">
+        <label class="ai-num" data-modes="refmod" data-param-hover="identity">Identity <button type="button" class="ai-info-dot" data-open-showcase="identity" title="Compare Identity 0.7 / 1.0 / 1.3">📊</button>
+          <input name="identityStrength" type="number" min="0" max="1.5" step="0.1" value="1.0" title="Identity strength (0–1.5)">
         </label>
 
-        <label class="ai-num" data-modes="refmod">Voice
-          <input name="voiceStrength" type="number" min="0" max="1" step="0.1" value="1.0" title="Voice strength (0–1)">
+        <label class="ai-num" data-modes="refmod" data-param-hover="voice">Voice <button type="button" class="ai-info-dot" data-open-showcase="voice" title="Compare Voice 0.5 / 1.0">📊</button>
+          <input name="voiceStrength" type="number" min="0" max="1.5" step="0.1" value="1.0" title="Voice strength (0–1.5)">
         </label>
 
         <label class="ai-md" data-modes="auto">Background
@@ -585,13 +585,13 @@
         </label>
       </div>
 
-      <label class="ai-model-col">Model (auto-routed)
+      <label class="ai-model-col">Model (auto-routed) <button type="button" class="ai-info-dot" data-open-showcase="models" title="Open Model &amp; Settings Quality Showcase">📊 Guide</button>
         <select name="model" id="ai-model-select">
           <option value="">Auto (Mannimmate default)</option>
         </select>
       </label>
 
-      <label class="ai-model-col">LoRA
+      <label class="ai-model-col">LoRA <button type="button" class="ai-info-dot" data-open-showcase="loras" title="Compare LoRAs">📊</button>
         <select name="lora" id="ai-lora-select">
           <option value="">Auto / None</option>
         </select>
@@ -923,6 +923,7 @@
 <script type="module" src="src/ai-ui.js"></script>
 <script type="module" src="src/prompt-advancer-ui.js"></script>
 <script type="module" src="src/set3d-ui.js"></script>
+<script src="src/quality-showcase-ui.js"></script>
 <script type="module" src="src/recast-ui.js"></script>
 <script type="module" src="src/advisor-ui.js"></script>
 <script type="module" src="src/update-ui.js"></script>
