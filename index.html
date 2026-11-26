@@ -84,7 +84,6 @@
       <button type="button" class="on" data-ai-mode="text-render">Text → Video</button>
       <button type="button" data-ai-mode="refmod">RefMod → Video</button>
       <button type="button" data-ai-mode="auto">🎨 Stylize &amp; Objects</button>
-      <button type="button" data-ai-mode="coverage">Coverage (8 views)</button>
       <button type="button" data-ai-mode="set3d">🏛️ 3D Set &amp; Angles</button>
       <button type="button" data-ai-mode="script">📜 Multi-Shot (.md/.txt)</button>
     </div>
@@ -103,10 +102,18 @@
 
       <div class="t2v-wide ai-set3d-panel" data-modes="set3d" id="ai-set3d-panel" hidden>
         <div class="ai-prompt-head">
-          <span>🏛️ 3D Set Camera Snapper <span class="muted">(Orbit any .glb room → 📸 Snap exact angle to BG Picture / First Frame)</span></span>
+          <span>🏛️ 3D Set Builder &amp; Camera Snapper <span class="muted">(Double-click viewport for Minecraft WASD Fly Mode · Click object to move XYZ)</span></span>
           <span class="ai-prompt-helpers">
-            <label class="ai-set3d-upload-btn" title="Load a .glb or .gltf 3D room model">📂 Load .glb / .gltf<input type="file" id="ai-set3d-file" accept=".glb,.gltf" hidden></label>
-            <button type="button" id="ai-set3d-reset-starter" title="Load built-in Billiard Bar &amp; Printer Nook 3D blockout">🍺 Starter Bar</button>
+            <select id="ai-set3d-preset" title="Story / Location 3D Set Library">
+              <option value="bar" selected>🍺 Billiard Bar</option>
+              <option value="classroom">🏫 Classroom</option>
+              <option value="apartment">🏠 Apartment Room</option>
+              <option value="empty">⬜ Blank Room Bounds</option>
+            </select>
+            <label class="ai-set3d-upload-btn" title="Load a .glb or .gltf 3D room model">📂 Load .glb<input type="file" id="ai-set3d-file" accept=".glb,.gltf" hidden></label>
+            <button type="button" id="ai-set3d-add-char" title="Add a directional colored Character Stand-In box with Front Face + Standing/Sitting toggle">🧍 + Character</button>
+            <button type="button" id="ai-set3d-add-prop" title="Add a movable 3D prop/furniture box">📦 + Prop</button>
+            <button type="button" id="ai-set3d-add-light" title="Add a warm point light to the set">💡 + Light</button>
             <select id="ai-set3d-focal" title="35mm lens focal length">
               <option value="28">28mm Wide</option>
               <option value="35" selected>35mm Cinema</option>
@@ -118,14 +125,31 @@
               <option value="9:16">9:16</option>
             </select>
             <button type="button" id="ai-set3d-save-cam">+ Save Cam</button>
-            <button type="button" class="primary" id="ai-set3d-snap-bg">📸 Snap → BG Picture</button>
-            <button type="button" class="ai-btn-purple" id="ai-set3d-snap-first">📸 Snap → First Frame</button>
-            <button type="button" class="ai-btn-purple" id="ai-set3d-build-locref" title="Capture 8 orbit views from this 3D set and encode a zero-training Location RefMod (.safetensors)">🧬 Build Location RefMod (8 Views)</button>
+            <button type="button" id="ai-set3d-fly-btn" title="Enter Minecraft WASD Fly Mode (or double-click the 3D viewport)">🎮 Fly Mode</button>
+            <button type="button" class="primary" id="ai-set3d-snap-bg">📸 Snap → BG</button>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-snap-first">📸 Snap → 1st Frame</button>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-build-locref" title="Capture 8 orbit views from this 3D set and encode a zero-training Location RefMod (.safetensors)">🧬 Location RefMod (8v)</button>
           </span>
         </div>
         <div class="ai-set3d-cams" id="ai-set3d-cams"></div>
-        <div class="ai-set3d-canvas-wrap" id="ai-set3d-canvas-wrap"></div>
-        <div class="muted" id="ai-set3d-status" style="font-size:11px">Left-drag to orbit · Right-drag to pan · Scroll to dolly. Click a camera bookmark or load any .glb 3D room.</div>
+        <div class="set3d-sel-bar" id="ai-set3d-sel-bar" hidden>
+          <strong id="ai-set3d-sel-name">Selected</strong>
+          <label>X <input type="number" id="ai-set3d-pos-x" step="0.2" style="width:58px"></label>
+          <label>Y <input type="number" id="ai-set3d-pos-y" step="0.2" style="width:58px"></label>
+          <label>Z <input type="number" id="ai-set3d-pos-z" step="0.2" style="width:58px"></label>
+          <label>Rot° <input type="number" id="ai-set3d-rot-y" step="15" style="width:58px"></label>
+          <button type="button" id="ai-set3d-pose-toggle" hidden>🧍 Standing</button>
+          <button type="button" id="ai-set3d-del-obj" class="danger-mini">🗑️ Delete</button>
+        </div>
+        <div class="ai-set3d-canvas-wrap" id="ai-set3d-canvas-wrap" style="position:relative"></div>
+        <div class="muted" id="ai-set3d-status" style="font-size:11px">Left-drag orbit · Right-drag pan · Scroll dolly · Double-click viewport for Minecraft WASD Fly Mode (Esc to exit).</div>
+        <details class="set3d-cov-drawer" style="margin-top:6px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.22);border-radius:8px;padding:6px 10px">
+          <summary style="cursor:pointer;font-size:11.5px;font-weight:600;color:#ddd6fe">📷 8-View Coverage from a Single Photo (Merged Coverage Tool)</summary>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <span class="muted" style="font-size:11px;flex:1">Need 8 camera angles from a single reference photo instead of a 3D model? Pick a scene image and run Coverage.</span>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-run-coverage">📷 Generate 8 Coverage Views from Photo…</button>
+          </div>
+        </details>
         <div class="ai-prompt-head" style="margin-top:6px">
           <span>Saved 3D Snapshots &amp; Coverage Angles <span class="muted">(click any thumbnail to lock as BG Picture)</span></span>
           <button type="button" id="ai-set3d-refresh-angles">↻ Refresh</button>
