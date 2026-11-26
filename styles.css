@@ -2487,3 +2487,14 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 .qs-note { font-size: 11.5px; color: #9aa4b8; line-height: 1.35; flex: 1; }
 .qs-render-btn { margin-top: 6px; font-size: 11.5px; padding: 6px 10px; }
 .qs-status { font-size: 11.5px; min-height: 16px; }
+
+/* ---------- Phase 5: Stylize Embedded Scrubbing Preview + Frame Dials + Mode Guide ---------- */
+.stylize-scrub-stage { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; background: #111319; border: 1px solid #2b2e3b; border-radius: 8px; padding: 8px; }
+.stylize-scrub-stage[hidden] { display: none; }
+.stylize-scrub-stage video { width: 100%; max-height: 180px; border-radius: 6px; background: #000; object-fit: contain; }
+.stylize-dials { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 11px; color: #cbd5e1; }
+.stylize-dials label { display: flex; flex-direction: column; gap: 3px; }
+.stylize-dials span { color: #93c5fd; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stylize-guide-card { margin-top: 8px; background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.28); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+.stylize-guide-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12px; color: #dbeafe; }
+.stylize-guide-body { font-size: 11.5px; color: #cbd5e1; line-height: 1.4; }

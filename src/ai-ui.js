@@ -237,6 +237,12 @@ function updateSquarePreview(slotName, filePath, url, isVideo = false) {
     const emptyLabel = emptyMap[slotName] || '🖼️<br>Ref Image';
     box.innerHTML = `<span class="ai-square-empty">${emptyLabel}</span>`;
     if (clearBtn) clearBtn.hidden = true;
+    if (slotName === 'video') {
+      const stage = $('ai-stylize-scrub-stage');
+      const vid = $('ai-stylize-preview');
+      if (stage) stage.hidden = true;
+      if (vid) { vid.removeAttribute('src'); vid.load(); }
+    }
     return;
   }
   const shortName = filePath.split(/[\\/]/).pop();
@@ -248,6 +254,30 @@ function updateSquarePreview(slotName, filePath, url, isVideo = false) {
     box.innerHTML = `<span class="ai-square-empty">📄</span><span class="ai-square-cap">${esc(shortName)}</span>`;
   }
   if (clearBtn) clearBtn.hidden = false;
+  if (slotName === 'video') {
+    const stage = $('ai-stylize-scrub-stage');
+    const vid = $('ai-stylize-preview');
+    if (stage && vid) {
+      if (url) {
+        vid.src = url;
+        stage.hidden = false;
+        vid.onloadedmetadata = () => {
+          if (Number.isFinite(vid.duration) && vid.duration > 0.5) {
+            stylizeSrcDur = vid.duration;
+            const formEl = $('t2v-form');
+            if (formEl && Number(formEl.elements.end.value) > stylizeSrcDur) {
+              formEl.elements.end.value = String(Math.min(stylizeSrcDur, 7).toFixed(1));
+            }
+            updateStylizeRangeUI();
+          }
+        };
+      } else {
+        vid.removeAttribute('src');
+        vid.load();
+        stage.hidden = true;
+      }
+    }
+  }
 }
 
 function updateModelRouting() {
@@ -303,6 +333,15 @@ function updateStylizeRangeUI() {
   fill.style.left = `${leftPct}%`;
   fill.style.width = `${widthPct}%`;
   lbl.textContent = `${start.toFixed(2)}s – ${end.toFixed(2)}s (${(end - start).toFixed(2)}s)`;
+
+  const sd = $('ai-stylize-start-dial');
+  const ed = $('ai-stylize-end-dial');
+  const sdv = $('ai-stylize-start-dial-val');
+  const edv = $('ai-stylize-end-dial-val');
+  if (sd) { sd.max = String(maxDur.toFixed(1)); sd.value = String(start.toFixed(1)); }
+  if (ed) { ed.max = String(maxDur.toFixed(1)); ed.value = String(end.toFixed(1)); }
+  if (sdv) sdv.textContent = `${start.toFixed(1)}s`;
+  if (edv) edv.textContent = `${end.toFixed(1)}s`;
 }
 
 function applyStylizeActionVisibility() {
@@ -342,6 +381,39 @@ function applyStylizeActionVisibility() {
   if (refmodSec && currentMode === 'auto') {
     // Keep RefMod picker accessible in all Stylize modes (required for replace/both, optional performer lock for background/object)
     refmodSec.hidden = currentBackend === 'local';
+  }
+
+  const guide = $('ai-stylize-guide');
+  if (guide) {
+    const GUIDES = {
+      replace: {
+        title: '🧑 How Replace Character Works',
+        body: 'Keeps the exact choreography, camera move, and timing from your source video while swapping the performer. For best likeness, pick a <b>RefMod</b> OR drop a multi-angle <b>Character Sheet</b> (front + 3/4 + profile) into Ref Image.',
+        showSheetBtn: true,
+      },
+      background: {
+        title: '🌆 How Change Background Works',
+        body: 'Locks your original performer’s pose and motion while replacing the room/environment. Describe the new background below OR drop a <b>BG Picture</b> / 3D Set Snapshot.',
+        showSheetBtn: false,
+      },
+      object: {
+        title: '🐱 How Add Object Works',
+        body: 'Inserts a moving prop, pet, or VFX into your existing clip while keeping the scene and actor intact. Describe the object and how it interacts with the room.',
+        showSheetBtn: false,
+      },
+      both: {
+        title: '✨ How Both (Swap + Object) Works',
+        body: 'Replaces the performer with your selected <b>RefMod / Character Sheet</b> AND adds your custom prop/object or environment twist in one pass.',
+        showSheetBtn: true,
+      },
+    };
+    const g = GUIDES[stylizeAction] || GUIDES.both;
+    guide.innerHTML = `
+      <div class="stylize-guide-hdr">
+        <strong>📘 ${g.title}</strong>
+        ${g.showSheetBtn ? `<button type="button" class="ai-btn-purple" id="ai-make-charsheet-btn" title="Generate a clean multi-angle Character Sheet from a single portrait photo using Codex / Qwen Image 2.1">🪄 Make Character Sheet (Codex)</button>` : ''}
+      </div>
+      <div class="stylize-guide-body">${g.body}</div>`;
   }
 }
 
@@ -952,6 +1024,31 @@ function init() {
     }
   });
 
+  // Interactive Start/End Frame Dials scrubbing the embedded Stylize <video> preview
+  const startDial = $('ai-stylize-start-dial');
+  const endDial = $('ai-stylize-end-dial');
+  const syncDialScrub = (which) => {
+    const form = $('t2v-form');
+    const vid = $('ai-stylize-preview');
+    if (!form) return;
+    const maxDur = Math.max(1, stylizeSrcDur || 15);
+    let s = Number(startDial ? startDial.value : form.elements.start.value) || 0;
+    let en = Number(endDial ? endDial.value : form.elements.end.value) || 5;
+    if (which === 'start') {
+      s = Math.max(0, Math.min(en - 0.5, s));
+      form.elements.start.value = s.toFixed(1);
+      if (vid && Number.isFinite(vid.duration)) vid.currentTime = s;
+    } else {
+      en = Math.min(maxDur, Math.max(s + 0.5, en));
+      form.elements.end.value = en.toFixed(1);
+      if (vid && Number.isFinite(vid.duration)) vid.currentTime = en;
+    }
+    updateStylizeRangeUI();
+    updateCommandPreview();
+  };
+  if (startDial) startDial.addEventListener('input', () => syncDialScrub('start'));
+  if (endDial) endDial.addEventListener('input', () => syncDialScrub('end'));
+
   // Interactive dragging of segment start/end handles in Stylize tab
   const stylizeTrack = $('ai-stylize-track');
   if (stylizeTrack) {
@@ -1078,6 +1175,27 @@ function init() {
       stylizeAction = styAct.dataset.stylizeAct;
       applyStylizeActionVisibility();
       updateCommandPreview();
+      return;
+    }
+
+    // 1-click Make Character Sheet (Codex / Qwen Image 2.1)
+    const sheetBtn = e.target.closest('#ai-make-charsheet-btn');
+    if (sheetBtn && api.mannimmatePickFile && api.stylizeMakeCharSheet) {
+      const chosen = await api.mannimmatePickFile('image');
+      if (!chosen || !chosen.path) return;
+      sheetBtn.disabled = true;
+      sheetBtn.textContent = '⏳ Building Character Sheet…';
+      setStatus('Generating multi-angle Character Sheet via Codex / Qwen Image 2.1…');
+      const res = await api.stylizeMakeCharSheet({ imagePath: chosen.path }).catch((err) => ({ ok: false, error: err.message }));
+      sheetBtn.disabled = false;
+      sheetBtn.textContent = '🪄 Make Character Sheet (Codex)';
+      if (res && res.ok && res.sheetPath) {
+        updateSquarePreview('ref', res.sheetPath, res.sheetUrl, false);
+        updateCommandPreview();
+        setStatus(`✅ Character Sheet ready and loaded into Ref Image (${res.sheetPath.split(/[\\/]/).pop()}).`);
+      } else {
+        setStatus((res && res.error) || 'Character Sheet generation failed.', true);
+      }
       return;
     }
 

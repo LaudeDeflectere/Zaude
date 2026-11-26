@@ -216,7 +216,18 @@
               <span class="stylize-handle right" data-seg-drag="end" title="Drag to adjust end"></span>
             </div>
           </div>
-          <div class="stylize-range-meta muted" id="ai-stylize-meta">Click "🎯 Pick from Timeline" or browse a video below.</div>
+          <div class="stylize-range-meta muted" id="ai-stylize-meta">Click "🎯 Pick from Timeline" or drop/browse a video below.</div>
+          <div class="stylize-scrub-stage" id="ai-stylize-scrub-stage" hidden>
+            <video id="ai-stylize-preview" muted playsinline controls></video>
+            <div class="stylize-dials">
+              <label>⏮ Start Frame Dial <span id="ai-stylize-start-dial-val">0.0s</span>
+                <input type="range" id="ai-stylize-start-dial" min="0" max="15" step="0.1" value="0">
+              </label>
+              <label>⏭ End Frame Dial <span id="ai-stylize-end-dial-val">5.0s</span>
+                <input type="range" id="ai-stylize-end-dial" min="0.5" max="15" step="0.1" value="5">
+              </label>
+            </div>
+          </div>
         </div>
 
         <!-- Interactive Motion Analysis & Character A/B Cast Picker -->
@@ -290,6 +301,8 @@
         </div>
 
         <div class="sty-ba-grid" id="ai-stylize-showcase"></div>
+
+        <div class="stylize-guide-card" id="ai-stylize-guide"></div>
 
         <div class="ai-bg-recipes" id="ai-bg-recipes" hidden></div>
 

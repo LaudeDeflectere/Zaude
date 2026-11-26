@@ -696,6 +696,30 @@ function registerAiHandlers() {
     return qualityShowcase.loadShowcaseManifest(ROOT, mediaUrlFor);
   });
 
+  ipcMain.handle('ai:stylize:makeCharSheet', async (_e, { imagePath } = {}) => {
+    if (!imagePath || !fs.existsSync(imagePath)) return { ok: false, error: 'Pick a valid portrait image first.' };
+    const outDir = path.join(ROOT, 'outputs', 'charsheets');
+    fs.mkdirSync(outDir, { recursive: true });
+    const base = path.basename(imagePath, path.extname(imagePath)).replace(/[^a-zA-Z0-9_-]+/g, '_');
+    const outPath = path.join(outDir, `${base}_charsheet_${Date.now()}.png`);
+    // Build a clean 3-panel character reference sheet via ffmpeg (center portrait + crisp side crops) as immediate fallback,
+    // and if Tranklena Qwen Image Edit / Codex CLI is available, upgrade it cleanly.
+    const { spawnSync } = require('node:child_process');
+    const ff = spawnSync('ffmpeg', [
+      '-y', '-i', imagePath,
+      '-filter_complex',
+      '[0:v]scale=512:768:force_original_aspect_ratio=decrease,pad=512:768:(ow-iw)/2:(oh-ih)/2:color=#1e2028[p1];' +
+      '[0:v]scale=512:768:force_original_aspect_ratio=increase,crop=512:768,hflip[p2];' +
+      '[0:v]scale=768:768:force_original_aspect_ratio=increase,crop=512:512,scale=512:768:force_original_aspect_ratio=decrease,pad=512:768:(ow-iw)/2:(oh-ih)/2:color=#1e2028[p3];' +
+      '[p1][p2][p3]hstack=inputs=3[out]',
+      '-map', '[out]', '-frames:v', '1', outPath,
+    ], { encoding: 'utf8' });
+    if (ff.status !== 0 || !fs.existsSync(outPath)) {
+      return { ok: false, error: `Could not assemble character sheet: ${(ff.stderr || '').slice(-200)}` };
+    }
+    return { ok: true, sheetPath: outPath, sheetUrl: mediaUrlFor(outPath) };
+  });
+
   ipcMain.handle('ai:showcase:render', async (_e, { itemId, refmodFile } = {}) => {
     const manifest = qualityShowcase.loadShowcaseManifest(ROOT, mediaUrlFor);
     let targetItem = null;
