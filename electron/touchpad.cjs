@@ -7,8 +7,14 @@
 const fs = require('node:fs');
 
 const EV_SYN = 0x00;
+const EV_KEY = 0x01;
 const EV_ABS = 0x03;
 const SYN_REPORT = 0x00;
+const BTN_TOOL_FINGER = 0x145;
+const BTN_TOUCH = 0x14a;
+const BTN_TOOL_DOUBLETAP = 0x14d;
+const BTN_TOOL_TRIPLETAP = 0x14e;
+const BTN_TOOL_QUADTAP = 0x14f;
 const ABS_MT_SLOT = 0x2f;
 const ABS_MT_POSITION_X = 0x35;
 const ABS_MT_POSITION_Y = 0x36;
@@ -23,13 +29,22 @@ function wrapDeltaDeg(d) {
 }
 
 // Pure multi-touch screw-rotation state machine (unit-testable without hardware).
-// Calls onRotate(deltaDeg) when 2 fingers are down and one orbits an anchored finger (or both twist).
+// Calls onRotate(deltaDeg) ONLY when 2 fingers are genuinely down on the touchpad
+// and one orbits an anchored finger (or both counter-twist).
 function createScrewDetector(onRotate) {
   let slot = 0;
   const fingers = new Map(); // slot -> { id, x, y, prevX, prevY }
   let prevAngle = null;
   let prevDist = null;
   let accumAngle = 0;
+
+  // Hardware EV_KEY finger-count gates (prevents single-finger mouse motion from ever rotating
+  // if a touchpad drops a tracking-ID release or leaves a stale slot behind).
+  let hasToolKeyEvents = false;
+  let btnTouch = false;
+  let btnSingleFinger = false;
+  let btnDoubleTap = false;
+  let btnMultiOther = false;
 
   function resetGesture() {
     prevAngle = null;
@@ -38,6 +53,33 @@ function createScrewDetector(onRotate) {
   }
 
   function feedEvent(type, code, value) {
+    if (type === EV_KEY) {
+      if (code === BTN_TOUCH) {
+        hasToolKeyEvents = true;
+        btnTouch = value !== 0;
+        if (!btnTouch) {
+          fingers.clear();
+          resetGesture();
+        }
+      } else if (code === BTN_TOOL_FINGER) {
+        hasToolKeyEvents = true;
+        btnSingleFinger = value !== 0;
+        if (btnSingleFinger) {
+          btnDoubleTap = false;
+          resetGesture();
+        }
+      } else if (code === BTN_TOOL_DOUBLETAP) {
+        hasToolKeyEvents = true;
+        btnDoubleTap = value !== 0;
+        if (!btnDoubleTap) resetGesture();
+      } else if (code === BTN_TOOL_TRIPLETAP || code === BTN_TOOL_QUADTAP) {
+        hasToolKeyEvents = true;
+        btnMultiOther = value !== 0;
+        if (btnMultiOther) resetGesture();
+      }
+      return;
+    }
+
     if (type === EV_ABS) {
       if (code === ABS_MT_SLOT) {
         slot = value;
@@ -50,20 +92,22 @@ function createScrewDetector(onRotate) {
           resetGesture();
         }
       } else if (code === ABS_MT_POSITION_X) {
-        let f = fingers.get(slot);
-        if (!f) { f = { id: slot, x: null, y: null, prevX: null, prevY: null }; fingers.set(slot, f); }
-        f.x = value;
+        // Never auto-create a ghost finger without an active ABS_MT_TRACKING_ID >= 0
+        const f = fingers.get(slot);
+        if (f) f.x = value;
       } else if (code === ABS_MT_POSITION_Y) {
-        let f = fingers.get(slot);
-        if (!f) { f = { id: slot, x: null, y: null, prevX: null, prevY: null }; fingers.set(slot, f); }
-        f.y = value;
+        const f = fingers.get(slot);
+        if (f) f.y = value;
       }
       return;
     }
 
     if (type === EV_SYN && code === SYN_REPORT) {
       const ready = Array.from(fingers.values()).filter((f) => f.x !== null && f.y !== null);
-      if (ready.length !== 2) {
+      // If hardware EV_KEY tool events are reported, strictly require 2-finger contact
+      // (BTN_TOUCH=1, BTN_TOOL_DOUBLETAP=1, and NOT single-finger / 3+ finger mode).
+      const toolAllowsTwoFingers = !hasToolKeyEvents || (btnTouch && btnDoubleTap && !btnSingleFinger && !btnMultiOther);
+      if (ready.length !== 2 || !toolAllowsTwoFingers) {
         resetGesture();
         for (const f of ready) { f.prevX = f.x; f.prevY = f.y; }
         return;
@@ -169,8 +213,14 @@ function startTouchpadWatcher(onRotate) {
 
 module.exports = {
   EV_SYN,
+  EV_KEY,
   EV_ABS,
   SYN_REPORT,
+  BTN_TOOL_FINGER,
+  BTN_TOUCH,
+  BTN_TOOL_DOUBLETAP,
+  BTN_TOOL_TRIPLETAP,
+  BTN_TOOL_QUADTAP,
   ABS_MT_SLOT,
   ABS_MT_POSITION_X,
   ABS_MT_POSITION_Y,
