@@ -7,76 +7,962 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="small">Make this window at least 1100 × 740 to show the editor.</div>
 <div class="app">
   <header class="topbar">
+    <button id="windows-open" class="windows-tab" title="Add a window">Windows</button>
     <b class="brand">Zaude</b>
-    <nav id="tabs" class="tabs" aria-label="Pages"></nav>
+    <button id="open-zd" title="Open a self-contained .zd project (Ctrl+O)">Open .zd</button>
+    <button id="save-zd" title="Save self-contained .zd project with all media (Ctrl+S · Shift+Ctrl+S for Save As)">Save .zd</button>
     <div class="grow"></div>
-    <button class="ai" disabled title="AI features come later">Help: ask the editor</button>
-    <button class="ai" disabled title="AI features come later">All AI commands</button>
+    <button id="aichat-open" class="ai" title="Open AI Chat assistant (Claude, Codex, OpenCode, MCP)">AI Chat</button>
+    <button id="help-open" title="Open Help, Shortcuts, MCP Setup &amp; AI Tips">Help &amp; Tips</button>
+    <button id="t2v-open" class="ai" title="Open Mannimmate AI Studio (Text to Video, RefMod, Restyle, Coverage)">✨ AI Studio</button>
+    <button id="audio-portal-open" class="ai" title="Audio-First Studio: Generate/Record Dialogue Audio → Time Warp Clip → Lip-Sync">🎙️ Audio &amp; Lip-Sync</button>
+    <button id="advisor-open" class="ai" title="Analyze local GPU, RAM &amp; Storage, search newest AI video models, and 1-click install">🖥️ Local GPU</button>
+    <span class="modal-usage-group" id="modal-usage-group" title="Live Modal.com cloud GPU usage &amp; billing (click to refresh)">
+      <button type="button" id="modal-usage-btn" class="modal-usage-pill"><span class="modal-dot" id="modal-usage-dot"></span><span id="modal-usage-text">☁️ Modal: …</span></button>
+      <button type="button" id="modal-stop-all" class="modal-stop-btn" title="Immediately cancel all Modal jobs and terminate every running Modal GPU container ($0/hr)">⏹ Stop All</button>
+    </span>
+    <button id="remote-open">Remote machines</button>
+    <button id="update-btn" title="Check for updates">Check for updates</button>
     <button id="export-top" class="primary" data-action="export">Export</button>
   </header>
+  <main id="workspace" class="workspace"></main>
+</div>
 
-  <div class="upper">
-    <div class="monitor-wrap">
-      <div class="monitor" role="img" aria-label="Program monitor">
-        <span class="mon-l">Program · 1920 × 1080</span>
-        <span class="mon-r" id="page-name"></span>
-        <span class="mon-c" id="preview-text"></span>
-      </div>
-      <div class="transport">
-        <button data-action="play" id="play-btn" aria-label="Play" style="width:44px">▶</button>
-        <span id="timecode" class="tc"></span>
-        <div class="grow"></div>
-        <span class="lbl">Last action</span>
-        <span id="log" class="log" aria-live="polite"></span>
+<div id="remote-dialog" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="rm-title">
+    <div class="modal-head">
+      <h2 id="rm-title">Remote machines</h2>
+      <button id="rm-close">Close</button>
+    </div>
+    <div id="rm-message" class="rm-msg" aria-live="polite"></div>
+    <div id="rm-body"></div>
+  </div>
+</div>
+
+<div id="t2v-dialog" class="modal" hidden>
+  <div class="modal-card ai-studio-card" role="dialog" aria-modal="true" aria-labelledby="t2v-title">
+    <div class="modal-head">
+      <h2 id="t2v-title">✨ Mannimmate AI Studio</h2>
+      <div class="ai-head-btns">
+        <button type="button" id="ai-refresh" title="Reload RefMods, models & LoRAs from Mannimmate">↻ Models</button>
+        <button type="button" id="ai-doctor" title="Run mannimmate_cli.py doctor --json">🩺 Doctor</button>
+        <button type="button" id="t2v-close">Close</button>
       </div>
     </div>
-    <div class="controls">
-      <div class="controls-head">
-        <span class="lbl" id="controls-label"></span>
-        <span class="muted" id="selected-label"></span>
+
+    <div class="ai-backend-bar" id="ai-backend-bar">
+      <span class="muted">Engine:</span>
+      <div class="ai-backend-switch" role="group" aria-label="Generation Engine">
+        <button type="button" class="on" data-ai-backend="remote" id="ai-backend-remote" title="Draft on remote Tranklena RTX 3090 (MiniMax-H3 · RefMod + Audio)">🌐 Tranklena · Draft</button>
+        <button type="button" data-ai-backend="local" id="ai-backend-local" title="Sketch locally on this laptop GPU using your installed ComfyUI model">💻 Local · Detecting…</button>
+        <button type="button" data-ai-backend="modal" id="ai-backend-modal" title="Cloud Final Pass on Modal.com serverless GPUs (L40S / A100 / H100) with AI auto-picked GPU &amp; settings">☁️ Modal · Cloud Final</button>
       </div>
-      <div id="tools" class="tools"></div>
-      <div class="hint">Click a clip to select it. Then hold Ctrl and two-finger swipe to change its length, Shift to move it, or Alt to slip its media. Zoom with + / − or Fit.</div>
+      <select id="ai-local-model" class="ai-local-model-sel" hidden title="Choose installed local video model"></select>
+    </div>
+
+    <div class="ai-modal-bar" id="ai-modal-bar" hidden>
+      <div class="ai-modal-row">
+        <div class="ai-tier-switch" role="group" aria-label="Modal Quality Tier">
+          <button type="button" data-modal-tier="fast" title="L40S 48 GB · 480p · 4 steps · ~$0.01–$0.02/clip (60s auto-sleep)">⚡ Fast &amp; Cheap</button>
+          <button type="button" class="on" data-modal-tier="balanced" title="H100 80 GB · 640p · 6 steps · Singularity v2 INT8 (RTX 3090 baseline at 7× speed) · ~$0.05/clip">⚖️ Balanced</button>
+          <button type="button" data-modal-tier="ultra" title="H200 141 GB · 720p · 10 steps · Singularity v2 FULL BF16 + Qwen3VL BF16 + VAE FP16 · ~$0.16/clip">💎 High Quality</button>
+        </div>
+        <span class="ai-modal-cost-pill" id="ai-modal-cost-pill" title="Estimated Modal credit cost for this single generation">💰 Est. ~$0.05 · ~48s</span>
+        <button type="button" class="ai-btn-purple" id="ai-modal-ai-pick" title="Ask Zaude's connected AI to pick the optimal Modal tier &amp; settings for this shot">🤖 AI Pick</button>
+      </div>
+      <div class="ai-modal-row">
+        <input type="url" id="ai-modal-url" placeholder="https://<workspace>--zaude-comfy-comfy-balanced.us-east.modal.run" autocomplete="off">
+        <button type="button" id="ai-modal-deploy" title="Deploy all 3 Modal tiers (Fast L40S / Balanced H100 / Ultra H200)">🚀 Deploy</button>
+        <button type="button" class="modal-stop-btn" id="ai-modal-stop-all" title="Cancel all Modal jobs &amp; stop all running Modal containers">⏹ Stop All</button>
+      </div>
+      <div class="ai-modal-plan muted" id="ai-modal-plan">⚖️ Balanced: H100 (80 GB) · Singularity v2 Pruned INT8 · 60s auto-sleep ($0 idle).</div>
+    </div>
+
+    <div class="ai-mode-tabs" id="ai-mode-tabs" role="tablist">
+      <button type="button" class="on" data-ai-mode="text-render">Text → Video</button>
+      <button type="button" data-ai-mode="refmod">RefMod → Video</button>
+      <button type="button" data-ai-mode="auto">🎨 Stylize &amp; Objects</button>
+      <button type="button" data-ai-mode="set3d">🏛️ 3D Set &amp; Angles</button>
+      <button type="button" data-ai-mode="script">📜 Multi-Shot (.md/.txt)</button>
+    </div>
+
+    <form id="t2v-form" class="t2v-form ai-studio-form">
+      <div class="t2v-wide ai-preset-bar" id="ai-preset-bar">
+        <span class="muted">Presets:</span>
+        <button type="button" data-minimax-only="1" data-ai-preset="prod-16x9" title="RTX 3090 production sweet spot: 640p, 6 steps, 4-step Turbo LoRA, 7s, 24fps">🚀 Production (640p · 6 steps · 7s)</button>
+        <button type="button" data-minimax-only="1" data-ai-preset="prod-9x16" title="Portrait Short: 9:16, 640p, 6 steps, 7s">📱 Portrait Short (9:16 · 640p · 6 steps)</button>
+        <button type="button" data-minimax-only="1" data-ai-preset="fast-draft" title="Fast iteration: 480p, 4 steps, 4s, 12fps">⚡ Fast Draft (480p · 4 steps)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-fast" title="Ultra-fast LTX sketch: 320p, 4 steps, 2s">⚡ LTX Fast Sketch (320p · 4 steps · 2s)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-480" title="Balanced LTX clip: 480p, 8 steps, 4s">🎬 LTX 480p (480p · 8 steps · 4s)</button>
+        <button type="button" data-local-only="1" hidden data-ai-preset="ltx-portrait" title="Portrait LTX clip: 9:16, 480p, 8 steps, 3s">📱 LTX Portrait (9:16 · 480p · 8 steps)</button>
+      </div>
+      <div class="t2v-wide ai-route-badge" id="ai-route-badge">Route: text-render · FL2VA model</div>
+
+      <div class="t2v-wide ai-set3d-panel" data-modes="set3d" id="ai-set3d-panel" hidden>
+        <div class="ai-prompt-head">
+          <span>🏛️ 3D Set Builder &amp; Camera Snapper <span class="muted">(Double-click viewport for Minecraft WASD Fly Mode · Click object to move XYZ)</span></span>
+          <span class="ai-prompt-helpers">
+            <select id="ai-set3d-preset" title="Story / Location 3D Set Library">
+              <option value="bar" selected>🍺 Billiard Bar</option>
+              <option value="classroom">🏫 Classroom</option>
+              <option value="apartment">🏠 Apartment Room</option>
+              <option value="empty">⬜ Blank Room Bounds</option>
+            </select>
+            <label class="ai-set3d-upload-btn" title="Load a .glb or .gltf 3D room model">📂 Load .glb<input type="file" id="ai-set3d-file" accept=".glb,.gltf" hidden></label>
+            <button type="button" id="ai-set3d-add-char" title="Add a directional colored Character Stand-In box with Front Face + Standing/Sitting toggle">🧍 + Character</button>
+            <button type="button" id="ai-set3d-add-prop" title="Add a movable 3D prop/furniture box">📦 + Prop</button>
+            <button type="button" id="ai-set3d-add-light" title="Add a warm point light to the set">💡 + Light</button>
+            <select id="ai-set3d-focal" title="35mm lens focal length">
+              <option value="28">28mm Wide</option>
+              <option value="35" selected>35mm Cinema</option>
+              <option value="50">50mm Medium</option>
+              <option value="85">85mm Close-Up</option>
+            </select>
+            <select id="ai-set3d-aspect" title="Frame aspect ratio">
+              <option value="16:9" selected>16:9</option>
+              <option value="9:16">9:16</option>
+            </select>
+            <button type="button" id="ai-set3d-save-cam">+ Save Cam</button>
+            <button type="button" id="ai-set3d-fly-btn" title="Enter Minecraft WASD Fly Mode (or double-click the 3D viewport)">🎮 Fly Mode</button>
+            <button type="button" class="primary" id="ai-set3d-snap-bg">📸 Snap → BG</button>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-snap-first">📸 Snap → 1st Frame</button>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-build-locref" title="Capture 8 orbit views from this 3D set and encode a zero-training Location RefMod (.safetensors)">🧬 Location RefMod (8v)</button>
+          </span>
+        </div>
+        <div class="ai-set3d-cams" id="ai-set3d-cams"></div>
+        <div class="set3d-sel-bar" id="ai-set3d-sel-bar" hidden>
+          <strong id="ai-set3d-sel-name">Selected</strong>
+          <label>X <input type="number" id="ai-set3d-pos-x" step="0.2" style="width:58px"></label>
+          <label>Y <input type="number" id="ai-set3d-pos-y" step="0.2" style="width:58px"></label>
+          <label>Z <input type="number" id="ai-set3d-pos-z" step="0.2" style="width:58px"></label>
+          <label>Rot° <input type="number" id="ai-set3d-rot-y" step="15" style="width:58px"></label>
+          <button type="button" id="ai-set3d-pose-toggle" hidden>🧍 Standing</button>
+          <button type="button" id="ai-set3d-del-obj" class="danger-mini">🗑️ Delete</button>
+        </div>
+        <div class="ai-set3d-canvas-wrap" id="ai-set3d-canvas-wrap" style="position:relative"></div>
+        <div class="muted" id="ai-set3d-status" style="font-size:11px">Left-drag orbit · Right-drag pan · Scroll dolly · Double-click viewport for Minecraft WASD Fly Mode (Esc to exit).</div>
+        <details class="set3d-cov-drawer" style="margin-top:6px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.22);border-radius:8px;padding:6px 10px">
+          <summary style="cursor:pointer;font-size:11.5px;font-weight:600;color:#ddd6fe">📷 8-View Coverage from a Single Photo (Merged Coverage Tool)</summary>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <span class="muted" style="font-size:11px;flex:1">Need 8 camera angles from a single reference photo instead of a 3D model? Pick a scene image and run Coverage.</span>
+            <button type="button" class="ai-btn-purple" id="ai-set3d-run-coverage">📷 Generate 8 Coverage Views from Photo…</button>
+          </div>
+        </details>
+        <div class="ai-prompt-head" style="margin-top:6px">
+          <span>Saved 3D Snapshots &amp; Coverage Angles <span class="muted">(click any thumbnail to lock as BG Picture)</span></span>
+          <button type="button" id="ai-set3d-refresh-angles">↻ Refresh</button>
+        </div>
+        <div class="ai-set3d-angles" id="ai-set3d-angles"></div>
+      </div>
+
+      <div class="t2v-wide ai-script-panel" data-modes="script" id="ai-script-panel" hidden>
+        <!-- Step 1: Pick Numbered RefMod Cast & Environment -->
+        <div class="ms-builder-box" style="background:rgba(139,92,246,.07);border:1px solid rgba(139,92,246,.28);border-radius:10px;padding:10px;margin-bottom:10px">
+          <div class="ai-prompt-head" style="margin-bottom:6px">
+            <span>1. Pick Numbered Cast (RefMods) &amp; Environment <span class="muted">· Auto-updates the Agent Prompt below (max 124f / 5s continuation + dialogue-safe cuts)</span></span>
+            <span class="ai-prompt-helpers">
+              <button type="button" id="ai-ms-clear-cast">Clear Cast</button>
+              <button type="button" class="primary" id="ai-ms-copy-prompt">📋 Copy Agent Prompt</button>
+              <button type="button" id="ai-ms-toggle-preview">👁️ Preview Prompt</button>
+            </span>
+          </div>
+          <div class="ms-cast-chips" id="ai-ms-cast-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+          <div style="display:grid;grid-template-columns:190px 1fr auto 180px;gap:8px;align-items:end">
+            <label>Environment Preset
+              <select id="ai-ms-env-preset">
+                <option value="">— Custom / From BG Picture —</option>
+                <option value="Bright sunlit high school hallway and classroom with lockers, linoleum floors, and afternoon window light">🏫 School Hallway / Classroom</option>
+                <option value="Dimly lit wooden billiard hall and neighborhood bar with warm tungsten pendant lamps, green felt pool table, and wood-paneled walls">🍺 Dim Bar / Billiard Hall</option>
+                <option value="Cozy small office and study room with oak desk, wooden bookshelves, glowing green banker lamp, and soft afternoon window light">🖨️ Small Office / Study</option>
+                <option value="Warm lived-in apartment living room with fabric sofa, coffee table, sheer curtains, and soft golden evening lamp light">🛋️ Apartment Living Room</option>
+                <option value="Rain-slicked urban street at twilight with glowing storefronts, asphalt reflections, and soft atmospheric streetlamps">🌃 Outdoor Street / Alley</option>
+              </select>
+            </label>
+            <label>Environment Description <span class="muted">(or room details)</span>
+              <input type="text" id="ai-ms-env-desc" placeholder="Describe the room/location anchor (kept verbatim across all shots)…">
+            </label>
+            <button type="button" id="ai-ms-bg-pick" title="Pick a reference room photo or 3D set snapshot as <Picture 1>">🌆 BG Picture</button>
+            <label>Set RefMod <span class="muted">(optional)</span>
+              <select id="ai-ms-bg-refmod">
+                <option value="">— None —</option>
+              </select>
+            </label>
+          </div>
+          <div class="muted" id="ai-ms-bg-status" style="font-size:11px;margin-top:5px">Pick RefMods above (numbered 1, 2, 3…), choose an environment or BG Picture, click <b>📋 Copy Agent Prompt</b>, give it + your story to your AI agent, then paste/upload the output below!</div>
+          <pre id="ai-ms-prompt-preview" class="help-code" hidden style="max-height:220px;overflow:auto;margin-top:8px;font-size:11px"></pre>
+        </div>
+
+        <div class="ai-prompt-head">
+          <span>2. Paste or Upload Your Agent's Multi-Shot Script <span class="muted">(.md or .txt separated by <code>---</code> or <code>[Shot N]</code>)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-script-upload">📂 Upload .md / .txt</button>
+            <button type="button" id="ai-script-parse">⚡ Parse Pasted Text</button>
+            <button type="button" id="ai-script-clear">Clear</button>
+          </span>
+        </div>
+        <div class="ai-script-drop" id="ai-script-drop">
+          <textarea id="ai-script-text" rows="5" placeholder="Drop a .md / .txt script file here, click 📂 Upload .md / .txt, or paste your Zaude multi-shot script (see Help → 🤖 AI &amp; Prompts for the full template)…"></textarea>
+        </div>
+        <div class="ai-script-bar" id="ai-script-bar" hidden>
+          <span id="ai-script-summary" class="muted"></span>
+          <label class="ai-script-engine-lbl">Run Engine:
+            <select id="ai-script-engine">
+              <option value="current" selected>Use top-bar Engine (safe default)</option>
+              <option value="tranklena">Force 🌐 Tranklena (RTX 3090)</option>
+              <option value="local">Force 💻 Local (Rizzar)</option>
+              <option value="script">Respect per-shot engine in script</option>
+            </select>
+          </label>
+          <button type="button" class="primary" id="ai-script-queue-all">🚀 Queue All Checked Shots</button>
+        </div>
+        <div class="ai-script-list" id="ai-script-list"></div>
+      </div>
+
+      <div class="t2v-wide ai-stylize-panel" data-modes="auto">
+        <div class="ai-prompt-head">
+          <span>1. Pick Timeline Segment &amp; Trim Timing</span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="ai-pick-timeline" class="ai" title="Load the selected or playhead video clip from the timeline">🎯 Pick from Timeline</button>
+            <button type="button" id="ai-recast-analyze-btn" class="ai-btn-purple" title="Pre-process video: detect Character A &amp; B, analyze motion, click pins on frame to cast RefMods &amp; recreate with a new background">🔍 Analyze &amp; Cast (A/B)</button>
+            <button type="button" data-seg-nudge="start:-0.5" title="Extend segment start earlier by 0.5s">Start −0.5s</button>
+            <button type="button" data-seg-nudge="start:0.5" title="Shorten segment start by 0.5s">Start +0.5s</button>
+            <button type="button" data-seg-nudge="end:-0.5" title="Shorten segment end by 0.5s">End −0.5s</button>
+            <button type="button" data-seg-nudge="end:0.5" title="Extend segment end by 0.5s">End +0.5s</button>
+          </span>
+        </div>
+        <div class="stylize-range-wrap" id="ai-stylize-range-wrap">
+          <div class="stylize-range-track" id="ai-stylize-track" title="Drag handles to extend or shorten the segment">
+            <div class="stylize-range-fill" id="ai-stylize-fill">
+              <span class="stylize-handle left" data-seg-drag="start" title="Drag to adjust start"></span>
+              <span class="stylize-range-label" id="ai-stylize-label">0.00s – 5.00s (5.00s)</span>
+              <span class="stylize-handle right" data-seg-drag="end" title="Drag to adjust end"></span>
+            </div>
+          </div>
+          <div class="stylize-range-meta muted" id="ai-stylize-meta">Click "🎯 Pick from Timeline" or drop/browse a video below.</div>
+          <div class="stylize-scrub-stage" id="ai-stylize-scrub-stage" hidden>
+            <video id="ai-stylize-preview" muted playsinline controls></video>
+            <div class="stylize-dials">
+              <label>⏮ Start Frame Dial <span id="ai-stylize-start-dial-val">0.0s</span>
+                <input type="range" id="ai-stylize-start-dial" min="0" max="15" step="0.1" value="0">
+              </label>
+              <label>⏭ End Frame Dial <span id="ai-stylize-end-dial-val">5.0s</span>
+                <input type="range" id="ai-stylize-end-dial" min="0.5" max="15" step="0.1" value="5">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Motion Analysis & Character A/B Cast Picker -->
+        <div class="recast-drawer" id="ai-recast-drawer" hidden>
+          <div class="ai-prompt-head">
+            <span>🎭 Motion Analysis &amp; Character Cast Picker <span class="muted" id="recast-analyzer-tag">· Click a character on the frame to place pin A / B</span></span>
+            <span class="ai-prompt-helpers">
+              <button type="button" id="recast-add-char">+ Add Character C</button>
+              <button type="button" id="recast-close">✕ Close</button>
+            </span>
+          </div>
+          <div class="recast-grid">
+            <div class="recast-stage-wrap">
+              <div class="recast-stage" id="recast-stage" title="Click anywhere on a character to move the active pin">
+                <img id="recast-hero-img" alt="Analyzed keyframe">
+                <div class="recast-pins" id="recast-pins"></div>
+              </div>
+              <div class="recast-pin-bar" id="recast-pin-bar"></div>
+            </div>
+            <div class="recast-controls">
+              <div id="recast-char-cards" class="recast-char-cards"></div>
+              <label style="display:block;margin-top:6px">Analyzed Motion &amp; Choreography <span class="muted">(editable)</span>
+                <textarea id="recast-motion" rows="3" placeholder="What happens in this clip (Character A &amp; Character B actions)…"></textarea>
+              </label>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <label>New Background / Environment
+                  <input type="text" id="recast-bg" placeholder="e.g. rain-slicked neon rooftop at night, cyberpunk city skyline">
+                </label>
+                <label>Motion Style
+                  <select id="recast-motion-mode">
+                    <option value="loose" selected>🌊 General Motion (Recreate Action + New BG)</option>
+                    <option value="tight">🎯 Tight 1:1 Motion Transfer (RV2V)</option>
+                  </select>
+                </label>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+                <button type="button" id="recast-generate-btn" class="primary">🚀 Generate Recast Video</button>
+                <span class="muted" id="recast-status" style="font-size:11px">Pick RefMods for A / B, set your new background, and generate!</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-outpaint-bar" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:8px">
+          <label>📐 Outpaint Aspect <span class="muted">(Portrait ↔ Landscape)</span>
+            <select name="outpaintAspect" id="ai-outpaint-aspect" title="Expand portrait video into 16:9 landscape (or landscape into 9:16 portrait) — MiniMax-H3 invents seamless detail in the new space">
+              <option value="keep" selected>Keep Original Aspect</option>
+              <option value="16:9">📺 16:9 Landscape (Outpaint Sides)</option>
+              <option value="9:16">📱 9:16 Portrait (Outpaint Top/Bottom)</option>
+              <option value="1:1">⬜ 1:1 Square</option>
+            </select>
+          </label>
+          <label>🎥 Camera Pullback <span class="muted">(More scene, same motion)</span>
+            <select name="cameraPullback" id="ai-camera-pullback" title="Step the camera back 1-2 steps so we see more of the body &amp; room while keeping the exact same movement">
+              <option value="1.0" selected>Original Framing (1.0×)</option>
+              <option value="0.80">🚶 1 Step Back (0.80× — more scene)</option>
+              <option value="0.65">🏃 2 Steps Back (0.65× — wider room)</option>
+              <option value="0.50">🔭 Wide Pullback (0.50× — full scene)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="ai-prompt-head" style="margin-top:8px">
+          <span>2. What to Change <span class="muted">· Click a Before → After card to preview &amp; pick mode</span></span>
+          <div class="ai-stylize-pills" id="ai-stylize-pills">
+            <button type="button" data-stylize-act="replace">🧑 Replace Character</button>
+            <button type="button" data-stylize-act="background">🌆 Change Background</button>
+            <button type="button" data-stylize-act="object">🐱 Add Object</button>
+            <button type="button" class="on" data-stylize-act="both">✨ Both (Swap + Object)</button>
+          </div>
+        </div>
+
+        <div class="sty-ba-grid" id="ai-stylize-showcase"></div>
+
+        <div class="stylize-guide-card" id="ai-stylize-guide"></div>
+
+        <div class="ai-bg-recipes" id="ai-bg-recipes" hidden></div>
+
+        <div class="t2v-wide" id="ai-object-prompt-wrap">
+          <div class="ai-prompt-head">
+            <span id="ai-object-prompt-label">Object / Scene Addition (e.g. a moving cat, prop, effect)</span>
+            <span class="ai-prompt-helpers">
+              <button type="button" class="ai-btn-purple" data-prompt-advance-target="objectPrompt" title="Use a connected AI + Prompt Database to make this prompt more robust">✨ Advance Prompt</button>
+              <button type="button" data-prompt-db-toggle="objectPrompt" title="Browse &amp; learn from saved working prompts">📚 DB</button>
+            </span>
+          </div>
+          <textarea name="objectPrompt" rows="2" placeholder="e.g. A fluffy orange and white tabby cat walks playfully across the floor around the dancer's feet, tail raised and swishing"></textarea>
+        </div>
+      </div>
+
+      <div class="t2v-wide" data-modes="refmod,auto" id="ai-refmod-section">
+        <div class="ai-prompt-head">
+          <span>Characters &amp; Sets (RefMod) <span class="muted">· Hover to preview · Click to cast · 🏷️ categorize · ✕ delete</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-refmod-create-open" title="Open the full RefMod Creator window with Tony Sheen example guide">🧬 Create RefMod</button>
+            <button type="button" id="ai-refmods-gen-missing" title="Queue headshot &amp; walk preview generation for all RefMods missing a preview">✨ Generate missing</button>
+            <button type="button" id="ai-refmods-stop-queue" hidden title="Cancel queued RefMod previews">Stop queue</button>
+          </span>
+        </div>
+        <div class="refmod-folders" id="ai-refmod-folders"></div>
+        <div class="refmod-cats" id="ai-refmod-cats"></div>
+        <div class="refmod-grid" id="ai-refmod-grid"></div>
+        <div class="refmod-outfits" id="ai-refmod-outfits" hidden></div>
+        <div class="refmod-add-form" id="ai-refmod-add-form" hidden>
+          <input type="text" id="ai-new-refmod-name" placeholder="First / Character name (blank = Subject N)" autocomplete="off">
+          <input type="text" id="ai-new-refmod-file" placeholder="RefMod file slug (e.g. elias_varga)" autocomplete="off">
+          <button type="button" id="ai-new-refmod-save" class="ai">Create</button>
+          <button type="button" id="ai-new-refmod-cancel">Cancel</button>
+        </div>
+        <input type="hidden" name="refmod" id="ai-refmod-input">
+        <input type="hidden" name="refmod2" id="ai-refmod2-input">
+      </div>
+
+      <label class="t2v-wide" data-modes="refmod" id="ai-latent-wrap" hidden>Saved Latent (for Continue)
+        <select name="latent" id="ai-latent-select">
+          <option value="">— Auto / latest —</option>
+        </select>
+      </label>
+
+      <div class="t2v-wide ai-media-squares" data-modes="text-render,refmod,auto,coverage">
+        <div class="ai-square-slot" data-modes="text-render,refmod" data-slot="firstFrame" data-pick-file="image" data-pick-target="firstFrame" title="First Frame (optional — locks opening frame for LTX &amp; MiniMax FL2V)">
+          <div class="ai-square-box" id="ai-preview-firstFrame">
+            <span class="ai-square-empty">⏮️<br>First Frame</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="firstFrame" hidden title="Clear">×</button>
+          <input type="hidden" name="firstFrame">
+        </div>
+
+        <div class="ai-square-slot" data-modes="text-render,refmod" data-slot="lastFrame" data-pick-file="image" data-pick-target="lastFrame" title="Last Frame (optional — locks closing frame for LTX &amp; MiniMax FL2V)">
+          <div class="ai-square-box" id="ai-preview-lastFrame">
+            <span class="ai-square-empty">⏭️<br>Last Frame</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="lastFrame" hidden title="Clear">×</button>
+          <input type="hidden" name="lastFrame">
+        </div>
+
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="auto" data-slot="video" data-pick-file="video" data-pick-target="video" title="Click to choose source video">
+          <div class="ai-square-box" id="ai-preview-video">
+            <span class="ai-square-empty">🎬<br>Source Video</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="video" hidden title="Clear">×</button>
+          <input type="hidden" name="video">
+        </div>
+
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="text-render,auto" data-slot="ref" data-pick-file="image" data-pick-target="ref" title="Click to choose reference image (optional for Text→Video)">
+          <div class="ai-square-box" id="ai-preview-ref">
+            <span class="ai-square-empty">🖼️<br>Ref Image</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="ref" hidden title="Clear">×</button>
+          <input type="hidden" name="ref">
+        </div>
+
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="text-render,refmod,auto" data-slot="backgroundImage" data-pick-file="image" data-pick-target="backgroundImage" title="Consistent Background Picture (photo or 3D room render — locks exact set/room via --background / <Picture 1>)">
+          <div class="ai-square-box" id="ai-preview-backgroundImage">
+            <span class="ai-square-empty">🌆<br>BG Picture</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="backgroundImage" hidden title="Clear">×</button>
+          <input type="hidden" name="backgroundImage">
+        </div>
+
+        <label class="ai-bg-refmod-box" data-minimax-only="1" data-modes="refmod,auto" title="Lock a separate Location/Style RefMod as your multi-angle background set (attached visual-only, voice=0)">
+          <span>🧬 Background / Set RefMod <span class="muted">(multi-angle lock)</span></span>
+          <select name="backgroundRefmod" id="ai-bg-refmod">
+            <option value="">— None (prompt / picture only) —</option>
+          </select>
+          <span class="muted" style="font-size:10px">Tip: Use <strong>BG Picture</strong> for an exact room / 3D render still, or a <strong>Set RefMod</strong> for recurring multi-angle locations.</span>
+        </label>
+
+        <div class="ai-bg-refmod-box" data-local-only="1" id="ai-local-lora-wrap" hidden title="Optional LoRA from ~/ComfyUI/models/loras/ applied to LTX generation">
+          <span>🎛️ LTX LoRA <span class="muted">(optional · from models/loras/)</span></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select name="localLora" id="ai-local-lora" style="flex:1">
+              <option value="">— None (Base LTX model) —</option>
+            </select>
+            <input name="localLoraStrength" id="ai-local-lora-strength" type="number" min="0" max="2" step="0.1" value="1.0" style="width:62px" title="LoRA strength (0–2)">
+          </div>
+          <span class="muted" style="font-size:10px">Tip: Drop First Frame &amp;/or Last Frame on the left to lock start/end keyframes in LTX.</span>
+        </div>
+
+        <div class="ai-square-slot" data-minimax-only="1" data-modes="coverage" data-slot="image" data-pick-file="image" data-pick-target="image" title="Click to choose scene reference image">
+          <div class="ai-square-box" id="ai-preview-image">
+            <span class="ai-square-empty">🖼️<br>Scene Image</span>
+          </div>
+          <button type="button" class="ai-square-clear" data-clear-slot="image" hidden title="Clear">×</button>
+          <input type="hidden" name="image">
+        </div>
+
+        <label class="ai-coverage-target" data-minimax-only="1" data-modes="coverage">Coverage Target (optional)
+          <input name="coverageTarget" placeholder="e.g. Keep the exact dancer and studio lighting" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="t2v-wide" data-modes="text-render,refmod">
+        <div class="ai-prompt-head">
+          <span>Prompt</span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and Shot Library">✨ Advance Prompt</button>
+            <button type="button" id="ai-angle-gizmo-toggle" title="Orbit a 3D mannequin with 2-finger trackpad gestures (like Blender) to pick exact camera angle">🎥 3D Angle</button>
+            <button type="button" data-minimax-only="1" id="ai-shot-lib-btn" data-shot-library-toggle="prompt" title="Browse 30 proven character-swappable shots &amp; background templates with visual squares">🎬 Shot Library</button>
+            <button type="button" id="ai-prompt-db-btn" data-prompt-db-toggle="prompt" title="Open Prompt Database of proven working examples">📚 Prompt DB</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="outfit" title="Negate RefMod default outfit so new clothing sticks">+ Outfit override</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
+            <button type="button" data-minimax-only="1" data-prompt-snip="room" title="Insert verbatim room/prop anchor">+ Room anchor</button>
+          </span>
+        </div>
+        <div id="ai-angle-gizmo-drawer" hidden style="display:flex;gap:12px;align-items:center;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.32);border-radius:10px;padding:8px;margin-bottom:8px">
+          <div id="ai-angle-gizmo-canvas" style="width:220px;height:156px;flex:none;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.12)"></div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+            <b>🎥 3D Character Camera-Angle Gizmo</b>
+            <span class="muted" style="font-size:11px">2-finger trackpad swipe (or drag) to orbit like Blender · Pinch to zoom Close-up / Medium / Wide.</span>
+            <div id="ai-angle-gizmo-label" style="font-size:12px;color:#93c5fd;font-weight:600">Medium shot · three-quarter right · eye-level angle</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="primary" id="ai-angle-gizmo-apply">✓ Insert Angle into Prompt</button>
+              <button type="button" id="ai-angle-gizmo-reset">Reset Front</button>
+            </div>
+          </div>
+        </div>
+        <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
+      </div>
+
+      <!-- Inline AI Prompt Advancer Panel -->
+      <div class="t2v-wide pa-panel" id="pa-panel" hidden>
+        <div class="pa-head">
+          <strong>✨ Prompt Advancer</strong>
+          <span class="pa-status muted" id="pa-status">Ready</span>
+          <div class="pa-head-right">
+            <select id="pa-provider" title="Connected AI agent to use">
+              <option value="auto" selected>Auto AI</option>
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <button type="button" id="pa-cancel" hidden>Stop</button>
+            <button type="button" id="pa-close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="pa-masters-wrap" id="pa-masters-wrap">
+          <div class="pa-subhead">Directing Master Prompts <span class="muted">(optional · click to toggle, saved in <code>prompts/master-prompts.json</code>)</span></div>
+          <div class="pa-masters" id="pa-masters"></div>
+        </div>
+        <div class="pa-playbook-wrap" id="pa-playbook-wrap">
+          <div class="pa-subhead">🧠 What Zaude &amp; Singularity v2 Like <span class="muted">(proven rules auto-applied by the AI Advancer)</span></div>
+          <div class="pa-playbook" id="pa-playbook"></div>
+        </div>
+        <div class="pa-lib-wrap" id="pa-lib-wrap">
+          <div class="pa-lib-head">
+            <div class="pa-subhead" style="margin:0">🎬 Shot Library <span class="muted" id="pa-lib-count">(30 character-swappable templates · adapts to your selected RefMod count)</span></div>
+            <div class="pa-lib-casts" id="pa-lib-casts"></div>
+            <div class="pa-lib-cats" id="pa-lib-cats"></div>
+          </div>
+          <div class="pa-lib-grid" id="pa-lib-grid"></div>
+        </div>
+        <div class="pa-matched" id="pa-matched" hidden></div>
+        <div class="pa-questions" id="pa-questions" hidden></div>
+        <div class="pa-result" id="pa-result" hidden>
+          <div class="pa-subhead">Enhanced Prompt <span class="muted">(editable before applying)</span></div>
+          <textarea id="pa-output" rows="4"></textarea>
+          <ul class="pa-improvements" id="pa-improvements"></ul>
+          <div class="pa-save-row">
+            <input type="text" id="pa-title" placeholder="Short title for Prompt DB (optional)">
+            <input type="text" id="pa-notes" placeholder="Why it works / notes for future AI learning (optional)">
+          </div>
+          <div class="pa-actions">
+            <button type="button" class="primary" id="pa-apply">✓ Apply to Prompt</button>
+            <button type="button" class="ai-btn-purple" id="pa-apply-save">⭐ Apply &amp; Save to DB</button>
+            <button type="button" id="pa-rerun">↻ Re-run</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline Learning Prompt Database Drawer -->
+      <div class="t2v-wide pdb-panel" id="pdb-panel" hidden>
+        <div class="pa-head">
+          <strong>📚 Prompt Database <span class="muted" id="pdb-count"></span></strong>
+          <div class="pa-head-right">
+            <input type="search" id="pdb-search" placeholder="Search prompts or tags…">
+            <select id="pdb-filter-mode">
+              <option value="">All modes</option>
+              <option value="refmod">RefMod</option>
+              <option value="fl2v">FL2V</option>
+              <option value="continue">Continue</option>
+              <option value="stylize">Stylize</option>
+              <option value="text-render">Text</option>
+            </select>
+            <button type="button" class="ai-btn-purple" id="pdb-save-current" title="Save your current prompt as a working example so the AI learns from it">+ Save Current</button>
+            <button type="button" id="pdb-close" title="Close">✕</button>
+          </div>
+        </div>
+        <div class="pdb-list" id="pdb-list"></div>
+      </div>
+
+      <div class="t2v-wide ai-compact-row">
+        <label class="ai-num" data-modes="text-render,refmod">Length (s)
+          <input name="seconds" type="number" min="1" max="60" step="1" value="7">
+        </label>
+
+        <label class="ai-num" data-modes="auto">Start (s)
+          <input name="start" type="number" min="0" step="0.1" value="0">
+        </label>
+
+        <label class="ai-num" data-modes="auto">End (s)
+          <input name="end" type="number" min="0.5" step="0.1" value="7">
+        </label>
+
+        <label class="ai-sm" data-modes="text-render,refmod,auto" data-param-hover="resolution">Resolution <button type="button" class="ai-info-dot" data-open-showcase="resolution" title="Compare Resolutions (video preview)">📊</button>
+          <select name="resolution">
+            <option value="320">320p</option>
+            <option value="480">480p</option>
+            <option value="640" selected>640p</option>
+            <option value="720">720p</option>
+          </select>
+        </label>
+
+        <label class="ai-sm" data-minimax-only="1" data-modes="text-render,auto">Preset
+          <select name="quality">
+            <option value="draft">Draft</option>
+            <option value="normal" selected>Normal</option>
+            <option value="ultra">Ultra</option>
+          </select>
+        </label>
+
+        <label class="ai-sm" data-modes="text-render">Aspect
+          <select name="aspect">
+            <option value="16:9" selected>16:9</option>
+            <option value="9:16">9:16</option>
+          </select>
+        </label>
+
+        <label class="ai-sm" data-modes="refmod">Mode
+          <select name="refmodMode">
+            <option value="generate" selected>Generate</option>
+            <option value="continue">Continue</option>
+          </select>
+        </label>
+
+        <label class="ai-sm" data-modes="refmod" data-param-hover="fps">FPS <button type="button" class="ai-info-dot" data-open-showcase="fps" title="Compare 24 / 12 / 6 FPS">📊</button>
+          <select name="fps">
+            <option value="24" selected>24 fps</option>
+            <option value="12">12 fps</option>
+            <option value="6">6 fps</option>
+          </select>
+        </label>
+
+        <label class="ai-num" data-modes="refmod" data-param-hover="identity">Identity <button type="button" class="ai-info-dot" data-open-showcase="identity" title="Compare Identity 0.7 / 1.0 / 1.3">📊</button>
+          <input name="identityStrength" type="number" min="0" max="1.5" step="0.1" value="1.0" title="Identity strength (0–1.5)">
+        </label>
+
+        <label class="ai-num" data-modes="refmod" data-param-hover="voice">Voice <button type="button" class="ai-info-dot" data-open-showcase="voice" title="Compare Voice 0.5 / 1.0">📊</button>
+          <input name="voiceStrength" type="number" min="0" max="1.5" step="0.1" value="1.0" title="Voice strength (0–1.5)">
+        </label>
+
+        <label class="ai-md" data-modes="auto">Background
+          <select name="backgroundMode">
+            <option value="keep" selected>Keep room</option>
+            <option value="sheet">Ref sheet</option>
+            <option value="scene">New scene</option>
+            <option value="image">Custom image</option>
+          </select>
+        </label>
+
+        <label class="ai-num">Steps
+          <input name="steps" type="number" min="1" max="100" step="1" value="6" placeholder="auto">
+        </label>
+
+        <label class="ai-sm">Seed
+          <input name="seed" type="number" step="1" placeholder="random">
+        </label>
+      </div>
+
+      <label class="ai-model-col">Model (auto-routed) <button type="button" class="ai-info-dot" data-open-showcase="models" title="Open Model &amp; Settings Quality Showcase">📊 Guide</button>
+        <select name="model" id="ai-model-select">
+          <option value="">Auto (Mannimmate default)</option>
+        </select>
+      </label>
+
+      <label class="ai-model-col">LoRA <button type="button" class="ai-info-dot" data-open-showcase="loras" title="Compare LoRAs">📊</button>
+        <select name="lora" id="ai-lora-select">
+          <option value="">Auto / None</option>
+        </select>
+      </label>
+
+      <label class="t2v-wide">Mannimmate folder
+        <input name="mannimmateDir" autocomplete="off">
+      </label>
+
+      <div class="t2v-wide t2v-actions">
+        <button type="submit" class="ai" id="t2v-generate">▶ Run Mannimmate</button>
+        <button type="button" id="t2v-cancel" disabled>Cancel</button>
+        <label class="ai-dryrun-lbl" title="Build graph/manifest offline without sending to GPU">
+          <input type="checkbox" name="dryRun" id="ai-dry-run"> Dry run (debug)
+        </label>
+      </div>
+    </form>
+
+    <div id="t2v-status" class="t2v-status" aria-live="polite"></div>
+    <div id="t2v-progress" class="t2v-progress" hidden><div id="t2v-bar"></div></div>
+    <div id="t2v-result" class="t2v-result"></div>
+
+    <details class="ai-debug" open>
+      <summary>Debug Console <span class="muted">(command preview, stdout, stderr, exit code)</span></summary>
+      <div class="ai-debug-cmd" id="ai-cmd-preview"></div>
+      <div class="ai-debug-tools">
+        <button type="button" id="ai-log-copy">Copy log</button>
+        <button type="button" id="ai-log-clear">Clear</button>
+      </div>
+      <pre class="ai-debug-log" id="ai-debug-log">Ready. Pick a mode or click "🩺 Doctor" to inspect Mannimmate.</pre>
+    </details>
+  </div>
+</div>
+
+<div id="advisor-dialog" class="modal" hidden>
+  <div class="modal-card ai-studio-card" role="dialog" aria-modal="true" aria-labelledby="adv-title">
+    <div class="modal-head">
+      <h2 id="adv-title">🖥️ Local GPU Analyzer &amp; 1-Click Model Installer</h2>
+      <div class="ai-head-btns">
+        <button type="button" id="adv-analyze" class="ai">🔍 Re-Analyze</button>
+        <button type="button" id="adv-close">Close</button>
+      </div>
+    </div>
+
+    <div class="adv-hw-grid" id="adv-hw-grid"></div>
+
+    <div class="adv-research-bar">
+      <button type="button" id="adv-web-search" class="ai" title="Have an AI agent scrape the web for the newest local video models, LoRAs &amp; optimizations for your GPU">🌐 Search Web for Newest &amp; Greatest</button>
+      <select id="adv-provider" aria-label="AI research provider">
+        <option value="auto" selected>Auto AI Agent</option>
+        <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
+        <option value="opencode">OpenCode</option>
+      </select>
+      <button type="button" id="adv-cancel-web" hidden>Cancel Search</button>
+      <label class="adv-dir-lbl">ComfyUI dir
+        <input type="text" id="adv-comfy-dir" autocomplete="off">
+      </label>
+    </div>
+
+    <div id="adv-web-result" class="adv-web-result" hidden></div>
+
+    <div class="adv-section-title">Recommended Local Models (with LoRAs &amp; GPU Optimizations)</div>
+    <div class="adv-model-list" id="adv-model-list"></div>
+
+    <div class="adv-install-box" id="adv-install-box" hidden>
+      <div class="ai-prompt-head">
+        <span id="adv-install-status">Installing…</span>
+        <button type="button" id="adv-cancel-install">Cancel Install</button>
+      </div>
+      <pre class="ai-debug-log" id="adv-install-log"></pre>
     </div>
   </div>
+</div>
 
-  <section class="timeline" aria-label="Timeline">
-    <div class="tl-body">
-      <div class="labels">
-        <div class="tlbl">Video 2</div>
-        <div class="tlbl">Video 1</div>
-        <div class="tlbl">Audio 1</div>
-        <div class="tlbl">Audio 2</div>
+<!-- Create / Manage RefMod Window (with Tony Sheen Example Guide) -->
+<div id="refmod-creator-dialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="rmc-title">
+  <div class="modal-card rmc-card">
+    <div class="modal-head">
+      <h2 id="rmc-title">🧬 Create RefMod <span class="muted" style="font-size:12px;font-weight:400">(Zero-training ~1.5 MB MiniMax-H3 latent)</span></h2>
+      <button type="button" id="rmc-close">Close</button>
+    </div>
+
+    <!-- Interactive Tony Sheen Example Guide for New Users -->
+    <div class="rmc-guide" id="rmc-guide">
+      <div class="rmc-guide-avatar" id="rmc-tony-avatar">
+        <span>TS</span>
       </div>
-      <div class="scroller" id="scroller">
-        <div id="canvas" class="canvas">
-          <div id="ruler" class="ruler" aria-label="Ruler; click to move playhead"></div>
-          <div id="tracks" class="tracks"></div>
-          <div id="playhead" class="playhead" aria-hidden="true"></div>
+      <div class="rmc-guide-body">
+        <div class="rmc-guide-head">
+          <strong>📘 Example Guide: Tony Sheen (<code>mannimmate_2d_v1/tony_sheen_2d_v2</code>)</strong>
+          <button type="button" class="ai-btn-purple" id="rmc-fill-tony">📋 Fill Tony Sheen Example Settings</button>
+        </div>
+        <div class="rmc-guide-steps">
+          <div><b>1. Name &amp; Category:</b> <code>tony_sheen_2d_v2</code> · Category <code>2D / Anime</code> · Subfolder <code>mannimmate_2d_v1</code></div>
+          <div><b>2. Concept &amp; Mode:</b> <code>identity</code> + <code>Full Reference</code> at <code>1024px</code> (keeps exact face/hair without lossy pooling; use <code>Compressed Reference + Merge</code> only for multi-angle <code>background</code> sets)</div>
+          <div><b>3. Images (3–6 views):</b> Upload crisp front, 3/4, and side-profile shots of Tony in consistent lighting &amp; outfit.</div>
+          <div><b>4. Voice Audio (optional):</b> Upload a clean dry 5–12s voice clip (<code>.wav</code>/<code>.mp3</code>) and keep Save Layout = <code>bundle</code> so face + voice live in one RefMod!</div>
         </div>
       </div>
     </div>
-    <div class="tl-bar">
-      <button data-action="undo" aria-label="Undo" title="Undo">↶</button>
-      <button data-action="redo" aria-label="Redo" title="Redo">↷</button>
-      <span class="sep"></span>
-      <button data-action="split" aria-label="Split at playhead" title="Split at playhead">✂ Split</button>
-      <button data-action="trim" aria-label="Trim end to playhead" title="Trim end to playhead">Trim</button>
-      <button data-action="delete" aria-label="Delete" title="Delete">Delete</button>
-      <button data-action="duplicate" aria-label="Duplicate" title="Duplicate">Duplicate</button>
-      <button data-action="snap" id="snap-btn" aria-label="Magnetic snap" title="Magnetic snap">Snap</button>
-      <span class="sep"></span>
-      <button data-action="zoomOut" aria-label="Zoom out timeline" title="Zoom out (−)">−</button>
-      <button data-action="zoomIn" aria-label="Zoom in timeline" title="Zoom in (+)">+</button>
-      <button data-action="fit" aria-label="Fit timeline" title="Fit whole timeline">Fit</button>
-      <div class="grow"></div>
-      <span class="muted" id="tl-info"></span>
-    </div>
-  </section>
+
+    <form id="rmc-form" class="rmc-form">
+      <label>RefMod Name (slug)
+        <input type="text" id="rmc-name" name="name" placeholder="e.g. tony_sheen_2d_v2" required autocomplete="off">
+      </label>
+      <label>Display Name
+        <input type="text" id="rmc-display" name="displayName" placeholder="e.g. Tony Sheen" autocomplete="off">
+      </label>
+      <label>Category
+        <select id="rmc-category" name="category">
+          <option value="Characters">🧑 Characters</option>
+          <option value="Photoreal">📸 Photoreal</option>
+          <option value="2D / Anime">🎨 2D / Anime</option>
+          <option value="Locations">🏛️ Locations</option>
+          <option value="Styles">✨ Styles</option>
+          <option value="Voices">🎙️ Voices</option>
+        </select>
+      </label>
+      <label>Subfolder (optional in models/refmods/)
+        <input type="text" id="rmc-subfolder" name="subfolder" placeholder="e.g. mannimmate_2d_v1 or locations" autocomplete="off">
+      </label>
+
+      <label>Concept Type
+        <select id="rmc-concept" name="conceptType">
+          <option value="identity" selected>identity (character face &amp; body)</option>
+          <option value="background">background (room / 3D set)</option>
+          <option value="style">style (art style / look)</option>
+          <option value="clothing">clothing (outfit)</option>
+          <option value="voice">voice (speech only)</option>
+          <option value="pose_motion">pose_motion (action / gesture)</option>
+          <option value="generic">generic</option>
+        </select>
+      </label>
+      <label>Extraction Mode
+        <select id="rmc-mode" name="mode">
+          <option value="Full Reference" selected>Full Reference (best for character identity)</option>
+          <option value="Compressed Reference">Compressed Reference (pooled — best for backgrounds/styles)</option>
+        </select>
+      </label>
+      <label>Reference Resolution
+        <select id="rmc-res" name="refResolution">
+          <option value="512">512px (fast)</option>
+          <option value="1024" selected>1024px (recommended)</option>
+          <option value="1536">1536px (high detail)</option>
+          <option value="2048">2048px (max fidelity)</option>
+        </select>
+      </label>
+      <label>Save Layout
+        <select id="rmc-layout" name="saveLayout">
+          <option value="bundle" selected>bundle (visual + audio in 1 file)</option>
+          <option value="separate_files">separate_files (visual &amp; audio separate)</option>
+        </select>
+      </label>
+
+      <label class="rmc-wide rmc-check-row">
+        <input type="checkbox" id="rmc-merge" name="merge">
+        <span><b>Merge multi-angle views into 1 consensus grid</b> <span class="muted">(recommended for <code>background</code> / <code>style</code> in Compressed Reference mode; leave OFF for character <code>identity</code>)</span></span>
+      </label>
+
+      <!-- Reference Images (1-16) -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🖼️ Reference Images (1–16) <span class="muted" id="rmc-img-count">(0 selected)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" class="ai-btn-purple" id="rmc-pick-images">+ Pick Images</button>
+            <button type="button" id="rmc-clear-images">Clear</button>
+          </span>
+        </div>
+        <div class="rmc-thumb-strip" id="rmc-img-strip">
+          <div class="muted" style="font-size:11px">Add 3–6 crisp character angles (like Tony Sheen: front, 3/4, profile) or 8 room views for a Location RefMod.</div>
+        </div>
+      </div>
+
+      <!-- Optional Voice / Audio Reference -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🎙️ Voice / Audio Reference <span class="muted">(optional · 5–12s clean dry speech)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="rmc-pick-audio">+ Pick Audio (.wav/.mp3)</button>
+            <button type="button" id="rmc-clear-audio">Clear</button>
+          </span>
+        </div>
+        <div class="muted" id="rmc-audio-label" style="font-size:11px">No audio selected (visual-only RefMod).</div>
+      </div>
+
+      <!-- Optional Reference Videos -->
+      <div class="rmc-wide rmc-input-box">
+        <div class="ai-prompt-head">
+          <span>🎬 Reference Videos <span class="muted">(optional · for pose/motion or video identity refs)</span></span>
+          <span class="ai-prompt-helpers">
+            <button type="button" id="rmc-pick-videos">+ Pick Videos (.mp4)</button>
+            <button type="button" id="rmc-clear-videos">Clear</button>
+          </span>
+        </div>
+        <div class="muted" id="rmc-video-label" style="font-size:11px">No videos selected.</div>
+      </div>
+
+      <div class="rmc-wide rmc-footer">
+        <span class="muted" id="rmc-status">Ready · runs on Tranklena ComfyUI ($0 cloud cost)</span>
+        <button type="submit" class="primary" id="rmc-submit">🚀 Build RefMod on Tranklena</button>
+      </div>
+    </form>
+  </div>
 </div>
-<script type="module" src="src/app.js"></script>
+
+<!-- 🎙️ Audio-First & Lip-Sync Control Portal -->
+<div id="audio-portal-dialog" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ap-title" style="max-width:780px">
+    <div class="modal-head">
+      <h2 id="ap-title">🎙️ Audio-First &amp; Lip-Sync Studio</h2>
+      <button type="button" id="ap-close">Close</button>
+    </div>
+
+    <div class="ap-body" style="display:flex;flex-direction:column;gap:14px;padding:6px 2px">
+      <!-- Step 1: Cadence-Controlled Text-to-Speech (Auto-Duration) + Hear Character Voice -->
+      <div class="ap-card" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;flex-wrap:wrap">
+          <b>1A. Cadence Text-to-Speech <span class="muted">(auto-timed from text · no manual seconds!)</span></b>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="ap-copy-cadence-prompt" class="ai-btn-purple" title="Copy the TTS Cadence System Prompt for your AI agent so it formats scripts with [fast], [slow], [emotional], [pause 0.4s]">📋 Copy TTS Cadence Prompt</button>
+            <button type="button" id="ap-import-btn">📂 Import Audio</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:8px;align-items:end">
+          <label>Character Voice (RefMod)
+            <select id="ap-refmod">
+              <option value="">— Generic Studio Voice —</option>
+            </select>
+          </label>
+          <button type="button" id="ap-hear-voice" disabled title="No voice preview available for this character" style="height:34px">🔊 Hear Voice</button>
+          <label>Base Delivery / Tone <span class="muted">(optional)</span>
+            <input type="text" id="ap-delivery" value="natural, clear, intimate close-mic speech" placeholder="e.g. calm whisper, warm, sarcastic">
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="muted" style="font-size:11px">Cadence tags:</span>
+          <button type="button" data-ap-tag="[fast] " style="height:22px;font-size:11px;padding:0 7px">⚡ [fast]</button>
+          <button type="button" data-ap-tag="[slow] " style="height:22px;font-size:11px;padding:0 7px">🐢 [slow]</button>
+          <button type="button" data-ap-tag="[emotional] " style="height:22px;font-size:11px;padding:0 7px">💧 [emotional]</button>
+          <button type="button" data-ap-tag="[whisper] " style="height:22px;font-size:11px;padding:0 7px">🤫 [whisper]</button>
+          <button type="button" data-ap-tag="[urgent] " style="height:22px;font-size:11px;padding:0 7px">🔥 [urgent]</button>
+          <button type="button" data-ap-tag="[pause 0.4s] " style="height:22px;font-size:11px;padding:0 7px">⏸ [pause 0.4s]</button>
+          <span class="grow"></span>
+          <span id="ap-auto-dur" style="font-size:11px;color:#34d399;font-weight:600">Auto: ~3s · 0 words</span>
+        </div>
+        <label style="display:block;margin-bottom:8px">Dialogue Script (with optional cadence tags)
+          <textarea id="ap-dialogue" rows="2" placeholder="e.g. [fast] Wait—don't open that door! [pause 0.4s] [slow, emotional] I told you what's behind it."></textarea>
+        </label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button type="button" id="ap-gen-voice" class="primary">🎙️ Generate Cadence Voice Audio</button>
+          <span class="muted" id="ap-voice-status" style="font-size:12px">Ultra-fast 360p · 6fps · 4-step audio-only pass → 48 kHz WAV on timeline</span>
+        </div>
+      </div>
+
+      <!-- Step 1B: Voice Changer (Speak in Your Voice -> Transform to Character Voice) -->
+      <div class="ap-card" style="background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;flex-wrap:wrap">
+          <b>1B. 🎭 Voice Changer <span class="muted">(Speak in your own voice → transform into the selected Character's voice)</span></b>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="ap-record-btn" class="ai">🎤 Record My Voice</button>
+            <button type="button" id="ap-vc-pick-btn">📂 Pick Voice Clip</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <input type="text" id="ap-vc-transcript" style="flex:1" placeholder="Optional: what you said (helps lock exact words while transferring your cadence into the Character RefMod voice)">
+          <button type="button" id="ap-vc-run" class="primary" disabled>🎭 Convert to Character Voice</button>
+        </div>
+        <div class="muted" id="ap-vc-status" style="font-size:11px">Record your voice above (or pick an audio file), choose a Character RefMod in 1A, and click Convert!</div>
+      </div>
+
+      <!-- Step 2: Manual Time Warp (Speed Sync) -->
+      <div class="ap-card" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b>2. Time Warp Video Clip to Match Audio <span class="muted">(manual slider or 1-click match)</span></b>
+          <button type="button" id="ap-match-audio" class="ai">🎯 Auto-Match Video to Audio Duration</button>
+        </div>
+        <div id="ap-pair-summary" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="background:rgba(0,0,0,.28);border-radius:8px;padding:8px;font-size:12px" id="ap-video-badge">🎬 Video: <i>Select a video clip on the timeline</i></div>
+          <div style="background:rgba(0,0,0,.28);border-radius:8px;padding:8px;font-size:12px" id="ap-audio-badge">🔊 Audio: <i>Select an audio clip on the timeline</i></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="muted" style="font-size:12px;white-space:nowrap">⏱️ Time Warp:</span>
+          <input type="range" id="ap-speed-range" min="0.25" max="4.0" step="0.05" value="1.00" style="flex:1">
+          <input type="number" id="ap-speed-num" min="0.25" max="4.0" step="0.05" value="1.00" style="width:74px">
+          <span class="muted" id="ap-delta-badge" style="font-size:12px;min-width:95px;text-align:right">—</span>
+        </div>
+      </div>
+
+      <!-- Step 3: Lip-Sync Selected Video + Audio -->
+      <div class="ap-card" style="background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.3);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <b>3. Lip-Sync Selected Video + Audio</b>
+            <div class="muted" style="font-size:11px">Select 1 Video + 1 Audio on the timeline (Ctrl+Click both) — Zaude bakes your Time Warp &amp; trims, runs LatentSync 1.6 / MuseTalk on Tranklena, and swaps the synced video in-place.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="ap-room-preset" title="Optional room acoustics match on synced audio">
+              <option value="none">Acoustics: Dry / Original</option>
+              <option value="dim-bar">🍺 Dim Bar</option>
+              <option value="small-office">🖨️ Small Office</option>
+              <option value="outdoor-street">🌳 Outdoor Street</option>
+              <option value="hallway">🚪 Hallway</option>
+              <option value="podcast-booth">🎙️ Podcast Booth</option>
+            </select>
+            <button type="button" id="ap-run-lipsync" class="primary">🗣️ Lip-Sync Selected Pair</button>
+          </div>
+        </div>
+        <div class="muted" id="ap-lipsync-status" style="font-size:12px;margin-top:8px">Tip: You can also Ctrl+Click any Audio + Video clip on the timeline and right-click → <b>🗣️ Lip-Sync</b> directly!</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Floating AI Chat Window (draggable & resizable) -->
+<div id="aichat-float" class="aichat-float" hidden role="dialog" aria-label="AI Chat Assistant">
+  <div class="aichat-float-head" id="aichat-float-head">
+    <strong>✨ AI Chat Assistant</strong>
+    <div style="display:flex;gap:4px">
+      <button type="button" id="aichat-float-dock" title="Dock AI Chat into the workspace" style="height:24px;font-size:11px;padding:0 7px">📌 Dock</button>
+      <button type="button" id="aichat-float-close" title="Hide AI Chat" style="height:24px;font-size:11px;padding:0 7px">✕</button>
+    </div>
+  </div>
+  <div class="aichat-float-body" id="aichat-float-body"></div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+<script type="module" src="src/remote-ui.js"></script>
+<script type="module" src="src/ai-ui.js"></script>
+<script type="module" src="src/prompt-advancer-ui.js"></script>
+<script type="module" src="src/set3d-ui.js"></script>
+<script src="src/quality-showcase-ui.js"></script>
+<script type="module" src="src/recast-ui.js"></script>
+<script type="module" src="src/advisor-ui.js"></script>
+<script type="module" src="src/update-ui.js"></script>
 </body>
 </html>

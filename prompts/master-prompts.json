@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "description": "Shared Zaude Master Prompts for the AI Prompt Advancer. Select one or more options when advancing a prompt to steer camera language, fight choreography, dialogue acting, RefMod continuity, soundscape, or local LTX pacing.",
+  "masters": [
+    {
+      "id": "camera-cinematic",
+      "name": "Cinema Camera Rules",
+      "icon": "🎥",
+      "category": "Camera",
+      "description": "180° rule, motivated dolly/track moves, explicit lens (35mm/50mm/85mm), foreground depth, zero unmotivated floating camera.",
+      "instructions": "Apply strict cinematography rules: specify exact shot size and lens focal length (e.g. 35mm wide, 50mm medium, 85mm close-up), respect the 180-degree screen-direction rule, use ONE motivated camera move (slow push-in, steady tracking shot, handheld micro-shake, or locked tripod) rather than random floating motion, establish foreground/midground/background depth layers, and lock lighting direction and color temperature."
+    },
+    {
+      "id": "fight-choreography",
+      "name": "Better Fights & Action",
+      "icon": "🥊",
+      "category": "Action",
+      "description": "Clear wind-up → impact → follow-through beats, crisp spatial staging, camera impact jolt, weight & debris.",
+      "instructions": "Choreograph the action as a crisp, readable beat-by-beat physical sequence: (1) telegraph/wind-up, (2) decisive impact with real weight and momentum transfer, (3) immediate physical reaction/stumble/fall, (4) brief hold to read the aftermath. Keep spatial geography crystal clear (explicitly state screen-left vs screen-right staging), add a subtle camera jolt on impact followed by quick stabilization, include environmental contact cues (dust, sparks, footsteps, cloth snap), and avoid rubbery slow-motion or teleporting limbs."
+    },
+    {
+      "id": "dialogue-acting",
+      "name": "Dialogue & Acting",
+      "icon": "🎭",
+      "category": "Acting",
+      "description": "Timestamped Dialogue windows, micro-expressions, eye-line lock, natural gestures, RefMod speaking block.",
+      "instructions": "Structure speaking scenes for strong lip-sync and acting: include explicit timestamped dialogue windows (e.g. Dialogue (0.6s–4.2s): Subject 1 says \"...\"), specify eye-line direction, subtle facial micro-expressions (brow furrow, breath inhale, glance away), and grounded hand/posture beats. For RefMod shots, include a concise RefMod usage note (visible=...; speaking=...) so the right character speaks."
+    },
+    {
+      "id": "refmod-strict-continuity",
+      "name": "Strict RefMod Lock",
+      "icon": "🧬",
+      "category": "Continuity",
+      "description": "Default outfit negation, verbatim room/prop anchors, bright TV/screen lock ON, zero identity drift.",
+      "instructions": "Enforce strict MiniMax-H3 RefMod continuity: refer to characters as Subject 1 (<Name>), Subject 2 (<Name>). Whenever wardrobe differs from a character's default RefMod look, explicitly negate the default first (\"NOT in default outfit, instead wearing...\"). Repeat concrete room/prop/lighting anchors verbatim, keep any TV/monitor screens explicitly brightly lit and ON, and lock wardrobe and hair state across the full shot."
+    },
+    {
+      "id": "soundscape-music",
+      "name": "Rich Sound & Foley",
+      "icon": "🔊",
+      "category": "Sound",
+      "description": "Detailed overall_soundscape (foley, footsteps, room tone) + non_diegetic_music cues for H3 joint audio-video.",
+      "instructions": "Add dedicated joint audio-video sections tailored for MiniMax-H3: include an `overall_soundscape:` paragraph detailing concrete foley synced to visual beats (footsteps on specific floor material, impact thuds, cloth rustle, breathing, ambient room tone) and a `non_diegetic_music:` line describing score instrumentation, tension build, and exact hit/cut-out moments (or explicitly state 'None' if pure diegetic realism is desired)."
+    },
+    {
+      "id": "suspense-horror",
+      "name": "Suspense & Atmosphere",
+      "icon": "🌒",
+      "category": "Mood",
+      "description": "Slow dread build, chiaroscuro rim light, negative space, lingering holds before the reveal.",
+      "instructions": "Heighten tension and mood: use deliberate slow pacing, dramatic chiaroscuro lighting with deep shadows and a single motivated key/rim light, purposeful negative space in the frame, subtle environmental dread cues (flickering light, drifting dust/mist, distant creak), and a lingering beat before any sudden reveal or movement."
+    },
+    {
+      "id": "comedy-timing",
+      "name": "Comedic Timing",
+      "icon": "😂",
+      "category": "Timing",
+      "description": "Setup → beat pause → deadpan reaction or physical gag, readable two-shot framing.",
+      "instructions": "Optimize for comedic readability: frame wide enough to keep both the trigger and the reaction clearly visible, build a clear three-beat rhythm (confident setup → half-second beat pause → deadpan expression or physical payoff), keep lighting clean and readable, and emphasize expressive eye movement and posture."
+    },
+    {
+      "id": "local-ltx-compact",
+      "name": "Local LTX 2B Tuned",
+      "icon": "💻",
+      "category": "Local GPU",
+      "description": "Compact single-shot visual prose tuned for fast 8-step LTX-Video 2B GGUF on 8 GB laptops.",
+      "instructions": "Tailor the prompt for fast 8-step LTX-Video 2B GGUF on an 8 GB GPU: write ONE cohesive, vivid paragraph (under 650 characters) describing a single continuous shot with NO scene cuts, ONE clear primary motion arc, concrete subject appearance, simple readable lighting, and smooth camera motion. Avoid complex multi-character dialogue or dense text overlays."
+    },
+    {
+      "id": "change-background",
+      "name": "Change Background",
+      "icon": "🌆",
+      "category": "Stylize",
+      "description": "Preserve performer, pose, timing & camera path from <Video 1> while replacing ONLY the world + matching rim light.",
+      "instructions": "Format for clean RV2V background replacement: explicitly preserve the performer's exact face, hair, clothing, choreography, poses, timing, and camera trajectory from <Video 1>, replace ONLY the background environment with rich concrete scenery, and specify matching rim lighting, color bounce, and grounded floor contact shadows so the performer blends seamlessly into the new location."
+    },
+    {
+      "id": "consistent-shot-lock",
+      "name": "Character-Swappable Shot",
+      "icon": "🎯",
+      "category": "Library",
+      "description": "Locks lens, camera move, lighting, and timed 0s–5s beats so swapping any RefMod outputs the exact same shot.",
+      "instructions": "Structure the prompt as a reusable, character-swappable shot template: use `Subject 1 (<Name>)` keeping their exact RefMod appearance, specify ONE fixed focal length and ONE motivated camera move, anchor concrete environment/props/lighting direction + Kelvin color temperature, choreograph explicit timed physical beats (0s–2s, 2s–4s, 4s–6s), and include `overall_soundscape:` and `non_diegetic_music:` so different characters always produce the same consistent shot."
+    },
+    {
+      "id": "long-form-cinematic-script",
+      "name": "Zaude Multi-Shot Script",
+      "icon": "🎬",
+      "category": "Directing",
+      "description": "Full Zaude cinematic syntax: Initial Posture→Impact→Final Pose, 180° OTS, 2.0–2.5 wps <d> dialogue, RefMods, BG locks & --- blocks.",
+      "instructions": "Write in Zaude's full Cinematic Multi-Shot syntax: enforce strict physical action chains (Initial Posture -> Trigger -> Action -> Momentum -> Impact -> Final Pose), obey coordinate rules (screen-left/right, camera-left/right, subject left/right), maintain 33% face close-ups / 67% environmental-prop shots and 180° paired OTS for two-person dialogue, pace dialogue at 2.0–2.5 words/sec (never >3.0, one speaker per window, start 0.2–0.3s in, end ≥0.2s before shot ends, wrap in <d>[English] ...</d>, never add the 0.917s continuation overlap). Include style_definitions:, subject_definitions: (with RefMod slugs and outfit overrides), retention_analysis: + RefMod usage, detailed_description:, [Shot N] with summary: and timed beats, overall_soundscape:, and non_diegetic_music:. Separate multiple shots with ---."
+    }
+  ]
+}
