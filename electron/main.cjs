@@ -8,14 +8,11 @@ app.setName('Zaude');
 if (!process.env.PULSE_PROP) process.env.PULSE_PROP = 'application.name=Zaude';
 
 // Enable hardware GPU rasterization and WebGL while capping the JS heap on 16 GB laptops.
-// (Linux VA-API zero-copy decode flags are omitted to avoid hybrid Intel/NVIDIA GPU SIGSEGVs.)
+// (Linux VA-API zero-copy decode and forced NVIDIA EGL/Vulkan X11 flags are omitted because
+// hybrid Intel-display + NVIDIA-offload Wayland laptops fail to map windows or crash eglCreateImage;
+// FFmpeg NVENC and local ComfyUI CUDA automatically run directly on the RTX GPU.)
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-if (process.platform === 'linux' && process.env.__NV_PRIME_RENDER_OFFLOAD === '1') {
-  app.commandLine.appendSwitch('ozone-platform', 'x11');
-  app.commandLine.appendSwitch('use-gl', 'angle');
-  app.commandLine.appendSwitch('use-angle', 'vulkan');
-}
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1536');
 const http = require('node:http');

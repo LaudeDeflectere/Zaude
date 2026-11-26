@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 8080",
-    "desktop": "env __NV_PRIME_RENDER_OFFLOAD=1 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json __VK_LAYER_NV_optimus=NVIDIA_only electron .",
+    "desktop": "electron .",
     "test": "node --test \"test/*.test.js\"",
     "dist": "electron-builder --publish never"
   },
