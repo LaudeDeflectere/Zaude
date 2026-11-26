@@ -176,3 +176,53 @@ test('buildMultiShotAgentPrompt embeds numbered RefMods, environment/BG lock, an
   assert.match(prompt, /NEVER SPLIT A VOICE LINE ACROSS TWO GENERATIONS/);
   assert.match(prompt, /mode: continue/);
 });
+
+test('headless scripting API keys and project-to-.txt script export round-trip cleanly', () => {
+  const exporter = require('../electron/project-script-export.cjs');
+  const script = exporter.exportProjectToScript({
+    name: 'Salabin Pilot',
+    clips: [
+      {
+        name: 'Opening Alley',
+        start: 0,
+        dur: 5,
+        srcIn: 1.5,
+        speed: 1.25,
+        filePath: '/home/laude/Videos/alley.mp4',
+        aiMeta: {
+          engine: 'tranklena',
+          mode: 'refmod',
+          refmods: ['salabin__salabin_konrad'],
+          model: 'singularity_v2_ref2va.safetensors',
+          lora: 'lightning_4step.safetensors',
+          loraStrength: 0.85,
+          refmodLock: 0.72,
+          outfitOverride: 'no coat, scorched hair',
+          outpaintAspect: '16:9',
+          cameraPullback: 0.8,
+          resolution: 640,
+          fps: 24,
+          steps: 6,
+          seed: 777,
+          prompt: '<Subject 1> steps out into the alley.',
+        },
+      },
+    ],
+  });
+
+  const parsed = sp.parseMultiShotScript(script);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.shots.length, 1);
+  const s = parsed.shots[0];
+  assert.equal(s.model, 'singularity_v2_ref2va.safetensors');
+  assert.equal(s.lora, 'lightning_4step.safetensors');
+  assert.equal(s.loraStrength, 0.85);
+  assert.equal(s.refmodLock, 0.72);
+  assert.equal(s.outfitOverride, 'no coat, scorched hair');
+  assert.equal(s.outpaintAspect, '16:9');
+  assert.equal(s.cameraPullback, 0.8);
+  assert.equal(s.file, '/home/laude/Videos/alley.mp4');
+  assert.equal(s.trimIn, 1.5);
+  assert.equal(s.speed, 1.25);
+  assert.equal(s.seed, 777);
+});

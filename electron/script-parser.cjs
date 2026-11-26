@@ -81,6 +81,21 @@ function parseShotConfig(block) {
     castSlots: [],
     speakingSlots: [],
     background: '',
+    model: '',
+    lora: '',
+    loraStrength: null,
+    refmodLock: null,
+    outfitOverride: '',
+    set3dCam: '',
+    outpaintAspect: 'keep',
+    cameraPullback: 1.0,
+    voiceCadence: '',
+    lipsyncAudio: '',
+    roomAcoustics: '',
+    file: '',
+    trimIn: null,
+    trimOut: null,
+    speed: 1.0,
     resolution: null,
     fps: null,
     seconds: null,
@@ -117,6 +132,36 @@ function parseShotConfig(block) {
       cfg.speakingSlots = Array.from(new Set(nums));
     } else if (key === 'background') {
       cfg.background = val;
+    } else if (key === 'model') {
+      cfg.model = val;
+    } else if (key === 'lora') {
+      cfg.lora = val;
+    } else if (key === 'lora_strength') {
+      cfg.loraStrength = Number(val) || null;
+    } else if (key === 'refmod_lock') {
+      cfg.refmodLock = Number(val) || null;
+    } else if (key === 'outfit_override') {
+      cfg.outfitOverride = val;
+    } else if (key === 'set3d_cam') {
+      cfg.set3dCam = val;
+    } else if (key === 'outpaint_aspect') {
+      cfg.outpaintAspect = val;
+    } else if (key === 'camera_pullback') {
+      cfg.cameraPullback = Number(val) || 1.0;
+    } else if (key === 'voice_cadence') {
+      cfg.voiceCadence = val;
+    } else if (key === 'lipsync_audio') {
+      cfg.lipsyncAudio = val;
+    } else if (key === 'room_acoustics') {
+      cfg.roomAcoustics = val;
+    } else if (key === 'file') {
+      cfg.file = val;
+    } else if (key === 'trim_in') {
+      cfg.trimIn = Number(val);
+    } else if (key === 'trim_out') {
+      cfg.trimOut = Number(val);
+    } else if (key === 'speed') {
+      cfg.speed = Number(val) || 1.0;
     } else if (key === 'post') {
       cfg.post = val.toLowerCase();
     } else if (key === 'settings') {
@@ -274,6 +319,21 @@ function parseMultiShotScript(rawText) {
       backgroundImage,
       backgroundRefmod,
       locationRefMod: backgroundRefmod,
+      model: cfg.model || '',
+      lora: cfg.lora || '',
+      loraStrength: cfg.loraStrength,
+      refmodLock: cfg.refmodLock,
+      outfitOverride: cfg.outfitOverride || '',
+      set3dCam: cfg.set3dCam || '',
+      outpaintAspect: cfg.outpaintAspect || 'keep',
+      cameraPullback: cfg.cameraPullback || 1.0,
+      voiceCadence: cfg.voiceCadence || '',
+      lipsyncAudio: cfg.lipsyncAudio || '',
+      roomAcoustics: cfg.roomAcoustics || '',
+      file: cfg.file || '',
+      trimIn: cfg.trimIn,
+      trimOut: cfg.trimOut,
+      speed: cfg.speed || 1.0,
       post: cfg.post || 'none',
       prompt: assembledPrompt,
     };

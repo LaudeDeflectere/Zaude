@@ -1734,6 +1734,16 @@ export function inspectorPanel({ store, actions }) {
         if (p && window.zaudeAI && window.zaudeAI.reveal) window.zaudeAI.reveal(p);
         return;
       }
+      if (a === 'export-script' && window.zaude && window.zaude.exportProjectScript) {
+        const s = store.get();
+        window.zaude.exportProjectScript({
+          name: s.projectName || 'Zaude Project',
+          clips: s.clips || [],
+        }).then((res) => {
+          if (res && res.ok && actions.notify) actions.notify(`Exported AI Script: ${res.filePath}`);
+        });
+        return;
+      }
     }
     const tabBtn = e.target.closest('[data-insp-tab]');
     if (tabBtn) {
@@ -2033,6 +2043,7 @@ export function inspectorPanel({ store, actions }) {
         ${st.message ? `<div class="exp-status muted">${esc(st.message)}</div>` : ''}
         <div class="exp-actions">
           <button class="primary exp-go" data-exp-act="start" ${st.busy ? 'disabled' : ''}>${st.busy ? `Exporting ${Math.round((st.progress || 0) * 100)}%…` : `Export ${cfg.format}`}</button>
+          <button class="ai-btn-purple" data-exp-act="export-script" title="Export entire timeline &amp; AI clip recipes as a reproducible Multi-Shot .txt script">📄 Export AI Script (.txt)</button>
           ${st.lastPath ? '<button data-exp-act="reveal">Show in folder</button>' : ''}
         </div>
       </div>`;

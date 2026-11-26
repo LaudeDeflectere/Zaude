@@ -1818,6 +1818,11 @@ function init() {
       stylizeAction: shot.stylizeAction || 'replace',
       backgroundImage: shot.backgroundImage || '',
       backgroundRefmod: shot.backgroundRefmod || '',
+      model: shot.model || '',
+      lora: shot.lora || '',
+      outpaintAspect: shot.outpaintAspect || 'keep',
+      cameraPullback: shot.cameraPullback || 1.0,
+      video: shot.file || '',
     };
   }
 

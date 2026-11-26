@@ -34,6 +34,7 @@ const lipsync = require('./lipsync.cjs');
 const videoAnalyzer = require('./video-analyzer.cjs');
 const videoOutpaint = require('./video-outpaint.cjs');
 const qualityShowcase = require('./quality-showcase.cjs');
+const projectScriptExport = require('./project-script-export.cjs');
 const audioTts = require('./audio-tts.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
@@ -1632,6 +1633,19 @@ function registerAiHandlers() {
       ? Math.round(Number(opts.beatsPerBar))
       : 4;
     return beats.detectBeats(filePath, { beatsPerBar });
+  });
+
+  ipcMain.handle('project:exportScript', async (event, projectState) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const scriptText = projectScriptExport.exportProjectToScript(projectState || {});
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export Timeline as Reproducible AI Script (.txt)',
+      defaultPath: path.join(ROOT, 'zaude_project_script.txt'),
+      filters: [{ name: 'Zaude Script', extensions: ['txt', 'md'] }],
+    });
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(res.filePath, scriptText, 'utf8');
+    return { ok: true, filePath: res.filePath, bytes: Buffer.byteLength(scriptText, 'utf8') };
   });
 
   ipcMain.handle('project:saveZd', async (event, input) => {
