@@ -176,7 +176,11 @@ function renderRefModGrid() {
       ? `<video class="refmod-walk" src="${esc(item.walkUrl)}" muted loop playsinline preload="none"></video>`
       : '';
     const genBtn = `<button type="button" class="refmod-gen-btn${qPos >= 0 ? ' busy' : ''}" data-gen-refmod="${esc(item.slug)}" title="${item.hasWalk ? 'Regenerate headshot & walk preview' : 'Queue headshot & walk preview'}">${genLabel}</button>`;
+    const voiceBtn = item.hasVoice && item.voiceUrl
+      ? `<button type="button" class="refmod-mini-btn" data-voice-refmod="${esc(item.voiceUrl)}" title="Hear ${esc(label)}'s voice">🔊</button>`
+      : `<button type="button" class="refmod-mini-btn no-voice" disabled style="opacity:.35;cursor:not-allowed" title="No voice in this RefMod">🔇</button>`;
     const manageBtns = `<span class="refmod-tile-actions">
+      ${voiceBtn}
       <button type="button" class="refmod-mini-btn" data-cat-refmod="${esc(item.slug)}" title="Change category (current: ${esc(item.category || 'Characters')})">🏷️</button>
       <button type="button" class="refmod-mini-btn del" data-del-refmod="${esc(item.slug)}" title="Delete ${esc(label)} from Zaude RefMod library">✕</button>
     </span>`;
@@ -1835,6 +1839,14 @@ function init() {
     if (catPill) {
       activeRefmodCat = catPill.dataset.refmodCat || 'All';
       renderRefModGrid();
+      return;
+    }
+    const voiceBtn = e.target.closest('[data-voice-refmod]');
+    if (voiceBtn) {
+      e.stopPropagation();
+      if (window.__zaudeRefmodVoiceAudio) { try { window.__zaudeRefmodVoiceAudio.pause(); } catch { /* ignore */ } }
+      window.__zaudeRefmodVoiceAudio = new Audio(voiceBtn.dataset.voiceRefmod);
+      window.__zaudeRefmodVoiceAudio.play().catch(() => {});
       return;
     }
     const catBtn = e.target.closest('[data-cat-refmod]');

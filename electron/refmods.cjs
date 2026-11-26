@@ -91,9 +91,13 @@ function inspectEntry(dir, fallback = {}, index = 1) {
   const headshotPath = path.join(dir, 'headshot.jpg');
   const headshotPng = path.join(dir, 'headshot.png');
   const walkPath = path.join(dir, 'walk.mp4');
+  const voiceCandidates = ['voice.wav', 'voice.mp3', 'voice.ogg', 'voice.m4a'].map((f) => path.join(dir, f));
+  const resolvedVoice = voiceCandidates.find((p) => fs.existsSync(p)) || null;
   const hasHeadshot = fs.existsSync(headshotPath) || fs.existsSync(headshotPng);
   const resolvedHeadshot = fs.existsSync(headshotPath) ? headshotPath : (fs.existsSync(headshotPng) ? headshotPng : null);
   const hasWalk = fs.existsSync(walkPath);
+  const isVisualOnly = /_visual$/i.test(file) || meta.hasVoice === false;
+  const hasVoice = Boolean(resolvedVoice) && !isVisualOnly;
   const category = String(meta.category || '').trim() || inferCategory(file, name);
   return {
     file,
@@ -104,8 +108,10 @@ function inspectEntry(dir, fallback = {}, index = 1) {
     dir,
     headshotPath: resolvedHeadshot,
     walkPath: hasWalk ? walkPath : null,
+    voicePath: hasVoice ? resolvedVoice : null,
     hasHeadshot,
     hasWalk,
+    hasVoice,
   };
 }
 
@@ -231,7 +237,10 @@ function generateRefModAssets({ refmodsRoot, mannimmateDir, python = 'python3', 
   fs.mkdirSync(dir, { recursive: true });
   const subjectName = mod.name || displayFirstName(mod.name, 1);
   const slot = `${mod.file}|${subjectName}|1.0|1.0`;
-  const walkPrompt = `Medium close-up studio portrait of ${subjectName} from the chest up, full head and face centered in frame with generous headroom, looking directly at the camera with a calm natural expression, subtle gentle head turn and relaxed shoulder movement, clean neutral dark studio backdrop, soft cinematic key light, sharp facial detail, locked tripod camera.`;
+  const isVisualOnly = /_visual$/i.test(String(mod.file || ''));
+  const walkPrompt = isVisualOnly
+    ? `Medium close-up studio portrait of ${subjectName} from the chest up, full head and face centered in frame with generous headroom, looking directly at the camera with a calm natural expression, subtle gentle head turn and relaxed shoulder movement, clean neutral dark studio backdrop, soft cinematic key light, sharp facial detail, locked tripod camera.`
+    : `Medium close-up studio portrait of ${subjectName} from the chest up, full head and face centered in frame with generous headroom, looking directly at the camera and speaking clearly: 0.3s–2.6s: ${subjectName} says warmly, <d>[English] Hi, I'm ${subjectName}, ready for the scene.</d> Clean neutral dark studio backdrop, soft cinematic key light, sharp facial detail, locked tripod camera. overall_soundscape: Clean studio voice, zero music. non_diegetic_music: None.`;
 
   const args = [
     cliPath,
@@ -301,6 +310,14 @@ function generateRefModAssets({ refmodsRoot, mannimmateDir, python = 'python3', 
       } catch { /* keep savedVideo */ }
       const headshotTarget = path.join(dir, 'headshot.jpg');
       await extractHeadshotFromVideo(walkTarget, headshotTarget);
+      if (!isVisualOnly) {
+        const voiceTarget = path.join(dir, 'voice.wav');
+        await new Promise((resVoice) => {
+          const ff = spawn('ffmpeg', ['-y', '-i', walkTarget, '-vn', '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le', voiceTarget], { windowsHide: true });
+          ff.on('error', () => resVoice());
+          ff.on('close', () => resVoice());
+        });
+      }
       resolve({ ok: true, entry: inspectEntry(dir, mod) });
     });
   });
@@ -644,6 +661,12 @@ async function buildRefModOnComfy({
           });
           if (validImgs[0]) {
             try { fs.copyFileSync(validImgs[0], path.join(dir, 'headshot.jpg')); } catch { /* ignore */ }
+          }
+          if (validAudio) {
+            try {
+              const ext = path.extname(validAudio).toLowerCase() || '.wav';
+              fs.copyFileSync(validAudio, path.join(dir, `voice${ext}`));
+            } catch { /* ignore */ }
           }
           localEntry = inspectEntry(dir);
         }

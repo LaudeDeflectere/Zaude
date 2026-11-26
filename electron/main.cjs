@@ -33,6 +33,7 @@ const roomAcoustics = require('./room-acoustics.cjs');
 const lipsync = require('./lipsync.cjs');
 const videoAnalyzer = require('./video-analyzer.cjs');
 const videoOutpaint = require('./video-outpaint.cjs');
+const audioTts = require('./audio-tts.cjs');
 const aiChat = require('./ai-chat.cjs');
 const render = require('./render.cjs');
 const updater = require('./updater.cjs');
@@ -646,6 +647,7 @@ function registerAiHandlers() {
       ...item,
       headshotUrl: item.headshotPath ? mediaUrlFor(item.headshotPath) : null,
       walkUrl: item.walkPath ? mediaUrlFor(item.walkPath) : null,
+      voiceUrl: item.voicePath ? mediaUrlFor(item.voicePath) : null,
     }));
     return {
       ok: true,
@@ -989,7 +991,13 @@ function registerAiHandlers() {
     return { ...res, name: path.basename(res.output), url: mediaUrlFor(res.output), dur };
   });
 
-  // Audio-First Studio: generate clean dialogue audio using a Character RefMod on Tranklena (320p · 4 steps -> 48 kHz WAV)
+  // Audio-First Studio: cadence-controlled TTS with auto-duration (no manual seconds!) at 360p · 6fps · 4 steps -> 48 kHz WAV
+  ipcMain.handle('ai:audio:estimateCadence', (_e, text = '') => ({
+    ok: true,
+    estimate: audioTts.estimateSpeechDuration(text),
+    agentPrompt: audioTts.TTS_CADENCE_AGENT_PROMPT,
+  }));
+
   ipcMain.handle('ai:audio:generateVoice', async (event, input = {}) => {
     const settings = loadSettings();
     const mannimmateDir = settings.mannimmateDir;
@@ -997,18 +1005,15 @@ function registerAiHandlers() {
     fs.mkdirSync(outDir, { recursive: true });
     const dialogue = String(input.dialogue || '').trim();
     if (!dialogue) return { ok: false, error: 'Enter the dialogue line you want to generate.' };
-    const delivery = String(input.delivery || 'natural, clear, intimate close-mic speech').trim();
+    const delivery = String(input.delivery || '').trim();
     const refmodFile = String(input.refmod || '').trim();
     const refmodName = String(input.refmodName || 'Speaker').trim();
-    const seconds = Math.max(2, Math.min(15, Math.round(Number(input.seconds) || 4)));
-
-    const prompt = refmodFile
-      ? `Close-up quiet studio portrait of ${refmodName} speaking directly to camera in a clean quiet room with ${delivery} delivery. Dialogue (0.2s–${(seconds - 0.2).toFixed(1)}s): ${refmodName} says, "${dialogue}". overall_soundscape: Clean studio dialogue, zero background music, zero crowd noise. non_diegetic_music: None.`
-      : `Quiet neutral studio voiceover recording with ${delivery} delivery. Dialogue (0.2s–${(seconds - 0.2).toFixed(1)}s): Speaker says, "${dialogue}". overall_soundscape: Clean studio dialogue, zero music. non_diegetic_music: None.`;
+    const built = audioTts.buildCadenceVoicePrompt({ text: dialogue, refmodName, delivery });
+    const seconds = built.seconds;
 
     const req = {
       mode: refmodFile ? 'refmod' : 'text-render',
-      prompt,
+      prompt: built.prompt,
       seconds,
       quality: '360',
       resolution: 360,
@@ -1043,6 +1048,77 @@ function registerAiHandlers() {
     ], { windowsHide: true, timeout: 30000 });
     if (ext.status !== 0 || !fs.existsSync(wavPath)) {
       return { ok: false, error: 'Generated video had no extractable audio track.' };
+    }
+    pickedMediaDirs.add(outDir);
+    const dur = await lipsync.probeDuration(wavPath);
+    return { ok: true, path: wavPath, url: mediaUrlFor(wavPath), name: path.basename(wavPath), dur: dur || seconds };
+  });
+
+  // Voice Changer: transform a recorded/picked user voice clip into a Character RefMod's voice
+  ipcMain.handle('ai:audio:voiceChange', async (event, input = {}) => {
+    const settings = loadSettings();
+    const mannimmateDir = settings.mannimmateDir;
+    const outDir = path.join(settings.outDir || defaultOutDir(), 'voice_audio');
+    fs.mkdirSync(outDir, { recursive: true });
+    const sourceAudio = String(input.sourceAudioPath || '').trim();
+    const refmodFile = String(input.refmod || '').trim();
+    const refmodName = String(input.refmodName || 'Character').trim();
+    const transcript = String(input.transcript || '').trim();
+    if (!sourceAudio || !fs.existsSync(sourceAudio)) {
+      return { ok: false, error: 'Record your voice or pick an audio file first.' };
+    }
+    if (!refmodFile) {
+      return { ok: false, error: 'Pick a target Character RefMod voice.' };
+    }
+    const srcDur = await lipsync.probeDuration(sourceAudio);
+    const seconds = Math.max(2, Math.min(15, Math.ceil(srcDur || 4)));
+    const spokenPart = transcript
+      ? `0.2s–${(seconds - 0.2).toFixed(1)}s: ${refmodName} speaks matching the exact pacing, emotion, and cadence of the user's delivery: <d>[English] ${transcript}</d>`
+      : `0.2s–${(seconds - 0.2).toFixed(1)}s: ${refmodName} speaks naturally in their signature character voice with expressive cadence.`;
+
+    const prompt = [
+      `Close-up quiet studio portrait of ${refmodName} speaking into a close studio microphone in a dry treated booth.`,
+      spokenPart,
+      'overall_soundscape: Crystal-clear dry studio voice matching the character RefMod timbre, zero music, zero echo.',
+      'non_diegetic_music: None.',
+    ].join('\n');
+
+    const jobId = `vc-${Date.now().toString(36)}`;
+    const job = mannimmate.runJob({
+      mannimmateDir,
+      python: settings.python,
+      request: {
+        mode: 'refmod',
+        prompt,
+        seconds,
+        quality: '360',
+        resolution: 360,
+        steps: 4,
+        fps: 6,
+        refmods: [{ file: refmodFile, name: refmodName, identityStrength: 0.65, voiceStrength: 1.0 }],
+      },
+      promptDir: path.join(app.getPath('userData'), 'ai-prompts'),
+      previewDir: previewRoot(),
+      jobId,
+      outDir,
+      onEvent: (ev) => {
+        if (!event.sender.isDestroyed()) event.sender.send('ai:job', { ...ev, mode: 'voice-change' });
+      },
+    });
+    const res = await job.promise;
+    if (!res || !res.ok || !res.path) {
+      return { ok: false, error: (res && res.error) || 'Voice conversion failed.' };
+    }
+    const slug = refmodsLib.slugForRefMod(refmodName || 'vc').slice(0, 20);
+    const wavPath = path.join(outDir, `vc_${slug}_${Date.now().toString(36)}.wav`);
+    const { spawnSync } = require('node:child_process');
+    const ext = spawnSync('ffmpeg', [
+      '-hide_banner', '-y', '-i', res.path,
+      '-vn', '-ar', '48000', '-ac', '1', '-c:a', 'pcm_s16le',
+      wavPath,
+    ], { windowsHide: true, timeout: 30000 });
+    if (ext.status !== 0 || !fs.existsSync(wavPath)) {
+      return { ok: false, error: 'Could not extract converted voice WAV.' };
     }
     pickedMediaDirs.add(outDir);
     const dur = await lipsync.probeDuration(wavPath);

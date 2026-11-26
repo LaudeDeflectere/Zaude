@@ -793,35 +793,60 @@
     </div>
 
     <div class="ap-body" style="display:flex;flex-direction:column;gap:14px;padding:6px 2px">
-      <!-- Step 1: Create / Record / Import Audio -->
+      <!-- Step 1: Cadence-Controlled Text-to-Speech (Auto-Duration) + Hear Character Voice -->
       <div class="ap-card" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <b>1. Create Dialogue Audio First <span class="muted">(lands directly on timeline Audio track)</span></b>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;flex-wrap:wrap">
+          <b>1A. Cadence Text-to-Speech <span class="muted">(auto-timed from text · no manual seconds!)</span></b>
           <div style="display:flex;gap:6px">
-            <button type="button" id="ap-record-btn" class="ai">🎤 Record Mic</button>
+            <button type="button" id="ap-copy-cadence-prompt" class="ai-btn-purple" title="Copy the TTS Cadence System Prompt for your AI agent so it formats scripts with [fast], [slow], [emotional], [pause 0.4s]">📋 Copy TTS Cadence Prompt</button>
             <button type="button" id="ap-import-btn">📂 Import Audio</button>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:8px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:8px;align-items:end">
           <label>Character Voice (RefMod)
             <select id="ap-refmod">
               <option value="">— Generic Studio Voice —</option>
             </select>
           </label>
-          <label>Delivery / Tone
-            <input type="text" id="ap-delivery" value="natural, clear, intimate close-mic speech" placeholder="e.g. calm whisper, urgent, sarcastic">
-          </label>
-          <label>Length (s)
-            <input type="number" id="ap-seconds" min="2" max="15" step="1" value="4">
+          <button type="button" id="ap-hear-voice" disabled title="No voice preview available for this character" style="height:34px">🔊 Hear Voice</button>
+          <label>Base Delivery / Tone <span class="muted">(optional)</span>
+            <input type="text" id="ap-delivery" value="natural, clear, intimate close-mic speech" placeholder="e.g. calm whisper, warm, sarcastic">
           </label>
         </div>
-        <label style="display:block;margin-bottom:8px">Dialogue Line
-          <textarea id="ap-dialogue" rows="2" placeholder="Type the exact words the character should speak (plan ~2.0–2.5 words/sec)…"></textarea>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+          <span class="muted" style="font-size:11px">Cadence tags:</span>
+          <button type="button" data-ap-tag="[fast] " style="height:22px;font-size:11px;padding:0 7px">⚡ [fast]</button>
+          <button type="button" data-ap-tag="[slow] " style="height:22px;font-size:11px;padding:0 7px">🐢 [slow]</button>
+          <button type="button" data-ap-tag="[emotional] " style="height:22px;font-size:11px;padding:0 7px">💧 [emotional]</button>
+          <button type="button" data-ap-tag="[whisper] " style="height:22px;font-size:11px;padding:0 7px">🤫 [whisper]</button>
+          <button type="button" data-ap-tag="[urgent] " style="height:22px;font-size:11px;padding:0 7px">🔥 [urgent]</button>
+          <button type="button" data-ap-tag="[pause 0.4s] " style="height:22px;font-size:11px;padding:0 7px">⏸ [pause 0.4s]</button>
+          <span class="grow"></span>
+          <span id="ap-auto-dur" style="font-size:11px;color:#34d399;font-weight:600">Auto: ~3s · 0 words</span>
+        </div>
+        <label style="display:block;margin-bottom:8px">Dialogue Script (with optional cadence tags)
+          <textarea id="ap-dialogue" rows="2" placeholder="e.g. [fast] Wait—don't open that door! [pause 0.4s] [slow, emotional] I told you what's behind it."></textarea>
         </label>
         <div style="display:flex;align-items:center;gap:10px">
-          <button type="button" id="ap-gen-voice" class="primary">🎙️ Generate Voice Audio on Tranklena</button>
+          <button type="button" id="ap-gen-voice" class="primary">🎙️ Generate Cadence Voice Audio</button>
           <span class="muted" id="ap-voice-status" style="font-size:12px">Ultra-fast 360p · 6fps · 4-step audio-only pass → 48 kHz WAV on timeline</span>
         </div>
+      </div>
+
+      <!-- Step 1B: Voice Changer (Speak in Your Voice -> Transform to Character Voice) -->
+      <div class="ap-card" style="background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:6px;flex-wrap:wrap">
+          <b>1B. 🎭 Voice Changer <span class="muted">(Speak in your own voice → transform into the selected Character's voice)</span></b>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="ap-record-btn" class="ai">🎤 Record My Voice</button>
+            <button type="button" id="ap-vc-pick-btn">📂 Pick Voice Clip</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <input type="text" id="ap-vc-transcript" style="flex:1" placeholder="Optional: what you said (helps lock exact words while transferring your cadence into the Character RefMod voice)">
+          <button type="button" id="ap-vc-run" class="primary" disabled>🎭 Convert to Character Voice</button>
+        </div>
+        <div class="muted" id="ap-vc-status" style="font-size:11px">Record your voice above (or pick an audio file), choose a Character RefMod in 1A, and click Convert!</div>
       </div>
 
       <!-- Step 2: Manual Time Warp (Speed Sync) -->
