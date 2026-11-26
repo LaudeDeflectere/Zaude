@@ -892,6 +892,18 @@
   </div>
 </div>
 
+<!-- Floating AI Chat Window (draggable & resizable) -->
+<div id="aichat-float" class="aichat-float" hidden role="dialog" aria-label="AI Chat Assistant">
+  <div class="aichat-float-head" id="aichat-float-head">
+    <strong>✨ AI Chat Assistant</strong>
+    <div style="display:flex;gap:4px">
+      <button type="button" id="aichat-float-dock" title="Dock AI Chat into the workspace" style="height:24px;font-size:11px;padding:0 7px">📌 Dock</button>
+      <button type="button" id="aichat-float-close" title="Hide AI Chat" style="height:24px;font-size:11px;padding:0 7px">✕</button>
+    </div>
+  </div>
+  <div class="aichat-float-body" id="aichat-float-body"></div>
+</div>
+
 <script type="module" src="src/main.js"></script>
 <script type="module" src="src/remote-ui.js"></script>
 <script type="module" src="src/ai-ui.js"></script>

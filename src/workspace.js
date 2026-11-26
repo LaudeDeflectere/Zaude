@@ -323,16 +323,20 @@ export function createWorkspace(root, { createPanel, store, onLayoutChange }) {
 
   // ---------- visual window picker menus ----------
 
+  let popupAnchor = null;
+
   function closePopup() {
     if (popup) {
       popup.remove();
       popup = null;
     }
+    popupAnchor = null;
     document.removeEventListener('pointerdown', outsideClose, true);
     document.removeEventListener('keydown', escClose);
   }
 
   function outsideClose(e) {
+    if (popupAnchor && popupAnchor.contains(e.target)) return;
     if (popup && !popup.contains(e.target)) closePopup();
   }
 
@@ -340,8 +344,23 @@ export function createWorkspace(root, { createPanel, store, onLayoutChange }) {
     if (e.key === 'Escape') closePopup();
   }
 
-  function openMenu(x, y, title, onPick, { showExtras = false } = {}) {
+  function positionPopup(x, y) {
+    if (!popup) return;
+    popup.style.maxHeight = Math.max(220, window.innerHeight - 56) + 'px';
+    popup.style.overflowY = 'auto';
+    const w = popup.offsetWidth;
+    const h = popup.offsetHeight;
+    popup.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+    popup.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+  }
+
+  function openMenu(x, y, title, onPick, { showExtras = false, anchor = null } = {}) {
+    if (popup && anchor && popupAnchor === anchor) {
+      closePopup();
+      return;
+    }
     closePopup();
+    popupAnchor = anchor;
     popup = document.createElement('div');
     popup.className = 'menu window-picker';
     popup.setAttribute('role', 'menu');
@@ -366,16 +385,19 @@ export function createWorkspace(root, { createPanel, store, onLayoutChange }) {
 
     popup.innerHTML = `<div class="menu-title">${title}</div><div class="win-grid">${cards}</div>${extras}`;
     document.body.appendChild(popup);
-    const w = popup.offsetWidth;
-    const h = popup.offsetHeight;
-    popup.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
-    popup.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+    positionPopup(x, y);
 
     popup.addEventListener('click', (e) => {
       const scaleBtn = e.target.closest('[data-scale]');
       if (scaleBtn) {
         applyScale(Number(scaleBtn.dataset.scale));
         popup.querySelectorAll('[data-scale]').forEach((b) => b.classList.toggle('on', Number(b.dataset.scale) === uiScale));
+        if (popupAnchor) {
+          const nr = popupAnchor.getBoundingClientRect();
+          positionPopup(nr.left, nr.bottom + 4);
+        } else {
+          positionPopup(x, y);
+        }
         return;
       }
       if (e.target.closest('[data-reset]')) {
@@ -417,7 +439,7 @@ export function createWorkspace(root, { createPanel, store, onLayoutChange }) {
       const target = areas.find((a) => a.id === activeArea) || areas[areas.length - 1];
       tree = L.addBeside(tree, target.id, type, 'row');
       commit();
-    }, { showExtras: true });
+    }, { showExtras: true, anchor });
   }
 
   function init() {

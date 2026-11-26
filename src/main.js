@@ -51,7 +51,48 @@ document.getElementById('windows-open').addEventListener('click', (e) => {
 });
 document.getElementById('open-zd').addEventListener('click', () => actions.openZd());
 document.getElementById('save-zd').addEventListener('click', (e) => actions.saveZd(e.shiftKey));
-document.getElementById('aichat-open').addEventListener('click', () => workspace.ensurePanel('aichat'));
+// Floating AI Chat window (draggable, resizable, toggleable from top bar)
+let floatingChatPanel = null;
+const chatFloat = document.getElementById('aichat-float');
+const chatFloatBody = document.getElementById('aichat-float-body');
+const chatFloatHead = document.getElementById('aichat-float-head');
+document.getElementById('aichat-open').addEventListener('click', () => {
+  if (!chatFloat || !chatFloatBody) return workspace.ensurePanel('aichat');
+  if (!floatingChatPanel) {
+    floatingChatPanel = PANEL_BUILDERS.aichat(ctx);
+    chatFloatBody.appendChild(floatingChatPanel.el);
+    if (floatingChatPanel.update) floatingChatPanel.update(store.get());
+  }
+  chatFloat.hidden = !chatFloat.hidden;
+});
+document.getElementById('aichat-float-close')?.addEventListener('click', () => { if (chatFloat) chatFloat.hidden = true; });
+document.getElementById('aichat-float-dock')?.addEventListener('click', () => {
+  if (chatFloat) chatFloat.hidden = true;
+  workspace.ensurePanel('aichat');
+});
+if (chatFloatHead && chatFloat) {
+  chatFloatHead.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    const r = chatFloat.getBoundingClientRect();
+    const ox = e.clientX - r.left;
+    const oy = e.clientY - r.top;
+    chatFloat.style.right = 'auto';
+    chatFloat.style.bottom = 'auto';
+    chatFloat.style.left = r.left + 'px';
+    chatFloat.style.top = r.top + 'px';
+    const onMove = (ev) => {
+      chatFloat.style.left = Math.max(8, Math.min(window.innerWidth - 120, ev.clientX - ox)) + 'px';
+      chatFloat.style.top = Math.max(8, Math.min(window.innerHeight - 60, ev.clientY - oy)) + 'px';
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+}
 document.getElementById('help-open').addEventListener('click', () => workspace.ensurePanel('help'));
 document.getElementById('export-top').addEventListener('click', () => {
   workspace.ensurePanel('inspector');

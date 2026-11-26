@@ -1479,7 +1479,8 @@ export function timelinePanel({ store, actions, thumbs, waveforms }) {
             `<span class="blk-fade blk-fade-out" data-fade="out" title="Drag to adjust Audio Fade Out${c.fadeOut ? ` (${c.fadeOut.toFixed(2)}s)` : ''}" style="right:${Math.min(Math.max(0, (c.fadeOut || 0) * s.pps), Math.max(8, c.dur * s.pps) - 10)}px"></span>`
           : '';
 
-        return `<div class="blk ${kind}${sel}${strip ? ' has-strip' : ''}${hasInternalAudio ? ' has-wave' : ''}" role="button" tabindex="0" data-clip="${esc(c.id)}"
+        const isAiClip = Boolean(c.isAi || c.generating || c.latent || /Videos[\\/]Zaude|mannimmate|zaude_lipsync|voice_audio/i.test(c.path || ''));
+        return `<div class="blk ${kind}${sel}${isAiClip ? ' ai-clip' : ''}${strip ? ' has-strip' : ''}${hasInternalAudio ? ' has-wave' : ''}" role="button" tabindex="0" data-clip="${esc(c.id)}"
             aria-label="${esc(c.name)}" style="left:${c.start * s.pps}px;width:${Math.max(8, c.dur * s.pps)}px">
             ${strip}${genPreview}${waveHtml}${fill}${dissolve}${fadeHandles}${genMeta}<span class="blk-handle left" data-trim="left" title="Drag left edge to trim or restore start"></span><span class="blk-label">${esc(c.name + speed + vol)}</span><span class="blk-handle right" data-trim="right" title="Drag right edge to trim length"></span></div>`;
       }).join('');
