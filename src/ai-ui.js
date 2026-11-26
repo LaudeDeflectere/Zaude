@@ -133,7 +133,9 @@ function updateMissingPreviewsButton() {
 }
 
 let activeRefmodCat = 'All';
+let activeRefmodFolder = 'All';
 const REFMOD_CAT_ORDER = ['Photoreal', '2D / Anime', 'Characters', 'Locations', 'Styles', 'Voices'];
+const REFMOD_FOLDER_ORDER = ['Stories/Salabin', 'Stories/Changebang', 'Styles/2D', 'Styles/Photoreal', 'Locations', 'General'];
 
 function renderRefModGrid() {
   populateBackgroundRefmodSelect();
@@ -142,25 +144,45 @@ function renderRefModGrid() {
   syncHiddenRefmodInputs();
   updateMissingPreviewsButton();
 
+  // Render Story/Style Folder Filter Pills
+  const foldersEl = $('ai-refmod-folders');
+  if (foldersEl) {
+    const fCounts = new Map();
+    for (const m of refmodEntries) {
+      const f = m.folder || 'General';
+      fCounts.set(f, (fCounts.get(f) || 0) + 1);
+    }
+    const orderedFolders = Array.from(new Set([...REFMOD_FOLDER_ORDER, ...fCounts.keys()])).filter((f) => fCounts.get(f) > 0);
+    if (activeRefmodFolder !== 'All' && !fCounts.has(activeRefmodFolder)) activeRefmodFolder = 'All';
+    foldersEl.innerHTML = [
+      `<button type="button" class="refmod-folder-pill ${activeRefmodFolder === 'All' ? 'on' : ''}" data-refmod-folder="All">📁 All Folders (${refmodEntries.length})</button>`,
+      ...orderedFolders.map((f) => `<button type="button" class="refmod-folder-pill ${activeRefmodFolder === f ? 'on' : ''}" data-refmod-folder="${esc(f)}">📁 ${esc(f)} (${fCounts.get(f)})</button>`),
+    ].join('');
+  }
+
+  const folderScoped = activeRefmodFolder === 'All'
+    ? refmodEntries
+    : refmodEntries.filter((m) => (m.folder || 'General') === activeRefmodFolder);
+
   // Render Category Filter Pills
   const catsEl = $('ai-refmod-cats');
   if (catsEl) {
     const counts = new Map();
-    for (const m of refmodEntries) {
+    for (const m of folderScoped) {
       const cat = m.category || 'Characters';
       counts.set(cat, (counts.get(cat) || 0) + 1);
     }
     const orderedCats = Array.from(new Set([...REFMOD_CAT_ORDER, ...counts.keys()])).filter((c) => counts.get(c) > 0);
     if (activeRefmodCat !== 'All' && !counts.has(activeRefmodCat)) activeRefmodCat = 'All';
     catsEl.innerHTML = [
-      `<button type="button" class="pa-lib-cat ${activeRefmodCat === 'All' ? 'on' : ''}" data-refmod-cat="All">All (${refmodEntries.length})</button>`,
+      `<button type="button" class="pa-lib-cat ${activeRefmodCat === 'All' ? 'on' : ''}" data-refmod-cat="All">All (${folderScoped.length})</button>`,
       ...orderedCats.map((c) => `<button type="button" class="pa-lib-cat ${activeRefmodCat === c ? 'on' : ''}" data-refmod-cat="${esc(c)}">${esc(c)} (${counts.get(c)})</button>`),
     ].join('');
   }
 
   const visibleEntries = activeRefmodCat === 'All'
-    ? refmodEntries
-    : refmodEntries.filter((m) => (m.category || 'Characters') === activeRefmodCat);
+    ? folderScoped
+    : folderScoped.filter((m) => (m.category || 'Characters') === activeRefmodCat);
 
   const cards = visibleEntries.map((item, idx) => {
     const selIdx = selectedRefmods.indexOf(item.file);
@@ -181,10 +203,11 @@ function renderRefModGrid() {
       : `<button type="button" class="refmod-mini-btn no-voice" disabled style="opacity:.35;cursor:not-allowed" title="No voice in this RefMod">🔇</button>`;
     const manageBtns = `<span class="refmod-tile-actions">
       ${voiceBtn}
+      <button type="button" class="refmod-mini-btn" data-folder-refmod="${esc(item.slug)}" title="Move to folder (current: ${esc(item.folder || 'General')})">📁</button>
       <button type="button" class="refmod-mini-btn" data-cat-refmod="${esc(item.slug)}" title="Change category (current: ${esc(item.category || 'Characters')})">🏷️</button>
       <button type="button" class="refmod-mini-btn del" data-del-refmod="${esc(item.slug)}" title="Delete ${esc(label)} from Zaude RefMod library">✕</button>
     </span>`;
-    return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)} [${esc(item.category || 'Characters')}]${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
+    return `<div class="refmod-tile${selCls}${item.hasWalk ? ' has-walk' : ''}" data-refmod-tile="${esc(item.file)}" title="${esc(item.name || item.file)} [${esc(item.folder || 'General')} · ${esc(item.category || 'Characters')}]${item.hasWalk ? ' · Hover to preview walk' : ' · Click ✨ to generate headshot & walk'}">
       ${avatarHtml}${walkHtml}${badge}${manageBtns}${genBtn}
       <span class="refmod-name">${esc(label)}</span>
     </div>`;
@@ -1275,11 +1298,19 @@ function init() {
       return;
     }
 
-    // Square image/video file picker
+    // Square image/video file picker (with Recent 3D Set Snapshots quick-picker for backgroundImage & firstFrame)
     const pick = e.target.closest('[data-pick-file]');
     if (pick && api.mannimmatePickFile) {
       const kind = pick.dataset.pickFile;
       const targetName = pick.dataset.pickTarget || kind;
+      if (kind === 'image' && (targetName === 'backgroundImage' || targetName === 'firstFrame') && api.listCoverageAngles) {
+        const res = await api.listCoverageAngles().catch(() => null);
+        const angles = (res && Array.isArray(res.angles)) ? res.angles.slice(0, 9) : [];
+        if (angles.length) {
+          showSnapPickerPopover(pick, targetName, angles);
+          return;
+        }
+      }
       const chosen = await api.mannimmatePickFile(kind);
       if (chosen && chosen.path) {
         updateSquarePreview(targetName, chosen.path, chosen.url, kind === 'video');
@@ -1287,6 +1318,86 @@ function init() {
       }
     }
   });
+
+  // Universal HTML5 Drag-and-Drop onto any .ai-square-slot
+  const t2vForm = $('t2v-form');
+  if (t2vForm) {
+    t2vForm.addEventListener('dragover', (e) => {
+      const slot = e.target.closest('.ai-square-slot[data-pick-target]');
+      if (!slot) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      slot.classList.add('drag-over');
+    });
+    t2vForm.addEventListener('dragleave', (e) => {
+      const slot = e.target.closest('.ai-square-slot[data-pick-target]');
+      if (slot) slot.classList.remove('drag-over');
+    });
+    t2vForm.addEventListener('drop', (e) => {
+      const slot = e.target.closest('.ai-square-slot[data-pick-target]');
+      if (!slot) return;
+      e.preventDefault();
+      slot.classList.remove('drag-over');
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!file) return;
+      const filePath = file.path || file.name;
+      const kind = slot.dataset.pickFile || 'image';
+      const targetName = slot.dataset.pickTarget || kind;
+      const isVideo = kind === 'video' || /\.(mp4|mov|webm|mkv)$/i.test(filePath);
+      const url = file.path ? `file://${file.path}` : URL.createObjectURL(file);
+      updateSquarePreview(targetName, filePath, url, isVideo);
+      updateCommandPreview();
+      setStatus(`Dropped "${file.name}" into ${targetName}.`);
+    });
+  }
+
+  function showSnapPickerPopover(anchorEl, targetName, angles) {
+    let pop = document.getElementById('ai-snap-picker');
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.id = 'ai-snap-picker';
+      pop.className = 'ai-snap-picker';
+      document.body.appendChild(pop);
+    }
+    pop.innerHTML = `
+      <div class="ai-snap-picker-hdr">
+        <span>📸 Recent 3D Snapshots &amp; Angles</span>
+        <button type="button" class="ai-mini-btn" data-snap-close>✕</button>
+      </div>
+      <div class="ai-snap-picker-grid">
+        ${angles.map((a) => `
+          <button type="button" class="ai-snap-picker-item" data-snap-path="${esc(a.path)}" data-snap-url="${esc(a.url || '')}">
+            <img src="${esc(a.url || '')}" alt="${esc(a.name)}">
+            <span>${esc(a.name.replace(/\.[^.]+$/, ''))}</span>
+          </button>`).join('')}
+      </div>
+      <div class="ai-snap-picker-foot">
+        <button type="button" class="primary" data-snap-browse>📂 Browse Disk…</button>
+        <button type="button" data-snap-close>Cancel</button>
+      </div>`;
+    const r = anchorEl.getBoundingClientRect();
+    pop.style.left = `${Math.max(12, Math.min(window.innerWidth - 356, r.left))}px`;
+    pop.style.top = `${Math.max(12, Math.min(window.innerHeight - 280, r.bottom + 6))}px`;
+    pop.hidden = false;
+    pop.onclick = async (ev) => {
+      if (ev.target.closest('[data-snap-close]')) { pop.hidden = true; return; }
+      const item = ev.target.closest('.ai-snap-picker-item');
+      if (item) {
+        updateSquarePreview(targetName, item.dataset.snapPath, item.dataset.snapUrl, false);
+        updateCommandPreview();
+        pop.hidden = true;
+        return;
+      }
+      if (ev.target.closest('[data-snap-browse]')) {
+        pop.hidden = true;
+        const chosen = await api.mannimmatePickFile('image');
+        if (chosen && chosen.path) {
+          updateSquarePreview(targetName, chosen.path, chosen.url, false);
+          updateCommandPreview();
+        }
+      }
+    };
+  }
 
   $('t2v-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1870,6 +1981,33 @@ function init() {
   }
 
   document.addEventListener('click', async (e) => {
+    const folderPill = e.target.closest('[data-refmod-folder]');
+    if (folderPill) {
+      activeRefmodFolder = folderPill.dataset.refmodFolder || 'All';
+      renderRefModGrid();
+      return;
+    }
+    const folderBtn = e.target.closest('[data-folder-refmod]');
+    if (folderBtn && api.refmodsSetFolder) {
+      e.stopPropagation();
+      const slug = folderBtn.dataset.folderRefmod;
+      const cur = refmodEntries.find((m) => m.slug === slug);
+      const curFolder = (cur && cur.folder) || 'General';
+      const next = window.prompt(
+        `Move "${(cur && cur.firstName) || slug}" to folder (e.g. Stories/Salabin, Stories/Changebang, Styles/2D, Styles/Photoreal, Locations, General):`,
+        curFolder
+      );
+      if (next && next.trim()) {
+        const res = await api.refmodsSetFolder({ slug, folder: next.trim() });
+        if (res && res.ok && res.entry) {
+          const i = refmodEntries.findIndex((m) => m.slug === slug);
+          if (i >= 0) refmodEntries[i] = res.entry;
+          renderRefModGrid();
+          setStatus(`Moved "${res.entry.firstName}" → 📁 ${res.entry.folder}`);
+        }
+      }
+      return;
+    }
     const catPill = e.target.closest('[data-refmod-cat]');
     if (catPill) {
       activeRefmodCat = catPill.dataset.refmodCat || 'All';

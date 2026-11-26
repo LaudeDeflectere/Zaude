@@ -2442,3 +2442,18 @@ button.update-ready { background: rgba(52,211,153,.16); border-color: #34D399; c
 }
 .aichat-float-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .aichat-float-body > .panel { flex: 1; min-height: 0; height: 100%; border: 0; border-radius: 0; }
+
+/* ---------- Phase 3: RefMod Folders, Universal Drag-and-Drop, Recent 3D Snapshot Picker ---------- */
+.refmod-folders { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+.refmod-folder-pill { font-size: 10.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid #2b2d36; background: #181a20; color: #b8c2d8; cursor: pointer; }
+.refmod-folder-pill:hover { border-color: #60A5FA; color: #fff; }
+.refmod-folder-pill.on { background: rgba(139,92,246,.22); border-color: #8B5CF6; color: #ede9fe; font-weight: 600; }
+.ai-square-slot.drag-over { outline: 2px dashed #A78BFA; outline-offset: 2px; background: rgba(139,92,246,.16); transform: scale(1.03); }
+.ai-snap-picker { position: fixed; z-index: 420; width: 340px; max-width: 92vw; background: #141519; border: 1px solid #353846; border-radius: 10px; padding: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.65); }
+.ai-snap-picker-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 11.5px; font-weight: 600; color: #e2e8f0; }
+.ai-snap-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 190px; overflow-y: auto; margin-bottom: 8px; }
+.ai-snap-picker-item { display: flex; flex-direction: column; gap: 3px; padding: 3px; border-radius: 6px; border: 1px solid #2b2d36; background: #1b1d24; cursor: pointer; text-align: left; }
+.ai-snap-picker-item:hover { border-color: #8B5CF6; }
+.ai-snap-picker-item img { width: 100%; height: 54px; object-fit: cover; border-radius: 4px; }
+.ai-snap-picker-item span { font-size: 9.5px; color: #9aa4b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-snap-picker-foot { display: flex; justify-content: space-between; gap: 6px; }

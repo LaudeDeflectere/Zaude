@@ -668,6 +668,21 @@ function registerAiHandlers() {
         ...res.entry,
         headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
         walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+        voiceUrl: res.entry.voicePath ? mediaUrlFor(res.entry.voicePath) : null,
+      },
+    };
+  });
+
+  ipcMain.handle('ai:refmods:setFolder', (_e, { slug, folder } = {}) => {
+    const res = refmodsLib.setRefModFolder(refmodsRoot(), { slug, folder });
+    if (!res.ok) return res;
+    return {
+      ok: true,
+      entry: {
+        ...res.entry,
+        headshotUrl: res.entry.headshotPath ? mediaUrlFor(res.entry.headshotPath) : null,
+        walkUrl: res.entry.walkPath ? mediaUrlFor(res.entry.walkPath) : null,
+        voiceUrl: res.entry.voicePath ? mediaUrlFor(res.entry.voicePath) : null,
       },
     };
   });

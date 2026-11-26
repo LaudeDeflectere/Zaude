@@ -83,6 +83,16 @@ function writeMeta(dir, meta) {
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8');
 }
 
+function inferFolder(file = '', name = '') {
+  const s = `${file} ${name}`.toLowerCase();
+  if (/salabin/.test(s)) return 'Stories/Salabin';
+  if (/changebang|cb_|cbphoto/.test(s)) return 'Stories/Changebang';
+  if (/locations?[\\/]|_location\b/.test(s)) return 'Locations';
+  if (/2d|anime|cartoon|mannimmate_2d/.test(s)) return 'Styles/2D';
+  if (/photo|real/.test(s)) return 'Styles/Photoreal';
+  return 'General';
+}
+
 function inspectEntry(dir, fallback = {}, index = 1) {
   const meta = readMeta(dir) || {};
   const file = meta.file || fallback.file || path.basename(dir);
@@ -99,11 +109,13 @@ function inspectEntry(dir, fallback = {}, index = 1) {
   const isVisualOnly = /_visual$/i.test(file) || meta.hasVoice === false;
   const hasVoice = Boolean(resolvedVoice) && !isVisualOnly;
   const category = String(meta.category || '').trim() || inferCategory(file, name);
+  const folder = String(meta.folder || '').trim() || inferFolder(file, name);
   return {
     file,
     name,
     firstName,
     category,
+    folder,
     slug: path.basename(dir),
     dir,
     headshotPath: resolvedHeadshot,
@@ -155,6 +167,18 @@ function syncRefMods(refmodsRoot, mods = []) {
   } catch { /* ignore */ }
 
   return Array.from(bySlug.values());
+}
+
+function setRefModFolder(refmodsRoot, { slug, folder }) {
+  const cleanSlug = String(slug || '').trim();
+  const cleanFolder = String(folder || '').trim() || 'General';
+  if (!cleanSlug) return { ok: false, error: 'RefMod slug is required.' };
+  const dir = path.join(refmodsRoot, cleanSlug);
+  if (!fs.existsSync(dir)) return { ok: false, error: 'RefMod folder not found.' };
+  const existing = readMeta(dir) || { file: cleanSlug, name: cleanSlug, firstName: displayFirstName(cleanSlug), slug: cleanSlug };
+  const updated = { ...existing, folder: cleanFolder, updatedAt: new Date().toISOString() };
+  writeMeta(dir, updated);
+  return { ok: true, entry: inspectEntry(dir, updated) };
 }
 
 function setRefModCategory(refmodsRoot, { slug, category }) {
@@ -682,11 +706,13 @@ async function buildRefModOnComfy({
 module.exports = {
   REFMOD_CATEGORIES,
   inferCategory,
+  inferFolder,
   slugForRefMod,
   displayFirstName,
   syncRefMods,
   createRefModFolder,
   setRefModCategory,
+  setRefModFolder,
   deleteRefMod,
   extractHeadshotFromVideo,
   generateRefModAssets,

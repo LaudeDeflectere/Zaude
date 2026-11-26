@@ -19,15 +19,21 @@ test('refmods manager supports auto-categorization, recategorize, delete tombsto
     { file: 'natalia_face_audio', name: 'Natalia Audio' },
   ]);
   assert.equal(synced.find((m) => /elias/.test(m.slug)).category, 'Photoreal');
+  assert.equal(synced.find((m) => /elias/.test(m.slug)).folder, 'Stories/Changebang');
   assert.equal(synced.find((m) => /tony_sheen/.test(m.slug)).category, '2D / Anime');
+  assert.equal(synced.find((m) => /tony_sheen/.test(m.slug)).folder, 'Styles/2D');
   assert.equal(synced.find((m) => /billiard/.test(m.slug)).category, 'Locations');
+  assert.equal(synced.find((m) => /billiard/.test(m.slug)).folder, 'Locations');
   assert.equal(synced.find((m) => /audio/.test(m.slug)).category, 'Voices');
 
-  // 2. Recategorizing persists in meta.json
+  // 2. Recategorizing & moving folders persists in meta.json
   const tonySlug = synced.find((m) => /tony_sheen/.test(m.slug)).slug;
   const recat = rm.setRefModCategory(tmp, { slug: tonySlug, category: 'Characters' });
   assert.equal(recat.ok, true);
   assert.equal(recat.entry.category, 'Characters');
+  const moved = rm.setRefModFolder(tmp, { slug: tonySlug, folder: 'Stories/Salabin' });
+  assert.equal(moved.ok, true);
+  assert.equal(moved.entry.folder, 'Stories/Salabin');
 
   // 3. Deleting removes folder and prevents re-sync resurrection via tombstone
   const del = rm.deleteRefMod(tmp, { slug: tonySlug });
