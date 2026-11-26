@@ -411,6 +411,7 @@
           <span>Prompt</span>
           <span class="ai-prompt-helpers">
             <button type="button" class="ai-btn-purple" id="ai-prompt-advance-btn" data-prompt-advance-target="prompt" title="Ask a connected AI to upgrade this prompt using your Prompt Database and Shot Library">✨ Advance Prompt</button>
+            <button type="button" id="ai-angle-gizmo-toggle" title="Orbit a 3D mannequin with 2-finger trackpad gestures (like Blender) to pick exact camera angle">🎥 3D Angle</button>
             <button type="button" data-minimax-only="1" id="ai-shot-lib-btn" data-shot-library-toggle="prompt" title="Browse 30 proven character-swappable shots &amp; background templates with visual squares">🎬 Shot Library</button>
             <button type="button" id="ai-prompt-db-btn" data-prompt-db-toggle="prompt" title="Open Prompt Database of proven working examples">📚 Prompt DB</button>
             <button type="button" data-minimax-only="1" data-prompt-snip="dialogue" title="Insert Dialogue window &amp; RefMod usage block">+ Dialogue</button>
@@ -418,6 +419,18 @@
             <button type="button" data-minimax-only="1" data-prompt-snip="screen" title="Keep TV/monitor screens brightly lit and ON">+ Screen lock</button>
             <button type="button" data-minimax-only="1" data-prompt-snip="room" title="Insert verbatim room/prop anchor">+ Room anchor</button>
           </span>
+        </div>
+        <div id="ai-angle-gizmo-drawer" hidden style="display:flex;gap:12px;align-items:center;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.32);border-radius:10px;padding:8px;margin-bottom:8px">
+          <div id="ai-angle-gizmo-canvas" style="width:220px;height:156px;flex:none;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.12)"></div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+            <b>🎥 3D Character Camera-Angle Gizmo</b>
+            <span class="muted" style="font-size:11px">2-finger trackpad swipe (or drag) to orbit like Blender · Pinch to zoom Close-up / Medium / Wide.</span>
+            <div id="ai-angle-gizmo-label" style="font-size:12px;color:#93c5fd;font-weight:600">Medium shot · three-quarter right · eye-level angle</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button type="button" class="primary" id="ai-angle-gizmo-apply">✓ Insert Angle into Prompt</button>
+              <button type="button" id="ai-angle-gizmo-reset">Reset Front</button>
+            </div>
+          </div>
         </div>
         <textarea name="prompt" rows="3" maxlength="4000" placeholder="Describe the shot, subject, motion, and lighting…"></textarea>
       </div>

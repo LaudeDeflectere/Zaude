@@ -1217,6 +1217,41 @@ function init() {
       return;
     }
 
+    // 3D Character Camera-Angle Gizmo toggle & apply
+    if (e.target.closest('#ai-angle-gizmo-toggle')) {
+      const dr = $('ai-angle-gizmo-drawer');
+      if (dr) {
+        dr.hidden = !dr.hidden;
+        if (!dr.hidden && !window.__zaudeAngleGizmo) {
+          import('./camera-gizmo-3d.js').then((mod) => {
+            mod.mountCameraGizmo3D({
+              container: $('ai-angle-gizmo-canvas'),
+              labelEl: $('ai-angle-gizmo-label'),
+              onApply: (d) => {
+                const ta = $('t2v-form')?.elements.prompt;
+                if (ta) {
+                  const cur = ta.value.trim();
+                  ta.value = cur ? `${d.promptSnippet}. ${cur}` : `${d.promptSnippet}, `;
+                  ta.focus();
+                  updateCommandPreview();
+                }
+              },
+            }).then((ctrl) => { window.__zaudeAngleGizmo = ctrl; });
+          });
+        }
+      }
+      return;
+    }
+    if (e.target.closest('#ai-angle-gizmo-apply') && window.__zaudeAngleGizmo) {
+      const d = window.__zaudeAngleGizmo.applyNow();
+      setStatus(`Inserted camera angle: ${d.promptSnippet}`);
+      return;
+    }
+    if (e.target.closest('#ai-angle-gizmo-reset') && window.__zaudeAngleGizmo) {
+      window.__zaudeAngleGizmo.reset();
+      return;
+    }
+
     // Prompt helper snippets
     const snipBtn = e.target.closest('[data-prompt-snip]');
     if (snipBtn) {
